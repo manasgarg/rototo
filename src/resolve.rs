@@ -498,6 +498,14 @@ impl RefResolver for ResolutionState<'_> {
     fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
         self.resolve_variable_value(id)
     }
+
+    fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
+        self.runtime
+            .enums
+            .get(id)
+            .map(|declared| JsonValue::Array(declared.members.clone()))
+            .ok_or_else(|| RototoError::new(format!("expression references unknown enum: {id}")))
+    }
 }
 
 impl<'a> ResolutionState<'a> {
@@ -1099,6 +1107,78 @@ value = true
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn resolves_enum_membership_in_when_and_query() {
+        let package = package_with_conditions(&[(
+            "known_tier",
+            condition(r#"context.tier in enums.plan_tiers"#),
+        )]);
+        std::fs::create_dir_all(package.path().join("enums")).unwrap();
+        std::fs::write(
+            package.path().join("enums/plan_tiers.toml"),
+            "schema_version = 1\ntype = \"string\"\nmembers = [\"free\", \"team\", \"business\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(package.path().join("model/catalogs")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/plan")).unwrap();
+        std::fs::write(
+            package.path().join("model/catalogs/plan.schema.json"),
+            r#"{
+  "type": "object",
+  "required": ["tier"],
+  "properties": {
+    "tier": { "type": "string" }
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("data/catalogs/plan/team.toml"),
+            "tier = \"team\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("data/catalogs/plan/legacy.toml"),
+            "tier = \"trial\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("variables/supported_plans.toml"),
+            r#"schema_version = 1
+type = "list<catalog=plan>"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.tier in enums.plan_tiers"
+"#,
+        )
+        .unwrap();
+
+        // A rule `when` reads the member list by name.
+        let member = serde_json::json!({ "tier": "team" });
+        let outsider = serde_json::json!({ "tier": "trial" });
+        assert!(
+            resolve_condition(package.path(), "known_tier", &member)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !resolve_condition(package.path(), "known_tier", &outsider)
+                .await
+                .unwrap()
+        );
+
+        // A query filter selects only entries whose field is a member.
+        let selected = resolve_variable(package.path(), "supported_plans", &member)
+            .await
+            .unwrap();
+        let entries = selected.value.as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["tier"], serde_json::json!("team"));
     }
 
     #[tokio::test]

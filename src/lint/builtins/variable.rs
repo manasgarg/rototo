@@ -60,6 +60,17 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                             issue.describe(),
                         );
                     }
+                    for enum_id in &expression.value.references().enums {
+                        if !ctx.index.enums.contains_key(enum_id) {
+                            push_project_diagnostic(
+                                diagnostics,
+                                RototoRuleId::ExpressionUnknownEnum,
+                                rule.field_target(&variable.id, field.clone()),
+                                expression.location.clone(),
+                                format!("expression references unknown enum: {enum_id}"),
+                            );
+                        }
+                    }
                     if expression.value.references().uses_resolving {
                         push_project_diagnostic(
                             diagnostics,
@@ -91,6 +102,17 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                         expression.location.clone(),
                         issue.describe(),
                     );
+                }
+                for enum_id in &expression.value.references().enums {
+                    if !ctx.index.enums.contains_key(enum_id) {
+                        push_project_diagnostic(
+                            diagnostics,
+                            RototoRuleId::ExpressionUnknownEnum,
+                            variable.field_target(field.clone()),
+                            expression.location.clone(),
+                            format!("expression references unknown enum: {enum_id}"),
+                        );
+                    }
                 }
                 if expression.value.references().uses_resolving {
                     push_project_diagnostic(

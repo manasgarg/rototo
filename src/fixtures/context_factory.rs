@@ -107,9 +107,14 @@ impl Conditions {
     ) -> Option<JsonValue> {
         let rules = self.variables.get(id)?;
         let mut synthesize = |rule: &Expression, want: bool| -> Option<JsonValue> {
-            rule.synthesize_context(want, &mut |nested, nested_want| {
-                self.synthesize(nested, nested_want, stack)
-            })
+            rule.synthesize_context(
+                want,
+                &mut |nested, nested_want| self.synthesize(nested, nested_want, stack),
+                // The inspect report does not carry enum members, so enum
+                // memberships stay uninvertible here; the candidate is simply
+                // dropped by trace verification.
+                &mut |_| None,
+            )
         };
         if want {
             rules.iter().find_map(|rule| synthesize(rule, true))
@@ -169,9 +174,11 @@ fn push_variable_contexts(
 /// `when` (a `query` rule, or a malformed expression) cannot be inverted and
 /// yields `None`, which fails the surrounding merge.
 fn synth(conditions: &Conditions, rule: &Option<Expression>, want: bool) -> Option<JsonValue> {
-    rule.as_ref()?.synthesize_context(want, &mut |id, want| {
-        conditions.synthesize(id, want, &mut BTreeSet::new())
-    })
+    rule.as_ref()?.synthesize_context(
+        want,
+        &mut |id, want| conditions.synthesize(id, want, &mut BTreeSet::new()),
+        &mut |_| None,
+    )
 }
 
 /// Merge a sequence of optional contexts into one, failing if any is `None` or

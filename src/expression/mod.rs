@@ -31,6 +31,14 @@ pub(crate) struct ExpressionReferences {
     /// resolved value is bound in place, so expressions compose over other
     /// variables.
     pub(crate) variables: BTreeSet<String>,
+    /// Enum ids referenced through the `enums` root (`enums.some_id` /
+    /// `enums["some_id"]`). The reference binds the enum's member list, so
+    /// membership tests can name the set instead of restating its literals.
+    pub(crate) enums: BTreeSet<String>,
+    /// Enum memberships per context path (`context.<path> in enums.<id>`).
+    /// The member type is not known at parse; lint refines the path's expected
+    /// scalar family from the declared enum.
+    pub(crate) context_path_enums: BTreeMap<String, BTreeSet<String>>,
     /// Scalar types a context path is compared against, inferred from how the
     /// expression uses it. A path can carry more than one expectation when it is
     /// used in several places. Paths used in ways that do not pin a scalar type
@@ -48,7 +56,7 @@ pub(crate) struct ExpressionReferences {
 
 /// A reference to a root identifier that is not part of rototo's evaluation
 /// environment. The expression environment exposes exactly `context`, `entry`
-/// (in queries), `variables`, and `env` (with member `now`).
+/// (in queries), `variables`, `enums`, and `env` (with member `now`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ExpressionRootIssue {
     /// The retired qualifier roots (`qualifier["<id>"]` and
@@ -255,6 +263,8 @@ impl Expression {
 /// adapters at call sites that cannot or must not resolve references.
 pub(crate) trait RefResolver {
     fn variable_value(&mut self, id: &str) -> Result<JsonValue>;
+    /// The member list of a referenced enum (`enums.<id>`), as a JSON array.
+    fn enum_members(&mut self, id: &str) -> Result<JsonValue>;
 }
 
 /// The entity being resolved, exposed to a `[[trace]]` policy `when` as
@@ -301,6 +311,12 @@ mod tests {
         variables: &'a [(&'a str, JsonValue)],
     }
 
+    /// A [`RefResolver`] with an enum table alongside the variable table.
+    struct TestRefsWithEnums<'a> {
+        variables: &'a [(&'a str, JsonValue)],
+        enums: &'a [(&'a str, JsonValue)],
+    }
+
     impl RefResolver for TestRefs<'_> {
         fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
             self.variables
@@ -308,6 +324,28 @@ mod tests {
                 .find(|(variable, _)| *variable == id)
                 .map(|(_, value)| value.clone())
                 .ok_or_else(|| RototoError::new(format!("unknown variable: {id}")))
+        }
+
+        fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
+            Err(RototoError::new(format!("unknown enum: {id}")))
+        }
+    }
+
+    impl RefResolver for TestRefsWithEnums<'_> {
+        fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
+            self.variables
+                .iter()
+                .find(|(variable, _)| *variable == id)
+                .map(|(_, value)| value.clone())
+                .ok_or_else(|| RototoError::new(format!("unknown variable: {id}")))
+        }
+
+        fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
+            self.enums
+                .iter()
+                .find(|(enum_id, _)| *enum_id == id)
+                .map(|(_, members)| members.clone())
+                .ok_or_else(|| RototoError::new(format!("unknown enum: {id}")))
         }
     }
 
@@ -498,10 +536,14 @@ mod tests {
         let expr = Expression::parse(r#"variables["premium_user"] && context.account.seats >= 50"#)
             .unwrap();
         let context = expr
-            .synthesize_context(true, &mut |id, want| {
-                assert_eq!(id, "premium_user");
-                premium.synthesize_context(want, &mut |_, _| None)
-            })
+            .synthesize_context(
+                true,
+                &mut |id, want| {
+                    assert_eq!(id, "premium_user");
+                    premium.synthesize_context(want, &mut |_, _| None, &mut |_| None)
+                },
+                &mut |_| None,
+            )
             .expect("expected composed synthesis");
         assert_eq!(
             context,
@@ -572,10 +614,122 @@ mod tests {
 
         // Valid roots produce no issues.
         let ok = Expression::parse(
-            r#"variables["x"] && env.now == "" && context.a == 1 && entry.b == 2"#,
+            r#"variables["x"] && env.now == "" && context.a == 1 && entry.b == 2
+               && context.tier in enums.plan_tiers"#,
         )
         .unwrap();
         assert!(ok.references().invalid_roots.is_empty());
+    }
+
+    #[test]
+    fn tracks_enum_references_in_both_spellings() {
+        let expr = Expression::parse(
+            r#"context.tier in enums.plan_tiers && context.region in enums["geo/regions"]"#,
+        )
+        .unwrap();
+        assert!(expr.references().invalid_roots.is_empty());
+        assert_eq!(
+            expr.references().enums,
+            string_set(&["plan_tiers", "geo/regions"])
+        );
+        // The membership pairs the context path with the enum whose members
+        // constrain it; lint refines the path's expected type from the enum.
+        assert_eq!(
+            expr.references().context_path_enums.get("tier"),
+            Some(&string_set(&["plan_tiers"]))
+        );
+        assert_eq!(
+            expr.references().context_path_enums.get("region"),
+            Some(&string_set(&["geo/regions"]))
+        );
+    }
+
+    #[test]
+    fn evaluates_enum_membership() {
+        let context = serde_json::json!({ "tier": "team" });
+        let expr = Expression::parse(r#"context.tier in enums.plan_tiers"#).unwrap();
+        let members = serde_json::json!(["free", "team", "business"]);
+
+        let mut refs = TestRefsWithEnums {
+            variables: &[],
+            enums: &[("plan_tiers", members.clone())],
+        };
+        assert!(
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
+                .unwrap()
+        );
+
+        let outside = serde_json::json!({ "tier": "trial" });
+        let mut refs = TestRefsWithEnums {
+            variables: &[],
+            enums: &[("plan_tiers", members.clone())],
+        };
+        assert!(
+            !expr
+                .evaluate_bool(&outside, None, TEST_NOW, &mut refs)
+                .unwrap()
+        );
+
+        // The member list is an ordinary CEL list value, so size() and
+        // comprehensions compose with it.
+        let size = Expression::parse("size(enums.plan_tiers) == 3").unwrap();
+        let mut refs = TestRefsWithEnums {
+            variables: &[],
+            enums: &[("plan_tiers", members)],
+        };
+        assert!(
+            size.evaluate_bool(&context, None, TEST_NOW, &mut refs)
+                .unwrap()
+        );
+
+        // An unknown enum surfaces the resolver's error.
+        let mut refs = TestRefsWithEnums {
+            variables: &[],
+            enums: &[],
+        };
+        let err = expr
+            .evaluate_bool(&context, None, TEST_NOW, &mut refs)
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown enum: plan_tiers"));
+    }
+
+    #[test]
+    fn synthesizes_enum_membership() {
+        let source = r#"context.tier in enums.plan_tiers"#;
+        let expr = Expression::parse(source).unwrap();
+        let members = vec![
+            serde_json::json!("free"),
+            serde_json::json!("team"),
+            serde_json::json!("business"),
+        ];
+
+        for want in [true, false] {
+            let context = expr
+                .synthesize_context(want, &mut |_, _| None, &mut |id| {
+                    assert_eq!(id, "plan_tiers");
+                    Some(members.clone())
+                })
+                .expect("expected enum membership synthesis");
+            let mut refs = TestRefsWithEnums {
+                variables: &[],
+                enums: &[(
+                    "plan_tiers",
+                    serde_json::json!(["free", "team", "business"]),
+                )],
+            };
+            assert_eq!(
+                expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
+                    .unwrap(),
+                want,
+                "synthesized context {context} did not evaluate to {want}"
+            );
+        }
+
+        // Without enum data the membership is honestly uninvertible.
+        assert!(
+            expr.synthesize_context(true, &mut |_, _| None, &mut |_| None)
+                .is_none()
+        );
     }
 
     #[test]
@@ -890,7 +1044,7 @@ mod tests {
     fn synth(source: &str, want: bool) -> Option<JsonValue> {
         Expression::parse(source)
             .unwrap()
-            .synthesize_context(want, &mut |_, _| None)
+            .synthesize_context(want, &mut |_, _| None, &mut |_| None)
     }
 
     /// Synthesizing for an outcome and evaluating against the result must
@@ -950,10 +1104,14 @@ mod tests {
         let source = r#"variables["premium"] && context.account.seats >= 50"#;
         let expr = Expression::parse(source).unwrap();
         let context = expr
-            .synthesize_context(true, &mut |id, want| {
-                assert_eq!(id, "premium");
-                premium.synthesize_context(want, &mut |_, _| None)
-            })
+            .synthesize_context(
+                true,
+                &mut |id, want| {
+                    assert_eq!(id, "premium");
+                    premium.synthesize_context(want, &mut |_, _| None, &mut |_| None)
+                },
+                &mut |_| None,
+            )
             .expect("expected composed synthesis");
 
         let mut refs = TestRefs { variables: &[] };

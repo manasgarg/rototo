@@ -29,7 +29,7 @@ pub(super) fn lint_layer_shapes(ctx: &mut LintContext) {
 
         match &layer.unit {
             ProjectField::Present(unit) => {
-                lint_layer_expression(&mut diagnostics, layer, "unit", unit);
+                lint_layer_expression(&mut diagnostics, &ctx.index, layer, "unit", unit);
                 if !unit.value.references().variables.is_empty() {
                     push_project_diagnostic(
                         &mut diagnostics,
@@ -140,7 +140,13 @@ pub(super) fn lint_layer_shapes(ctx: &mut LintContext) {
 
             match &allocation.eligibility {
                 Some(ProjectField::Present(eligibility)) => {
-                    lint_layer_expression(&mut diagnostics, layer, "eligibility", eligibility);
+                    lint_layer_expression(
+                        &mut diagnostics,
+                        &ctx.index,
+                        layer,
+                        "eligibility",
+                        eligibility,
+                    );
                 }
                 Some(ProjectField::Invalid { location } | ProjectField::Missing { location }) => {
                     push_project_diagnostic(
@@ -282,6 +288,7 @@ pub(super) fn lint_layer_shapes(ctx: &mut LintContext) {
 /// (there is no catalog entry in play), no unknown roots, no `env.resolving`.
 fn lint_layer_expression(
     diagnostics: &mut Vec<LintDiagnostic>,
+    index: &crate::lint::index::SemanticIndex,
     layer: &LayerNode,
     label: &str,
     expression: &Spanned<crate::expression::Expression>,
@@ -295,6 +302,17 @@ fn lint_layer_expression(
             expression.location.clone(),
             issue.describe(),
         );
+    }
+    for enum_id in &references.enums {
+        if !index.enums.contains_key(enum_id) {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::LayerShape,
+                layer.target(),
+                expression.location.clone(),
+                format!("expression references unknown enum: {enum_id}"),
+            );
+        }
     }
     if !references.entry_paths.is_empty() {
         push_project_diagnostic(

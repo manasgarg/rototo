@@ -1,0 +1,11 @@
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "off"
+
+# No enum named missing_tiers is declared under enums/.
+# Expect rototo/expression-unknown-enum.
+[[resolve.rule]]
+when = '"free" in enums.missing_tiers'
+value = "on"

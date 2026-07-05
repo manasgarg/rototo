@@ -1,0 +1,28 @@
+# After `in enums.` the legal references are the declared enums' member
+# lists, offered by id. The enum lives in an unsaved overlay.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'context.account.plan_tier in enums.$0'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "enums/plan_tiers.toml"
+text = '''
+schema_version = 1
+type = "string"
+members = ["free", "team", "business"]
+'''
+
+[[expect.includes]]
+label = "enums.plan_tiers"
+detail = "enum members"

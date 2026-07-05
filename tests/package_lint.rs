@@ -1933,6 +1933,30 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::ExpressionUnknownEnum,
+            package: "tests/fixtures/packages/rules/project/expression-unknown-enum",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/expression-unknown-enum",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Rule {
+                    variable: "message",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 8,
+                        start_character: 7,
+                        end_line: 8,
+                        end_character: 41,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::VariableReferenceCycle,
             package: "tests/fixtures/packages/rules/graph/variable-reference-cycle",
             success: false,
@@ -2564,6 +2588,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
+        "rototo/expression-unknown-enum",
         "rototo/governance-shape",
         "rototo/governance-unknown-target",
         "rototo/layer-bucket-overlap",

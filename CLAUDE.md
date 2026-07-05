@@ -134,14 +134,16 @@ Global flags are supported at every level:
 
 Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
 `@path/to/context.json`, or `path=value`, merged left to right. Expressions read
-exactly four roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
+exactly five roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
 `entry` (the catalog entry under consideration in a `query`), `variables`
 (other variables' resolved values, as `variables.<id>` or `variables["<id>"]`
-for namespaced ids, resolved lazily with per-resolution memoization), and
-`env.now` (the evaluation timestamp, captured once per resolution as an RFC3339
-string). `env.resolving.variable` is available only inside `[[trace]]`
-policies. Variables resolve by taking the first matching rule value, otherwise
-the default value.
+for namespaced ids, resolved lazily with per-resolution memoization), `enums`
+(a declared enum's member list, as `enums.<id>` or `enums["<id>"]`, for
+membership tests like `context.tier in enums.plan_tiers`; an unknown enum id is
+`rototo/expression-unknown-enum`), and `env.now` (the evaluation timestamp,
+captured once per resolution as an RFC3339 string). `env.resolving.variable` is
+available only inside `[[trace]]` policies. Variables resolve by taking the
+first matching rule value, otherwise the default value.
 
 ```sh
 rototo resolve examples/basic --variable premium_users \

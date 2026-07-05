@@ -36,6 +36,15 @@ pub(super) fn cel_evaluate(
     }
     ctx.add_variable_from_value("variables", to_cel(&JsonValue::Object(variables))?);
 
+    // `enums` binds the member list of every enum the expression references,
+    // so membership tests can name the set (`context.plan in enums.plan_tiers`)
+    // instead of restating its literals.
+    let mut enums = serde_json::Map::new();
+    for id in &references.enums {
+        enums.insert(id.clone(), refs.enum_members(id)?);
+    }
+    ctx.add_variable_from_value("enums", to_cel(&JsonValue::Object(enums))?);
+
     let value = ctx
         .resolve(cel_ast)
         .map_err(|err| RototoError::new(format!("expression evaluation failed: {err}")))?;

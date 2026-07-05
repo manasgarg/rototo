@@ -20,9 +20,9 @@ That's a real rule condition. It reads "the user's tier is premium," and when
 that's true, the rule matches. Let's unpack what an expression can actually
 reach.
 
-## The four things an expression can read
+## The five things an expression can read
 
-An expression can only look at four roots. That's it - four names, and
+An expression can only look at five roots. That's it - five names, and
 everything hangs off them. Keeping the list short is what makes expressions easy
 to reason about and easy for lint to check.
 
@@ -76,6 +76,29 @@ answer. A chain of variables referencing each other is fine; a *cycle* is not.
 Lint catches cycles at edit time (`rototo/variable-reference-cycle`), and
 resolution refuses them too.
 
+### `enums` - a named set of legal values
+
+`enums` reads the member list of an enum you declared under `enums/<id>.toml`.
+Write it with a dot (`enums.plan_tiers`) or with brackets for a namespaced id
+(`enums["geo/regions"]`). The value is the plain member list, so the natural
+use is a membership test:
+
+```toml
+when = 'context.account.plan_tier in enums.plan_tiers'
+```
+
+The point is naming the set instead of restating it. Without this, every rule
+that cares about "a real plan tier" carries its own copy of
+`["free", "team", "business"]`, and adding a tier means hunting them all down.
+With `enums.plan_tiers`, the enum file is the one place the set lives, and the
+rules follow it.
+
+Because the list is an ordinary value, the collection tools work on it too:
+`size(enums.plan_tiers)` or a `.exists(...)` comprehension are fine. Referencing
+an enum the package doesn't declare is a lint error
+(`rototo/expression-unknown-enum`), and lint also checks that the context path
+you're testing has a type the enum's members could actually match.
+
 ### `env` - what rototo provides
 
 `env` is the stuff rototo fills in for you. It has a small, fixed set of members:
@@ -97,7 +120,7 @@ resolution refuses them too.
 
 ### What you can't read
 
-Anything outside those four roots is rejected at lint time. Two cases come up
+Anything outside those five roots is rejected at lint time. Two cases come up
 most:
 
 - The retired qualifier spellings, `qualifier["id"]` and `env.qualifier["id"]`.

@@ -584,6 +584,12 @@ rototo_rules! {
         title: "Variable rule references an unknown variable",
         help: "Create the referenced variable or fix the variables[\"<id>\"] reference.",
     },
+    ExpressionUnknownEnum => {
+        id: "expression-unknown-enum",
+        entity: Variable,
+        title: "Expression references an unknown enum",
+        help: "Declare the enum under enums/<id>.toml or fix the enums.<id> reference.",
+    },
     VariableReferenceCycle => {
         id: "variable-reference-cycle",
         entity: Variable,
@@ -600,7 +606,7 @@ rototo_rules! {
         id: "variable-rule-invalid-reference",
         entity: Rule,
         title: "Variable rule references an identifier rototo does not provide",
-        help: "Expressions read context.<path>, entry.<path> (in queries), variables[\"<id>\"], and env.now. Reference other variables as variables[\"<id>\"].",
+        help: "Expressions read context.<path>, entry.<path> (in queries), variables[\"<id>\"], enums.<id>, and env.now. Reference other variables as variables[\"<id>\"].",
     },
     VariableRuleContextPathTypeMismatch => {
         id: "variable-rule-context-path-type-mismatch",

@@ -16,7 +16,7 @@ use super::super::index::{
 };
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_graph_diagnostic, push_project_diagnostic, push_value_diagnostic};
-use crate::expression::ContextScalarType;
+use crate::expression::{ContextScalarType, ExpressionReferences};
 
 pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
@@ -371,6 +371,21 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                             ),
                         );
                     }
+                    for (path, expected) in
+                        enum_membership_mismatches(&ctx.index, expression.value.references())
+                    {
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleContextPathTypeMismatch,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!(
+                                "rule tests context path context.{path} against enum members \
+                                 of type {expected}, which no evaluation context declares \
+                                 with a matching type"
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -390,6 +405,21 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     ),
                 );
             }
+            for (path, expected) in
+                enum_membership_mismatches(&ctx.index, expression.value.references())
+            {
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!(
+                        "query tests context path context.{path} against enum members \
+                         of type {expected}, which no evaluation context declares \
+                         with a matching type"
+                    ),
+                );
+            }
         }
         for expression in variable_allocation_expressions(&ctx.index, variable) {
             for (path, constraints) in &expression.references().context_path_types {
@@ -404,6 +434,20 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     format!(
                         "allocation uses context path context.{path} as {expected}, \
                          which no evaluation context declares with a matching type"
+                    ),
+                );
+            }
+            for (path, expected) in enum_membership_mismatches(&ctx.index, expression.references())
+            {
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!(
+                        "allocation tests context path context.{path} against enum members \
+                         of type {expected}, which no evaluation context declares \
+                         with a matching type"
                     ),
                 );
             }
@@ -443,6 +487,38 @@ fn type_mismatch_label(
         }
     }
     (any_declared && !any_ok).then(|| expected_type_label(constraints))
+}
+
+/// Enum-membership refinements: `context.<path> in enums.<id>` pins the path
+/// to the declared enum's member type. Returns the same mismatch labels as
+/// [`type_mismatch_label`] does for literal constraints; unknown enums are
+/// skipped here because the unknown-enum rule owns them.
+fn enum_membership_mismatches(
+    index: &SemanticIndex,
+    references: &ExpressionReferences,
+) -> Vec<(String, String)> {
+    let mut mismatches = Vec::new();
+    for (path, enum_ids) in &references.context_path_enums {
+        let mut constraints = BTreeSet::new();
+        for enum_id in enum_ids {
+            let Some(declared) = index.enums.get(enum_id) else {
+                continue;
+            };
+            let ProjectField::Present(member_type) = &declared.member_type else {
+                continue;
+            };
+            constraints.insert(match member_type.value.as_str() {
+                "string" => ContextScalarType::String,
+                "int" | "number" => ContextScalarType::Number,
+                "bool" => ContextScalarType::Bool,
+                _ => continue,
+            });
+        }
+        if let Some(expected) = type_mismatch_label(index, path, &constraints) {
+            mismatches.push((path.clone(), expected));
+        }
+    }
+    mismatches
 }
 
 pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {
