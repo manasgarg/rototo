@@ -416,19 +416,26 @@ fn validate_id(source: &str, id: &str) -> Result<()> {
     if id.is_empty() {
         return Err(invalid(source, "an id cannot be empty"));
     }
-    let valid_segments = id.split('/').all(|segment| {
-        !segment.is_empty()
-            && segment
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    });
-    if !valid_segments {
+    if !is_valid_entity_id(id) {
         return Err(invalid(
             source,
             format!("id `{id}` must be lowercase snake_case segments separated by `/`"),
         ));
     }
     Ok(())
+}
+
+/// Whether a bare id follows the grammar's id rules: non-empty lowercase
+/// snake_case segments separated by `/`. Shared with surfaces that take ids
+/// outside a full address, such as edit operations.
+pub(crate) fn is_valid_entity_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
 }
 
 fn validate_pointer(source: &str, pointer: &str) -> Result<String> {

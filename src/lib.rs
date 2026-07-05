@@ -4,6 +4,7 @@ pub mod console;
 pub mod diagnostics;
 pub mod diagnostics_catalog;
 pub mod docs;
+pub mod edit;
 pub mod error;
 mod expression;
 pub mod fixtures;
