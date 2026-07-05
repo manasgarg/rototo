@@ -1,0 +1,28 @@
+{
+    "name": "@rototo/console-web",
+    "version": "0.1.0-alpha.6",
+    "description": "The new rototo console frontend: a static SPA over the TypeScript console server.",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc --noEmit && vite build",
+        "dev": "vite",
+        "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" \"index.html\"",
+        "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" \"index.html\"",
+        "lint": "npm run typecheck",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "react": "19.2.1",
+        "react-dom": "19.2.1"
+    },
+    "devDependencies": {
+        "@types/node": "24.10.2",
+        "@types/react": "19.2.7",
+        "@types/react-dom": "19.2.3",
+        "@vitejs/plugin-react": "^4.7.0",
+        "prettier": "^3.8.4",
+        "typescript": "6.0.3",
+        "vite": "^6.3.0"
+    }
+}
