@@ -161,6 +161,12 @@ export class FakeGit implements GitOps {
         return this.plumb(["show", `${pin}:${filePath}`]);
     }
 
+    // The full commit message, trailers included; what Acting-For tests
+    // read.
+    commitMessage(sha: string): string {
+        return this.plumb(["log", "-1", "--format=%B", sha]);
+    }
+
     commitCount(ref: string): number {
         return Number(this.plumb(["rev-list", "--count", ref]));
     }

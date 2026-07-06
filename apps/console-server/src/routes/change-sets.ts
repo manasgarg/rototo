@@ -210,22 +210,17 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
                     ).allow,
             },
         );
-        // The approval requirements ride along, so the reviewer sees what
-        // this change must satisfy and what is still missing.
-        const policy = await approvalPolicy(
-            { git: ctx.git, stager: ctx.stager },
-            tree,
-            changeSet,
-            credential.token,
-        );
+        // The approval requirements ride along, computed by the same walk
+        // that rendered the packages, so the reviewer sees what this change
+        // must satisfy and what is still missing.
         return c.json({
             changeSet: payload(changeSet),
             review,
             approvals: ctx.store.listApprovals(changeSet.id),
             contributors: contributorsOf(ctx.store, changeSet),
             policy: {
-                ...policy,
-                ...policyStatus(ctx.store, changeSet, policy),
+                ...review.policy,
+                ...policyStatus(ctx.store, changeSet, review.policy),
             },
         });
     });

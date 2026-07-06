@@ -12,7 +12,11 @@ import type { GitOps } from "./git.ts";
 import { native } from "./native.ts";
 import type { PackageStager } from "./packages.ts";
 import type { ChangeSetRow, SourceTreeRow, Store } from "./store.ts";
-import { bindingPaths, readSurfaces, type ModelView } from "./surfaces.ts";
+import {
+    surfaceCoverage,
+    type ModelView,
+    type SurfaceCoverage,
+} from "./surfaces.ts";
 
 // Everyone who committed to the change set: its creator plus any
 // collaborator with a committed diary entry. Derived from the console's
@@ -66,10 +70,8 @@ export async function approvalPolicy(
     const treeRoot = await deps.stager.stageTree(tree, head, token);
     const packages = await native.discoverPackages(treeRoot);
 
-    const roleRequirements = new Map<string, Set<string>>();
-    const autoApproved: string[] = [];
-    let uncovered = comparison.files.length === 0 ? true : false;
-
+    const coverages: SurfaceCoverage[] = [];
+    let uncovered = comparison.files.length === 0;
     for (const packagePath of packages) {
         const prefix = packagePath === "." ? "" : `${packagePath}/`;
         const touched = comparison.files
@@ -87,39 +89,7 @@ export async function approvalPolicy(
             uncovered = true;
             continue;
         }
-        const surfaces = readSurfaces(model);
-        const covered = new Set<string>();
-        for (const surface of surfaces) {
-            const paths = bindingPaths(surface, model);
-            const touches = touched.filter((file) =>
-                paths.some(
-                    (bindingPath) =>
-                        file === bindingPath ||
-                        file.startsWith(`${bindingPath}/`),
-                ),
-            );
-            if (touches.length === 0) {
-                continue;
-            }
-            for (const file of touches) {
-                covered.add(file);
-            }
-            const approval = surface.approval;
-            if (approval === "none") {
-                autoApproved.push(surface.id);
-            } else if (approval !== null && approval.startsWith("role:")) {
-                const role = approval.slice(5);
-                const set = roleRequirements.get(role) ?? new Set<string>();
-                set.add(surface.id);
-                roleRequirements.set(role, set);
-            } else {
-                // A surface with no declared approval keeps the default.
-                uncovered = true;
-            }
-        }
-        if (touched.some((file) => !covered.has(file))) {
-            uncovered = true;
-        }
+        coverages.push(surfaceCoverage(model, touched));
     }
 
     // Files in no package at all (workflows, READMEs) keep the default too.
@@ -133,8 +103,32 @@ export async function approvalPolicy(
         uncovered = true;
     }
 
+    return composePolicy(coverages, uncovered);
+}
+
+// Coverage per touched package into one requirement set. Shared by the
+// staging path above and the review's own walk, so the panel and the
+// enforcement can never disagree.
+export function composePolicy(
+    coverages: SurfaceCoverage[],
+    uncoveredElsewhere: boolean,
+): ApprovalPolicy {
+    const roleMap = new Map<string, Set<string>>();
+    const autoApproved: string[] = [];
+    let uncovered = uncoveredElsewhere;
+    for (const coverage of coverages) {
+        for (const role of coverage.roles) {
+            const set = roleMap.get(role.role) ?? new Set<string>();
+            for (const surface of role.surfaces) {
+                set.add(surface);
+            }
+            roleMap.set(role.role, set);
+        }
+        autoApproved.push(...coverage.autoApproved);
+        uncovered = uncovered || coverage.uncovered;
+    }
     const requirements: ApprovalRequirement[] = [
-        ...[...roleRequirements.entries()].map(
+        ...[...roleMap.entries()].map(
             ([role, surfaces]): ApprovalRequirement => ({
                 kind: "role",
                 role,

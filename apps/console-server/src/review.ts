@@ -5,6 +5,7 @@
 // knows those three things in that order. This module composes the deltas
 // from bindings the lower layers already own; nothing here is new machinery.
 
+import { composePolicy, type ApprovalPolicy } from "./approvals.ts";
 import { branchFor, repoId } from "./change-sets.ts";
 import { ApiError } from "./errors.ts";
 import type { GitOps } from "./git.ts";
@@ -17,7 +18,11 @@ import {
 } from "./native.ts";
 import type { PackageStager } from "./packages.ts";
 import type { ChangeSetRow, SourceTreeRow } from "./store.ts";
-import { bindingPaths, readSurfaces, type ModelView } from "./surfaces.ts";
+import {
+    surfaceCoverage,
+    type ModelView,
+    type SurfaceCoverage,
+} from "./surfaces.ts";
 
 export type LintDelta = {
     introduced: JsonValue[];
@@ -79,6 +84,10 @@ export type ChangeSetReview = {
     headPin: string;
     files: string[];
     packages: (PackageReview | RedactedPackageReview)[];
+    // What merging this must satisfy, composed from the same surface walk
+    // the packages above render — the panel and the enforcement cannot
+    // disagree.
+    policy: ApprovalPolicy;
 };
 
 type ReviewDeps = {
@@ -126,6 +135,16 @@ export async function buildReview(
 
     const touched = touchedPackages(comparison.files, packages);
     const reviews: (PackageReview | RedactedPackageReview)[] = [];
+    const coverages: SurfaceCoverage[] = [];
+    // Files no package holds, an empty change, or a redacted package all
+    // keep the deployment default requirement in force.
+    const packagedCount = [...touched.values()].reduce(
+        (sum, files) => sum + files.length,
+        0,
+    );
+    let uncoveredElsewhere =
+        comparison.files.length === 0 ||
+        packagedCount < comparison.files.length;
     for (const [packagePath, files] of touched) {
         if (input.canView !== undefined && !(await input.canView(packagePath))) {
             reviews.push({
@@ -133,22 +152,24 @@ export async function buildReview(
                 redacted: true,
                 files: files.length,
             });
+            uncoveredElsewhere = true;
             continue;
         }
-        reviews.push(
-            await reviewPackage(
-                stager.packageRoot(beforeTree, packagePath),
-                stager.packageRoot(afterTree, packagePath),
-                packagePath,
-                files,
-            ),
+        const { review, coverage } = await reviewPackage(
+            stager.packageRoot(beforeTree, packagePath),
+            stager.packageRoot(afterTree, packagePath),
+            packagePath,
+            files,
         );
+        reviews.push(review);
+        coverages.push(coverage);
     }
     return {
         basePin,
         headPin,
         files: comparison.files,
         packages: reviews,
+        policy: composePolicy(coverages, uncoveredElsewhere),
     };
 }
 
@@ -183,7 +204,7 @@ async function reviewPackage(
     afterRoot: string,
     packagePath: string,
     files: string[],
-): Promise<PackageReview> {
+): Promise<{ review: PackageReview; coverage: SurfaceCoverage }> {
     const model = (await native.semanticModel(afterRoot)) as ModelView & {
         evaluationContextSamples?: {
             evaluationContext: string;
@@ -260,34 +281,20 @@ async function reviewPackage(
     };
 
     const lint = await lintDelta(beforeRoot, afterRoot);
-
-    const changedRepoPaths = new Set(files);
-    const surfaces = readSurfaces(model)
-        .filter((surface) =>
-            bindingPaths(surface, model).some((bindingPath) =>
-                [...changedRepoPaths].some(
-                    (file) =>
-                        file === bindingPath ||
-                        file.startsWith(`${bindingPath}/`),
-                ),
-            ),
-        )
-        .map((surface) => ({
-            id: surface.id,
-            title: surface.title,
-            approval: surface.approval,
-            caution: surface.caution,
-        }));
+    const coverage = surfaceCoverage(model, files);
 
     return {
-        path: packagePath,
-        changes: diff.changes,
-        contexts,
-        contextImpacts: diff.context_impacts,
-        impactError: diff.impact_error ?? null,
-        denominator,
-        lint,
-        surfaces,
+        review: {
+            path: packagePath,
+            changes: diff.changes,
+            contexts,
+            contextImpacts: diff.context_impacts,
+            impactError: diff.impact_error ?? null,
+            denominator,
+            lint,
+            surfaces: coverage.touched,
+        },
+        coverage,
     };
 }
 

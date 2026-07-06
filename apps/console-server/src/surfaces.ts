@@ -683,6 +683,77 @@ export function bindingPaths(surface: Surface, model: ModelView): string[] {
     return [...paths].sort();
 }
 
+// How a set of changed files lands on a package's surfaces: which surfaces
+// are touched, which approval requirements that implies, and whether any
+// file escapes every surface (keeping the deployment default in force).
+// Both the review panel and the approval policy read this one walk.
+export type SurfaceCoverage = {
+    touched: {
+        id: string;
+        title: string;
+        approval: string | null;
+        caution: string | null;
+    }[];
+    roles: { role: string; surfaces: string[] }[];
+    autoApproved: string[];
+    uncovered: boolean;
+};
+
+export function surfaceCoverage(
+    model: ModelView,
+    files: string[],
+): SurfaceCoverage {
+    const touched: SurfaceCoverage["touched"] = [];
+    const roleMap = new Map<string, Set<string>>();
+    const autoApproved: string[] = [];
+    const covered = new Set<string>();
+    let undeclared = false;
+    for (const surface of readSurfaces(model)) {
+        const paths = bindingPaths(surface, model);
+        const touches = files.filter((file) =>
+            paths.some(
+                (bindingPath) =>
+                    file === bindingPath ||
+                    file.startsWith(`${bindingPath}/`),
+            ),
+        );
+        if (touches.length === 0) {
+            continue;
+        }
+        for (const file of touches) {
+            covered.add(file);
+        }
+        touched.push({
+            id: surface.id,
+            title: surface.title,
+            approval: surface.approval,
+            caution: surface.caution,
+        });
+        if (surface.approval === "none") {
+            autoApproved.push(surface.id);
+        } else if (
+            surface.approval !== null &&
+            surface.approval.startsWith("role:")
+        ) {
+            const role = surface.approval.slice(5);
+            const set = roleMap.get(role) ?? new Set<string>();
+            set.add(surface.id);
+            roleMap.set(role, set);
+        } else {
+            undeclared = true;
+        }
+    }
+    return {
+        touched,
+        roles: [...roleMap.entries()].map(([role, surfaces]) => ({
+            role,
+            surfaces: [...surfaces].sort(),
+        })),
+        autoApproved,
+        uncovered: undeclared || files.some((file) => !covered.has(file)),
+    };
+}
+
 // The variable ids a surface binds, directly or through catalog-typed
 // variables is deliberately NOT computed here: upcoming changes filter on
 // directly bound variables only, which is what the surface names.

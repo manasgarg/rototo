@@ -176,21 +176,22 @@ export type GitHarness = TeamHarness & {
 // A team-mode app wired to a local bare repository acting as GitHub:
 // examples/basic seeded under packages/basic on main, the tree registered,
 // staged reads fetching from the same repo the fake mutates.
-export function gitHarness(): GitHarness {
+export function gitHarness(
+    overrides: Partial<ServerConfig> = {},
+    deps: Partial<AppDeps> = {},
+): GitHarness {
     const fakeGit = FakeGit.init();
     const basePin = fakeGit.seedBranch(
         "main",
         path.join(REPO_ROOT, "examples/basic"),
         "packages/basic",
     );
-    const harness = teamHarness(
-        {},
-        {
-            git: fakeGit,
-            gitRemote: () => fakeGit.gitDir,
-            pinCacheRoot: path.join(fakeGit.gitDir, "..", "pins"),
-        },
-    );
+    const harness = teamHarness(overrides, {
+        git: fakeGit,
+        gitRemote: () => fakeGit.gitDir,
+        pinCacheRoot: path.join(fakeGit.gitDir, "..", "pins"),
+        ...deps,
+    });
     const tree = harness.store.insertSourceTree({
         kind: "github",
         owner: "acme",
