@@ -57,6 +57,29 @@ export function resourceString(resource: Resource): string {
     }
 }
 
+// The inverse of resourceString for the scopes the v1 admin surface
+// administers: deployment, source-tree, and package. Entity-scoped grants
+// exist in the schema but arrive with per-surface approvers; refusing to
+// parse them here keeps the admin API honest about what it can validate.
+export function parseResource(value: string): Resource | null {
+    if (value === "deployment") {
+        return { kind: "deployment" };
+    }
+    const tree = value.match(/^source-tree:([^/:]+)$/);
+    if (tree !== null) {
+        return { kind: "source-tree", sourceTree: tree[1] as string };
+    }
+    const pkg = value.match(/^package:([^/:]+)\/(.+)$/);
+    if (pkg !== null) {
+        return {
+            kind: "package",
+            sourceTree: pkg[1] as string,
+            path: pkg[2] as string,
+        };
+    }
+    return null;
+}
+
 // The resource and its ancestors, nearest first; grants attach at any level
 // and inherit downward.
 export function resourceLineage(resource: Resource): Resource[] {
@@ -121,7 +144,7 @@ export class DecisionPoint {
         subject: Subject,
         action: Action,
         resource: Resource,
-        _context: DecisionContext = {},
+        context: DecisionContext = {},
     ): Promise<Decision> {
         if (this.deps.authMode === "local" || subject.kind === "local") {
             return {
@@ -147,7 +170,19 @@ export class DecisionPoint {
             };
         }
 
-        // Backend B: console grants, checked up the resource lineage.
+        // The two-person default: under Backend B the console is the only
+        // enforcement point, so a grant never approves a change its holder
+        // helped write. `contributors` covers everyone who committed, not
+        // just the creator, so shared change sets cannot launder approvals.
+        // Backend A is deliberately untouched by this rule: there GitHub's
+        // branch protection is the policy, and the console never gets
+        // stricter than the authority.
+        const contributed =
+            action === "approve" &&
+            (context.contributors ?? []).includes(principal.id);
+
+        // Backend B: console grants, checked up the resource lineage; held
+        // directly or through group membership.
         const grants = this.deps.store.grantsForPrincipal(principal.id);
         const lineage = resourceLineage(resource).map(resourceString);
         for (const grant of grants) {
@@ -156,6 +191,13 @@ export class DecisionPoint {
                 actionImplies(grant.action, action) &&
                 lineage.includes(grant.resource)
             ) {
+                if (contributed) {
+                    return {
+                        allow: false,
+                        backend: "grant",
+                        reason: "you contributed to this change; a second person must approve it",
+                    };
+                }
                 return {
                     allow: true,
                     backend: "grant",

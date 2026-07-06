@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export type PrincipalRow = {
     id: string;
@@ -24,7 +24,7 @@ export type PrincipalRow = {
 export type IdentityRow = {
     id: string;
     principalId: string;
-    provider: "github";
+    provider: "github" | "oidc";
     subject: string;
     login: string | null;
     email: string | null;
@@ -64,13 +64,39 @@ export type GrantRow = {
 };
 
 export type IdentitySnapshot = {
-    provider: "github";
+    provider: "github" | "oidc";
     subject: string;
     login: string | null;
     email: string | null;
     emailVerified: boolean;
     name: string | null;
     avatarUrl: string | null;
+};
+
+export type GroupRow = {
+    id: string;
+    name: string;
+    description: string | null;
+    createdAt: string;
+};
+
+export type InvitationRow = {
+    id: string;
+    email: string;
+    providerRestriction: string | null;
+    initialGroups: string[];
+    initialGrants: { action: string; resource: string }[];
+    tokenHash: string;
+    expiresAt: string;
+    redeemedBy: string | null;
+    createdBy: string | null;
+    createdAt: string;
+};
+
+export type ChangeSetApprovalRow = {
+    changeSetId: string;
+    principalId: string;
+    approvedAt: string;
 };
 
 export type ChangeSetState = "draft" | "proposed" | "merged" | "abandoned";
@@ -250,6 +276,35 @@ export class Store {
                 actor TEXT,
                 event TEXT NOT NULL,
                 detail TEXT
+            );
+            CREATE TABLE IF NOT EXISTS groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_id TEXT NOT NULL REFERENCES groups(id),
+                principal_id TEXT NOT NULL REFERENCES principals(id),
+                UNIQUE (group_id, principal_id)
+            );
+            CREATE TABLE IF NOT EXISTS invitations (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                provider_restriction TEXT,
+                initial_groups TEXT NOT NULL DEFAULT '[]',
+                initial_grants TEXT NOT NULL DEFAULT '[]',
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                redeemed_by TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS change_set_approvals (
+                change_set_id TEXT NOT NULL REFERENCES change_sets(id),
+                principal_id TEXT NOT NULL,
+                approved_at TEXT NOT NULL,
+                UNIQUE (change_set_id, principal_id)
             );
         `);
         this.db
@@ -515,21 +570,37 @@ export class Store {
         return row;
     }
 
+    // Every grant that reaches the principal: held directly, or through a
+    // group membership. decide() evaluates this union.
     grantsForPrincipal(principalId: string): GrantRow[] {
         const rows = this.db
             .prepare(
-                "SELECT * FROM grants WHERE grantee_kind = 'principal' AND grantee_id = ?",
+                `SELECT * FROM grants
+                 WHERE (grantee_kind = 'principal' AND grantee_id = ?)
+                    OR (grantee_kind = 'group' AND grantee_id IN (
+                        SELECT group_id FROM group_members WHERE principal_id = ?
+                    ))`,
             )
-            .all(principalId) as Record<string, unknown>[];
-        return rows.map((row) => ({
-            id: row.id as string,
-            granteeKind: row.grantee_kind as "principal" | "group",
-            granteeId: row.grantee_id as string,
-            action: row.action as string,
-            resource: row.resource as string,
-            createdBy: row.created_by as string | null,
-            createdAt: row.created_at as string,
-        }));
+            .all(principalId, principalId) as Record<string, unknown>[];
+        return rows.map(grantFromRow);
+    }
+
+    listGrants(): GrantRow[] {
+        const rows = this.db
+            .prepare("SELECT * FROM grants ORDER BY created_at")
+            .all() as Record<string, unknown>[];
+        return rows.map(grantFromRow);
+    }
+
+    getGrant(id: string): GrantRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM grants WHERE id = ?")
+            .get(id) as Record<string, unknown> | undefined;
+        return row === undefined ? null : grantFromRow(row);
+    }
+
+    deleteGrant(id: string): void {
+        this.db.prepare("DELETE FROM grants WHERE id = ?").run(id);
     }
 
     appendAudit(actor: string | null, event: string, detail: string): void {
@@ -538,6 +609,232 @@ export class Store {
                 "INSERT INTO authz_audit (at, actor, event, detail) VALUES (?, ?, ?, ?)",
             )
             .run(isoNow(), actor, event, detail);
+    }
+
+    listAudit(): { at: string; actor: string | null; event: string; detail: string | null }[] {
+        const rows = this.db
+            .prepare("SELECT at, actor, event, detail FROM authz_audit ORDER BY id")
+            .all() as Record<string, unknown>[];
+        return rows.map((row) => ({
+            at: row.at as string,
+            actor: row.actor as string | null,
+            event: row.event as string,
+            detail: row.detail as string | null,
+        }));
+    }
+
+    listPrincipals(): PrincipalRow[] {
+        const rows = this.db
+            .prepare("SELECT * FROM principals ORDER BY created_at")
+            .all() as Record<string, unknown>[];
+        return rows.map(principalFromRow);
+    }
+
+    // Groups: console-managed sets of principals, existing to make grants
+    // administrable and nothing more. Surface approval roles (role:<id>)
+    // name groups by name.
+
+    createGroup(name: string, description: string | null): GroupRow {
+        const row: GroupRow = {
+            id: `grp_${randomId()}`,
+            name,
+            description,
+            createdAt: isoNow(),
+        };
+        this.db
+            .prepare(
+                "INSERT INTO groups (id, name, description, created_at) VALUES (?, ?, ?, ?)",
+            )
+            .run(row.id, row.name, row.description, row.createdAt);
+        return row;
+    }
+
+    getGroup(id: string): GroupRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM groups WHERE id = ?")
+            .get(id) as Record<string, unknown> | undefined;
+        return row === undefined ? null : groupFromRow(row);
+    }
+
+    getGroupByName(name: string): GroupRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM groups WHERE name = ?")
+            .get(name) as Record<string, unknown> | undefined;
+        return row === undefined ? null : groupFromRow(row);
+    }
+
+    listGroups(): GroupRow[] {
+        const rows = this.db
+            .prepare("SELECT * FROM groups ORDER BY name")
+            .all() as Record<string, unknown>[];
+        return rows.map(groupFromRow);
+    }
+
+    addGroupMember(groupId: string, principalId: string): void {
+        this.db
+            .prepare(
+                "INSERT OR IGNORE INTO group_members (group_id, principal_id) VALUES (?, ?)",
+            )
+            .run(groupId, principalId);
+    }
+
+    removeGroupMember(groupId: string, principalId: string): void {
+        this.db
+            .prepare(
+                "DELETE FROM group_members WHERE group_id = ? AND principal_id = ?",
+            )
+            .run(groupId, principalId);
+    }
+
+    listGroupMembers(groupId: string): string[] {
+        const rows = this.db
+            .prepare(
+                "SELECT principal_id FROM group_members WHERE group_id = ?",
+            )
+            .all(groupId) as Record<string, unknown>[];
+        return rows.map((row) => row.principal_id as string);
+    }
+
+    groupsForPrincipal(principalId: string): GroupRow[] {
+        const rows = this.db
+            .prepare(
+                `SELECT g.* FROM groups g
+                 JOIN group_members m ON m.group_id = g.id
+                 WHERE m.principal_id = ? ORDER BY g.name`,
+            )
+            .all(principalId) as Record<string, unknown>[];
+        return rows.map(groupFromRow);
+    }
+
+    // Invitations: single-use, expiring, matched by email (and optionally
+    // provider) at sign-in. The token is delivered out of band; only its
+    // hash is stored.
+
+    createInvitation(input: {
+        email: string;
+        providerRestriction: string | null;
+        initialGroups: string[];
+        initialGrants: { action: string; resource: string }[];
+        tokenHash: string;
+        expiresAt: string;
+        createdBy: string | null;
+    }): InvitationRow {
+        const row: InvitationRow = {
+            id: `inv_${randomId()}`,
+            email: input.email,
+            providerRestriction: input.providerRestriction,
+            initialGroups: input.initialGroups,
+            initialGrants: input.initialGrants,
+            tokenHash: input.tokenHash,
+            expiresAt: input.expiresAt,
+            redeemedBy: null,
+            createdBy: input.createdBy,
+            createdAt: isoNow(),
+        };
+        this.db
+            .prepare(
+                `INSERT INTO invitations (
+                    id, email, provider_restriction, initial_groups,
+                    initial_grants, token_hash, expires_at, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+                row.id,
+                row.email,
+                row.providerRestriction,
+                JSON.stringify(row.initialGroups),
+                JSON.stringify(row.initialGrants),
+                row.tokenHash,
+                row.expiresAt,
+                row.createdBy,
+                row.createdAt,
+            );
+        return row;
+    }
+
+    listInvitations(): InvitationRow[] {
+        const rows = this.db
+            .prepare("SELECT * FROM invitations ORDER BY created_at")
+            .all() as Record<string, unknown>[];
+        return rows.map(invitationFromRow);
+    }
+
+    // The open invitation a redeem link names; the token itself is the
+    // authorization, so no email check happens on this path.
+    invitationByTokenHash(tokenHash: string): InvitationRow | null {
+        const row = this.db
+            .prepare(
+                "SELECT * FROM invitations WHERE token_hash = ? AND redeemed_by IS NULL",
+            )
+            .get(tokenHash) as Record<string, unknown> | undefined;
+        if (row === undefined) {
+            return null;
+        }
+        const invitation = invitationFromRow(row);
+        return Date.parse(invitation.expiresAt) <= Date.now()
+            ? null
+            : invitation;
+    }
+
+    // The open (unredeemed, unexpired) invitation matching a verified email
+    // at sign-in, optionally restricted to the provider used.
+    openInvitationForEmail(
+        email: string,
+        provider: string,
+    ): InvitationRow | null {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM invitations WHERE redeemed_by IS NULL AND lower(email) = lower(?) ORDER BY created_at",
+            )
+            .all(email) as Record<string, unknown>[];
+        for (const raw of rows) {
+            const row = invitationFromRow(raw);
+            if (Date.parse(row.expiresAt) <= Date.now()) {
+                continue;
+            }
+            if (
+                row.providerRestriction !== null &&
+                row.providerRestriction !== provider
+            ) {
+                continue;
+            }
+            return row;
+        }
+        return null;
+    }
+
+    markInvitationRedeemed(id: string, principalId: string): void {
+        this.db
+            .prepare(
+                "UPDATE invitations SET redeemed_by = ? WHERE id = ? AND redeemed_by IS NULL",
+            )
+            .run(principalId, id);
+    }
+
+    // Approvals: who approved which change set. The PR comment keeps the
+    // copy the fire drill can rebuild from.
+
+    addApproval(changeSetId: string, principalId: string): void {
+        this.db
+            .prepare(
+                `INSERT OR IGNORE INTO change_set_approvals
+                    (change_set_id, principal_id, approved_at)
+                 VALUES (?, ?, ?)`,
+            )
+            .run(changeSetId, principalId, isoNow());
+    }
+
+    listApprovals(changeSetId: string): ChangeSetApprovalRow[] {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM change_set_approvals WHERE change_set_id = ? ORDER BY approved_at",
+            )
+            .all(changeSetId) as Record<string, unknown>[];
+        return rows.map((row) => ({
+            changeSetId: row.change_set_id as string,
+            principalId: row.principal_id as string,
+            approvedAt: row.approved_at as string,
+        }));
     }
 
     // Change sets. Intent columns (title, state on submit/abandon) are
@@ -717,11 +1014,50 @@ function principalFromRow(row: Record<string, unknown>): PrincipalRow {
     };
 }
 
+function grantFromRow(row: Record<string, unknown>): GrantRow {
+    return {
+        id: row.id as string,
+        granteeKind: row.grantee_kind as "principal" | "group",
+        granteeId: row.grantee_id as string,
+        action: row.action as string,
+        resource: row.resource as string,
+        createdBy: row.created_by as string | null,
+        createdAt: row.created_at as string,
+    };
+}
+
+function groupFromRow(row: Record<string, unknown>): GroupRow {
+    return {
+        id: row.id as string,
+        name: row.name as string,
+        description: row.description as string | null,
+        createdAt: row.created_at as string,
+    };
+}
+
+function invitationFromRow(row: Record<string, unknown>): InvitationRow {
+    return {
+        id: row.id as string,
+        email: row.email as string,
+        providerRestriction: row.provider_restriction as string | null,
+        initialGroups: JSON.parse(row.initial_groups as string) as string[],
+        initialGrants: JSON.parse(row.initial_grants as string) as {
+            action: string;
+            resource: string;
+        }[],
+        tokenHash: row.token_hash as string,
+        expiresAt: row.expires_at as string,
+        redeemedBy: row.redeemed_by as string | null,
+        createdBy: row.created_by as string | null,
+        createdAt: row.created_at as string,
+    };
+}
+
 function identityFromRow(row: Record<string, unknown>): IdentityRow {
     return {
         id: row.id as string,
         principalId: row.principal_id as string,
-        provider: row.provider as "github",
+        provider: row.provider as "github" | "oidc",
         subject: row.subject as string,
         login: row.login as string | null,
         email: row.email as string | null,

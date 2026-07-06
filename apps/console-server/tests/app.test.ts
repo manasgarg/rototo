@@ -68,7 +68,7 @@ test("reads pass without the header; signed-out /api/me offers sign-in", async (
     assert.equal(response.status, 200);
     const body = await json(response);
     assert.equal(body.principal, null);
-    assert.deepEqual(body.signIn, { github: true });
+    assert.deepEqual(body.signIn, { github: true, oidc: null });
 });
 
 test("GitHub sign-in enrolls, stores an encrypted credential, and bootstraps admins", async () => {

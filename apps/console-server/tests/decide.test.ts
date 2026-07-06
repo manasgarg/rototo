@@ -241,3 +241,81 @@ test("resource lineage walks entity -> package -> tree -> deployment", () => {
         "deployment",
     ]);
 });
+
+test("grants held through group membership reach the principal", async () => {
+    const store = new Store(null);
+    const principal = store.createPrincipal("Priya");
+    const group = store.createGroup("pricing_admins", null);
+    store.addGroupMember(group.id, principal.id);
+    store.insertGrant({
+        granteeKind: "group",
+        granteeId: group.id,
+        action: "approve",
+        resource: "source-tree:st_1",
+        createdBy: null,
+    });
+    const decide = decisionPoint(store, new FakeGitHub());
+    const decision = await decide.decide(
+        { kind: "principal", id: principal.id },
+        "approve",
+        { kind: "package", sourceTree: "st_1", path: "packages/basic" },
+    );
+    assert.equal(decision.allow, true);
+    assert.equal(decision.backend, "grant");
+
+    // Removing the membership removes the reach.
+    store.removeGroupMember(group.id, principal.id);
+    const after = await decide.decide(
+        { kind: "principal", id: principal.id },
+        "approve",
+        { kind: "package", sourceTree: "st_1", path: "packages/basic" },
+    );
+    assert.equal(after.allow, false);
+});
+
+test("the two-person rule: a contributor's grant cannot approve their own change", async () => {
+    const store = new Store(null);
+    const author = store.createPrincipal("Priya");
+    const approver = store.createPrincipal("Alex");
+    for (const grantee of [author, approver]) {
+        store.insertGrant({
+            granteeKind: "principal",
+            granteeId: grantee.id,
+            action: "approve",
+            resource: "source-tree:st_1",
+            createdBy: null,
+        });
+    }
+    const decide = decisionPoint(store, new FakeGitHub());
+    const resource = {
+        kind: "source-tree",
+        sourceTree: "st_1",
+    } as const;
+    const contributors = [author.id];
+
+    const self = await decide.decide(
+        { kind: "principal", id: author.id },
+        "approve",
+        resource,
+        { contributors },
+    );
+    assert.equal(self.allow, false);
+    assert.match(self.reason, /second person/);
+
+    // The same grant still lets the author propose (the rule binds approve
+    // alone), and a non-contributor approves normally.
+    const propose = await decide.decide(
+        { kind: "principal", id: author.id },
+        "propose",
+        resource,
+        { contributors },
+    );
+    assert.equal(propose.allow, true);
+    const second = await decide.decide(
+        { kind: "principal", id: approver.id },
+        "approve",
+        resource,
+        { contributors },
+    );
+    assert.equal(second.allow, true);
+});

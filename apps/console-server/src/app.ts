@@ -6,7 +6,6 @@
 //   the server recomputes `decide()` inside every mutation. Explanation is
 //   never authority.
 
-import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -25,29 +24,23 @@ import {
     resourceString,
 } from "./decide.ts";
 import { type GitOps, GitHubGit } from "./git.ts";
-import { type GitHubFacts, exchangeOAuthCode } from "./github.ts";
+import type { GitHubFacts } from "./github.ts";
 import { LocalAuth } from "./local-auth.ts";
 import { LspBridge } from "./lsp-bridge.ts";
+import type { OidcExchange } from "./oidc.ts";
+import { OidcProvider } from "./oidc.ts";
 import { PackageStager } from "./packages.ts";
 import { Reconciler } from "./reconciler.ts";
+import { adminRoutes } from "./routes/admin.ts";
+import { authRoutes, defaultOauthExchange } from "./routes/auth.ts";
 import { changeSetRoutes } from "./routes/change-sets.ts";
 import { lspRoutes } from "./routes/lsp.ts";
 import { packageRoutes } from "./routes/packages.ts";
-import {
-    OAUTH_STATE_COOKIE,
-    SESSION_COOKIE,
-    SESSION_TTL_MS,
-    cookieValue,
-    endSession,
-    issueSession,
-    sessionPrincipalId,
-    setCookie,
-} from "./sessions.ts";
+import { sessionPrincipalId } from "./sessions.ts";
 import type { SourceTreeRow, Store } from "./store.ts";
 import { TokenCrypto } from "./token-crypto.ts";
 
 export const CONSOLE_HEADER = "x-rototo-console";
-const GITHUB_OAUTH_SCOPES = "read:user repo";
 
 export type AppDeps = {
     config: ServerConfig;
@@ -56,6 +49,9 @@ export type AppDeps = {
     // Test seam for the OAuth code exchange; defaults to the real GitHub
     // endpoint.
     oauthExchange?: (code: string) => Promise<string>;
+    // Test seam for the OIDC code exchange; defaults to the configured
+    // provider's own verified exchange.
+    oidcExchange?: OidcExchange;
     // Git-data operations; tests substitute a local fake, production is the
     // GitHub REST implementation.
     git?: GitOps;
@@ -76,7 +72,6 @@ type CapabilitySummary = Record<Action, Decision>;
 
 export function buildApp(deps: AppDeps): App {
     const { config, store, github } = deps;
-    const secureCookies = config.publicUrl.startsWith("https://");
     const localAuth = new LocalAuth({
         explicitToken: config.packageToken,
         dataDir: config.dataDir,
@@ -236,6 +231,19 @@ export function buildApp(deps: AppDeps): App {
     app.route("/api", packageRoutes(ctx));
     app.route("/api", changeSetRoutes(ctx));
     app.route("/api", lspRoutes(ctx));
+    app.route("/api", adminRoutes(ctx));
+    app.route(
+        "/api",
+        authRoutes({
+            config,
+            store,
+            github,
+            oauthExchange: deps.oauthExchange ?? defaultOauthExchange(config),
+            oidc: config.oidc === null ? null : new OidcProvider(config.oidc),
+            oidcExchange: deps.oidcExchange ?? null,
+            tokenCrypto,
+        }),
+    );
 
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -278,13 +286,20 @@ export function buildApp(deps: AppDeps): App {
             });
         }
 
+        const signIn = {
+            github: config.githubOAuth !== null,
+            oidc:
+                config.oidc === null
+                    ? null
+                    : { displayName: config.oidc.displayName },
+        };
         if (subject === null) {
             return c.json({
                 authMode: "team",
                 principal: null,
                 identities: [],
                 enrollment: null,
-                signIn: { github: config.githubOAuth !== null },
+                signIn,
             });
         }
         const principal =
@@ -297,7 +312,7 @@ export function buildApp(deps: AppDeps): App {
                 principal: null,
                 identities: [],
                 enrollment: null,
-                signIn: { github: config.githubOAuth !== null },
+                signIn,
             });
         }
         const trees = store.listSourceTrees();
@@ -338,111 +353,6 @@ export function buildApp(deps: AppDeps): App {
                 sourceTrees: treeSummaries,
             },
         });
-    });
-
-    app.get("/api/auth/github/start", (c) => {
-        if (config.githubOAuth === null) {
-            return c.json(
-                { error: { message: "GitHub sign-in is not configured" } },
-                404,
-            );
-        }
-        const state = randomBytes(16).toString("base64url");
-        const authorize = new URL("https://github.com/login/oauth/authorize");
-        authorize.searchParams.set("client_id", config.githubOAuth.clientId);
-        authorize.searchParams.set("scope", GITHUB_OAUTH_SCOPES);
-        authorize.searchParams.set("state", state);
-        authorize.searchParams.set(
-            "redirect_uri",
-            `${config.publicUrl}/api/auth/github/callback`,
-        );
-        c.header(
-            "set-cookie",
-            setCookie(OAUTH_STATE_COOKIE, state, secureCookies, 600),
-        );
-        return c.redirect(authorize.toString(), 302);
-    });
-
-    app.get("/api/auth/github/callback", async (c) => {
-        if (config.githubOAuth === null) {
-            return c.json(
-                { error: { message: "GitHub sign-in is not configured" } },
-                404,
-            );
-        }
-        const cookieHeader = c.req.header("cookie");
-        const expectedState = cookieValue(cookieHeader, OAUTH_STATE_COOKIE);
-        const state = c.req.query("state");
-        const code = c.req.query("code");
-        if (
-            code === undefined ||
-            state === undefined ||
-            expectedState === null ||
-            state !== expectedState
-        ) {
-            return c.json(
-                { error: { message: "OAuth state mismatch; retry sign-in" } },
-                400,
-            );
-        }
-        const exchange =
-            deps.oauthExchange ??
-            ((value: string) =>
-                exchangeOAuthCode(
-                    config.githubOAuth!.clientId,
-                    config.githubOAuth!.clientSecret,
-                    value,
-                ));
-        const token = await exchange(code);
-        const viewer = await github.viewer(token);
-        const ciphertext = tokenCrypto().encrypt(token);
-        const snapshot = {
-            provider: "github" as const,
-            subject: String(viewer.id),
-            login: viewer.login,
-            email: viewer.email,
-            // The REST viewer call does not assert verification; treat the
-            // email as display data only.
-            emailVerified: false,
-            name: viewer.name,
-            avatarUrl: viewer.avatarUrl,
-        };
-
-        let identity = store.getIdentity("github", snapshot.subject);
-        let principalId: string;
-        if (identity === null) {
-            // Phase A enrollment: completing GitHub sign-in creates a
-            // principal with zero grants; every capability comes from
-            // Backend A until Phase B lands enrollment policies.
-            const principal = store.createPrincipal(
-                viewer.name ?? viewer.login,
-            );
-            identity = store.attachIdentity(principal.id, snapshot, ciphertext);
-            principalId = principal.id;
-        } else {
-            store.refreshIdentity(identity.id, snapshot, ciphertext);
-            principalId = identity.principalId;
-        }
-
-        bootstrapAdmin(store, config.admins, principalId, viewer.login);
-
-        const session = issueSession(store, principalId);
-        c.header(
-            "set-cookie",
-            setCookie(
-                SESSION_COOKIE,
-                session,
-                secureCookies,
-                SESSION_TTL_MS / 1000,
-            ),
-        );
-        return c.redirect(config.publicUrl, 302);
-    });
-
-    app.post("/api/auth/logout", (c) => {
-        endSession(store, c.req.header("cookie"));
-        c.header("set-cookie", setCookie(SESSION_COOKIE, "", secureCookies, 0));
-        return c.json({ ok: true });
     });
 
     app.get("/api/source-trees", async (c) => {
@@ -517,47 +427,4 @@ export function buildApp(deps: AppDeps): App {
     });
 
     return { fetch: app.fetch, decision, reconciler };
-}
-
-// A fresh deployment reads ROTOTO_CONSOLE_ADMINS (`github:<login>` entries).
-// The first sign-in matching an entry mints a durable deployment-scope
-// administer grant; after that the env var is ignored for that entry, since
-// logins are mutable and the grant row is keyed to the stable principal.
-function bootstrapAdmin(
-    store: Store,
-    admins: string[],
-    principalId: string,
-    login: string,
-): void {
-    if (!admins.includes(`github:${login}`)) {
-        return;
-    }
-    const existing = store
-        .grantsForPrincipal(principalId)
-        .some(
-            (grant) =>
-                grant.action === "administer" &&
-                grant.resource === "deployment",
-        );
-    if (existing) {
-        return;
-    }
-    const grant = store.insertGrant({
-        granteeKind: "principal",
-        granteeId: principalId,
-        action: "administer",
-        resource: "deployment",
-        createdBy: null,
-    });
-    store.appendAudit(
-        null,
-        "grant.create",
-        JSON.stringify({
-            grant: grant.id,
-            grantee: principalId,
-            action: "administer",
-            resource: "deployment",
-            via: "ROTOTO_CONSOLE_ADMINS bootstrap",
-        }),
-    );
 }
