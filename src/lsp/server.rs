@@ -41,7 +41,9 @@ pub async fn serve_stdio() -> Result<()> {
     serve(BufReader::new(stdin), stdout).await
 }
 
-pub(crate) async fn serve<R, W>(reader: R, writer: W) -> Result<()>
+/// Serves one LSP session over any transport pair. `serve_stdio` wraps this
+/// for editors; in-process hosts (the console bridge) run it over a duplex.
+pub async fn serve<R, W>(reader: R, writer: W) -> Result<()>
 where
     R: AsyncBufRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -51,7 +53,7 @@ where
     // request is dequeued, and a dedicated writer task serializes responses that
     // now come from concurrently running request tasks.
     let (inbound_sender, mut inbound) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
+    let reader_task = tokio::spawn(async move {
         let mut reader = reader;
         while let Ok(Some(message)) = read_message(&mut reader).await {
             if inbound_sender.send(message).is_err() {
@@ -206,6 +208,9 @@ where
     // already produced, then stop.
     drop(outbound);
     let _ = writer_task.await;
+    // Release the transport's read half too, so an in-process host sees the
+    // stream end; a detached reader would otherwise pin the session open.
+    reader_task.abort();
     exit
 }
 

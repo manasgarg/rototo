@@ -1,16 +1,15 @@
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
-use crate::lint::parse_arm_buckets;
+use crate::lint::{RuntimePackage, compile_runtime_package, parse_arm_buckets};
 use crate::model::{
     AllocationInspectReport, PackageInspectReport, PackageInspectRequest, RulePathwayInspectReport,
     VariableInspectReport, VariableResolutionTrace,
 };
-use crate::resolve::{allocation_bucket, trace_variable_resolution};
+use crate::resolve::{allocation_bucket, trace_variable_unchecked};
 use crate::source::{SourceOptions, stage_package_source};
 
 mod context_factory;
@@ -131,6 +130,9 @@ pub async fn generate_resolve_invocations(
 
     let variable_ids = selected_variable_ids(&report, &selection.variables)?;
     let factory = ContextFactory::new(&report);
+    // The fixture hunt traces many candidate contexts per variable; one
+    // compiled runtime serves them all instead of recompiling per trace.
+    let runtime = compile_runtime_package(staged.path()).await?;
 
     let mut invocations = Vec::new();
 
@@ -140,10 +142,21 @@ pub async fn generate_resolve_invocations(
             .iter()
             .find(|variable| variable.id == id)
             .expect("selected variable id was validated");
-        generate_variable_invocations(staged.path(), variable, &factory, &mut invocations).await?;
+        generate_variable_invocations(&runtime, variable, &factory, &mut invocations)?;
     }
 
     Ok(invocations)
+}
+
+/// One traced resolution against the shared compiled runtime, with the same
+/// per-variable context validation `trace_variable_resolution` performs.
+fn trace_candidate(
+    runtime: &RuntimePackage,
+    id: &str,
+    context: &JsonValue,
+) -> Result<VariableResolutionTrace> {
+    runtime.validate_context_for_variable(id, context)?;
+    trace_variable_unchecked(runtime, id, context)
 }
 
 fn selected_variable_ids(
@@ -180,8 +193,8 @@ fn selected_ids<'a>(
     }
 }
 
-async fn generate_variable_invocations(
-    package: &Path,
+fn generate_variable_invocations(
+    runtime: &RuntimePackage,
     variable: &VariableInspectReport,
     factory: &ContextFactory,
     out: &mut Vec<ResolveInvocation>,
@@ -190,13 +203,13 @@ async fn generate_variable_invocations(
 
     if variable.resolve.method == "allocation" {
         if let Some(allocation) = &variable.resolve.allocation {
-            generate_allocation_invocations(package, variable, allocation, factory, out).await?;
+            generate_allocation_invocations(runtime, variable, allocation, factory, out)?;
         }
         return Ok(());
     }
 
-    if let Some(context) = variable_default_context(package, variable, factory).await? {
-        let trace = trace_variable_resolution(package, &variable.id, &context).await?;
+    if let Some(context) = variable_default_context(runtime, variable, factory)? {
+        let trace = trace_candidate(runtime, &variable.id, &context)?;
         if trace.rules.iter().any(|rule| rule.matched) {
             return Err(RototoError::new(format!(
                 "generated default fixture matched a rule for variable: {}",
@@ -214,10 +227,10 @@ async fn generate_variable_invocations(
     }
 
     for rule in &variable.resolve.rules {
-        let Some(context) = variable_rule_context(package, variable, rule, factory).await? else {
+        let Some(context) = variable_rule_context(runtime, variable, rule, factory)? else {
             continue;
         };
-        let trace = trace_variable_resolution(package, &variable.id, &context).await?;
+        let trace = trace_candidate(runtime, &variable.id, &context)?;
         if !trace
             .rules
             .iter()
@@ -257,8 +270,8 @@ const MAX_UNIT_CANDIDATES: u32 = 8192;
 /// Fixture cases for a `method = "allocation"` variable: one unit id per arm
 /// (found by hashing candidates against the layer's diversion, exactly the way
 /// resolution will) plus a no-arm case that lands on the default.
-async fn generate_allocation_invocations(
-    package: &Path,
+fn generate_allocation_invocations(
+    runtime: &RuntimePackage,
     variable: &VariableInspectReport,
     allocation: &AllocationInspectReport,
     factory: &ContextFactory,
@@ -268,7 +281,7 @@ async fn generate_allocation_invocations(
 
     // The no-arm case: the unit is not enrolled or lands in unclaimed buckets.
     for context in factory.candidate_contexts() {
-        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
+        if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace
                 .allocation
                 .as_ref()
@@ -326,7 +339,7 @@ async fn generate_allocation_invocations(
                 &unit_path,
                 JsonValue::String(unit_value.clone()),
             );
-            let Ok(trace) = trace_variable_resolution(package, &variable.id, &context).await else {
+            let Ok(trace) = trace_candidate(runtime, &variable.id, &context) else {
                 continue;
             };
             let assigned = trace
@@ -425,14 +438,14 @@ fn rule_condition_label(rule: &RulePathwayInspectReport) -> String {
 /// The first candidate context that drives `rule` to win for `variable`.
 /// Selection is by real resolution, so the rule under test must be the one that
 /// actually matches (earlier rules kept false), not merely have a true `when`.
-async fn variable_rule_context(
-    package: &Path,
+fn variable_rule_context(
+    runtime: &RuntimePackage,
     variable: &VariableInspectReport,
     rule: &RulePathwayInspectReport,
     factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
     for context in factory.candidate_contexts() {
-        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
+        if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace
                 .rules
                 .iter()
@@ -447,13 +460,13 @@ async fn variable_rule_context(
 
 /// The first candidate context under which no rule matches, so `variable`
 /// resolves to its default.
-async fn variable_default_context(
-    package: &Path,
+fn variable_default_context(
+    runtime: &RuntimePackage,
     variable: &VariableInspectReport,
     factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
     for context in factory.candidate_contexts() {
-        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
+        if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace.rules.iter().all(|rule| !rule.matched)
         {
             return Ok(Some(context.clone()));

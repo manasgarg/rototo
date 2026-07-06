@@ -25,14 +25,18 @@ pub use diagnostics_catalog::{
 };
 pub use error::{Result, RototoError};
 pub use inspect::inspect_package_report;
-pub use lint::{diff_packages, lint_catalog, lint_package, lint_variable};
+pub use lint::{
+    UpcomingChange, UpcomingChangeSite, diff_packages, lint_catalog, lint_package, lint_variable,
+    upcoming_changes,
+};
 pub use pack::{PackagedArchive, pack_package, project_package};
 pub use package::{
     find_package_root, inspect_package, list_catalogs, list_variables, read_catalog, read_catalogs,
     read_variable, read_variables,
 };
 pub use resolve::{
-    resolve_variable, resolve_variables, trace_variable_resolution, trace_variable_resolutions,
+    resolve_variable, resolve_variables, trace_variable_resolution,
+    trace_variable_resolution_outcomes, trace_variable_resolutions,
 };
 pub use sdk::{
     EvaluationContext, LintMode, LoadOptions, Package, PackageIdentity, PackageLayerIdentity,

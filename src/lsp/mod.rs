@@ -6,10 +6,7 @@ mod server;
 mod transport;
 mod uri;
 
-#[cfg(feature = "console")]
-pub(crate) use server::serve;
-pub use server::serve_stdio;
-#[cfg(feature = "console")]
+pub use server::{serve, serve_stdio};
 #[cfg(feature = "console")]
 pub(crate) use transport::{read_message, write_notification, write_request};
 

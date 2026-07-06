@@ -291,6 +291,9 @@ mod eval;
 mod references;
 mod synthesize;
 mod types;
+mod upcoming;
+
+pub(crate) use upcoming::TimeBoundary;
 
 use eval::*;
 use references::*;

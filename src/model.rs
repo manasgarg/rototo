@@ -525,6 +525,19 @@ pub struct VariableResolutionTrace {
     pub allocation: Option<VariableAllocationTrace>,
 }
 
+/// One variable's traced resolution in a lenient batch: either the trace or
+/// the error that stopped it. A variable whose rules read a context key the
+/// caller did not supply fails alone instead of failing the whole batch,
+/// which is what lets a package overview stay honest about partial contexts.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VariableTraceOutcome {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<VariableResolutionTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct VariableAllocationTrace {

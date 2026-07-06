@@ -25,6 +25,7 @@ mod source;
 mod stages;
 mod symbols;
 mod syntax;
+mod upcoming;
 
 pub(crate) use evaluation_context::EvaluationContextCompatibility;
 pub(crate) use index::parse_arm_buckets;
@@ -47,6 +48,7 @@ pub(crate) use symbols::{
     PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
     PackageDocumentSymbolKind, PackageHover, PackageReference,
 };
+pub use upcoming::{UpcomingChange, UpcomingChangeSite};
 
 const PACKAGE_MANIFEST: &str = "rototo-package.toml";
 /// Lints the package and projects its semantic and reference indexes into
@@ -58,6 +60,15 @@ pub async fn package_semantic_model(package_root: &Path) -> Result<PackageSemant
 
 pub async fn lint_package(package_root: &Path) -> Result<PackageLint> {
     lint_package_with_input(LintInput::new(package_root.to_path_buf())).await
+}
+
+/// Behavior scheduled to change after `now` (an RFC3339 instant): every rule
+/// and query expression comparing `env.now` against a literal instant that
+/// has not passed yet. These changes happen with no commit and no deploy,
+/// which is exactly why tools surface them ahead of time.
+pub async fn upcoming_changes(package_root: &Path, now: &str) -> Result<Vec<UpcomingChange>> {
+    let snapshot = lint_package_snapshot(LintInput::new(package_root.to_path_buf())).await?;
+    upcoming::upcoming_changes(&snapshot, now)
 }
 
 pub async fn diff_packages(

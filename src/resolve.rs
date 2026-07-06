@@ -15,7 +15,7 @@ use crate::lint::{
 };
 use crate::model::VariableAllocationTrace;
 use crate::model::{VariableResolution, VariableResolutionSource};
-use crate::model::{VariableResolutionTrace, VariableRuleResolutionTrace};
+use crate::model::{VariableResolutionTrace, VariableRuleResolutionTrace, VariableTraceOutcome};
 
 /// A captured variable resolution trace plus the `[[trace]]` policy indices that
 /// selected it. Returned by [`resolve_variable_traced_unchecked`] for the SDK to
@@ -138,6 +138,45 @@ pub(crate) fn resolve_variables_unchecked(
         resolutions.push(resolve_variable_with_state(runtime, &mut state, &id)?);
     }
     Ok(resolutions)
+}
+
+/// Traced resolution of every variable where a variable that cannot resolve
+/// under this context yields its error instead of failing the batch. Shares
+/// one state exactly like [`trace_variable_resolutions`], so the successful
+/// traces here never disagree with the strict batch.
+pub async fn trace_variable_resolution_outcomes(
+    package_root: &Path,
+    context: &JsonValue,
+) -> Result<Vec<VariableTraceOutcome>> {
+    let runtime = compile_runtime_package(package_root).await?;
+    runtime.validate_context(context)?;
+    Ok(trace_variable_resolution_outcomes_unchecked(
+        &runtime, context,
+    ))
+}
+
+pub(crate) fn trace_variable_resolution_outcomes_unchecked(
+    runtime: &RuntimePackage,
+    context: &JsonValue,
+) -> Vec<VariableTraceOutcome> {
+    let ids: Vec<String> = runtime.variables.keys().cloned().collect();
+    let mut state = ResolutionState::new(runtime, context);
+    ids.into_iter()
+        .map(
+            |id| match resolve_variable_trace_with_state(runtime, &mut state, &id) {
+                Ok(trace) => VariableTraceOutcome {
+                    id,
+                    trace: Some(trace),
+                    error: None,
+                },
+                Err(err) => VariableTraceOutcome {
+                    id,
+                    trace: None,
+                    error: Some(err.to_string()),
+                },
+            },
+        )
+        .collect()
 }
 
 pub(crate) fn trace_variable_resolutions_unchecked(
@@ -1753,6 +1792,49 @@ value = "save time"
                 assert!(trace.rules[0].matched);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn outcome_batch_isolates_missing_context_key_failures() {
+        // A package overview resolves everything under one partial context.
+        // The variable whose rule reads the absent key fails alone; the rest
+        // of the batch still traces, and dependents of the failing variable
+        // fail with it instead of silently resolving.
+        let package = package_with_conditions(&[
+            ("premium", condition(r#"context.user.tier == "premium""#)),
+            ("lane_dev", condition(r#"context.lane == "dev""#)),
+            ("routed", condition(r#"variables["lane_dev"]"#)),
+        ]);
+        let partial = serde_json::json!({ "user": { "tier": "premium" } });
+
+        // The strict batch refuses the whole context.
+        let err = trace_variable_resolutions(package.path(), &partial)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("No such key"));
+
+        let outcomes = trace_variable_resolution_outcomes(package.path(), &partial)
+            .await
+            .unwrap();
+        let outcome = |id: &str| outcomes.iter().find(|outcome| outcome.id == id).unwrap();
+        let premium = outcome("premium");
+        assert_eq!(
+            premium.trace.as_ref().unwrap().resolution.value,
+            serde_json::json!(true)
+        );
+        assert!(premium.error.is_none());
+        for id in ["lane_dev", "routed"] {
+            let failed = outcome(id);
+            assert!(failed.trace.is_none());
+            assert!(failed.error.as_ref().unwrap().contains("No such key"));
+        }
+
+        // A context covering every key read clears the whole batch.
+        let full = serde_json::json!({ "user": { "tier": "premium" }, "lane": "dev" });
+        let outcomes = trace_variable_resolution_outcomes(package.path(), &full)
+            .await
+            .unwrap();
+        assert!(outcomes.iter().all(|outcome| outcome.trace.is_some()));
     }
 
     fn package_with_conditions(conditions: &[(&str, String)]) -> tempfile::TempDir {
