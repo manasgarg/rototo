@@ -32,10 +32,16 @@ export type MeResponse = {
         displayName: string;
         status: string;
     } | null;
-    identities: unknown[];
+    identities: {
+        provider: string;
+        login?: string | null;
+        name?: string | null;
+        email?: string | null;
+        hasCredential?: boolean;
+    }[];
     enrollment: "enrolled" | null;
     githubCredentialSource?: string | null;
-    signIn?: { github: boolean };
+    signIn?: { github: boolean; oidc?: { displayName: string } | null };
     capabilities?: {
         deployment: CapabilitySummary;
         sourceTrees: SourceTreeSummary[];
@@ -411,11 +417,79 @@ export type PackageReview = {
     }[];
 };
 
+export type RedactedPackageReview = {
+    path: string;
+    redacted: true;
+    files: number;
+};
+
 export type ChangeSetReview = {
     basePin: string;
     headPin: string;
     files: string[];
-    packages: PackageReview[];
+    packages: (PackageReview | RedactedPackageReview)[];
+};
+
+// --- approvals and the admin surface (tranche C5) ---
+
+export type ApprovalPolicyStatus = {
+    requirements: (
+        | { kind: "role"; role: string; surfaces: string[] }
+        | { kind: "second-person" }
+    )[];
+    autoApproved: string[];
+    satisfied: boolean;
+    missing: string[];
+};
+
+export type ApprovalRecord = {
+    changeSetId: string;
+    principalId: string;
+    approvedAt: string;
+};
+
+export type AdminPrincipal = {
+    id: string;
+    displayName: string;
+    status: "active" | "disabled";
+    identities: {
+        provider: string;
+        login: string | null;
+        email: string | null;
+        hasCredential: boolean;
+    }[];
+    groups: string[];
+};
+
+export type AdminGroup = {
+    id: string;
+    name: string;
+    description: string | null;
+    members: string[];
+};
+
+export type AdminGrant = {
+    id: string;
+    granteeKind: "principal" | "group";
+    granteeId: string;
+    action: string;
+    resource: string;
+    createdAt: string;
+};
+
+export type AdminInvitation = {
+    id: string;
+    email: string;
+    providerRestriction: string | null;
+    initialGroups: string[];
+    initialGrants: { action: string; resource: string }[];
+    expiresAt: string;
+    redeemedBy: string | null;
+};
+
+export type AdminDiagnostic = {
+    severity: "warning" | "info";
+    message: string;
 };
 
 export class ApiError extends Error {
@@ -641,10 +715,106 @@ export function fetchSurface(
     );
 }
 
-export function fetchReview(
-    changeSetId: string,
-): Promise<{ changeSet: ChangeSet; review: ChangeSetReview }> {
+export function fetchReview(changeSetId: string): Promise<{
+    changeSet: ChangeSet;
+    review: ChangeSetReview;
+    approvals: ApprovalRecord[];
+    contributors: string[];
+    policy: ApprovalPolicyStatus;
+}> {
     return apiGet(`/api/change-sets/${changeSetId}/review`);
+}
+
+export function approveChangeSet(id: string): Promise<{
+    recorded: boolean;
+    merged: boolean;
+    waitingOn?: string[];
+    mergeSha?: string;
+}> {
+    return apiPost(`/api/change-sets/${id}/approve`, {});
+}
+
+export function mergeChangeSet(
+    id: string,
+): Promise<{ merged: boolean; mergeSha: string }> {
+    return apiPost(`/api/change-sets/${id}/merge`, {});
+}
+
+// --- the admin surface ---
+
+export function adminPrincipals(): Promise<{ principals: AdminPrincipal[] }> {
+    return apiGet("/api/admin/principals");
+}
+
+export function adminSetPrincipalStatus(
+    id: string,
+    status: "active" | "disabled",
+): Promise<{ ok: boolean }> {
+    return apiPost(`/api/admin/principals/${id}/status`, { status });
+}
+
+export function adminGroups(): Promise<{ groups: AdminGroup[] }> {
+    return apiGet("/api/admin/groups");
+}
+
+export function adminCreateGroup(
+    name: string,
+    description?: string,
+): Promise<{ group: AdminGroup }> {
+    return apiPost("/api/admin/groups", { name, description });
+}
+
+export function adminGroupMember(
+    groupId: string,
+    principalId: string,
+    remove: boolean,
+): Promise<{ members: string[] }> {
+    return apiPost(`/api/admin/groups/${groupId}/members`, {
+        principalId,
+        remove,
+    });
+}
+
+export function adminGrants(): Promise<{ grants: AdminGrant[] }> {
+    return apiGet("/api/admin/grants");
+}
+
+export function adminCreateGrant(input: {
+    granteeKind: "principal" | "group";
+    granteeId: string;
+    action: string;
+    resource: string;
+}): Promise<{ grant: AdminGrant }> {
+    return apiPost("/api/admin/grants", input);
+}
+
+export function adminRevokeGrant(id: string): Promise<{ ok: boolean }> {
+    return apiPost(`/api/admin/grants/${id}/revoke`, {});
+}
+
+export function adminInvitations(): Promise<{
+    invitations: AdminInvitation[];
+}> {
+    return apiGet("/api/admin/invitations");
+}
+
+export function adminCreateInvitation(input: {
+    email: string;
+    providerRestriction?: string;
+    initialGroups?: string[];
+    initialGrants?: { action: string; resource: string }[];
+}): Promise<{
+    invitation: { id: string; email: string };
+    token: string;
+    link: string;
+}> {
+    return apiPost("/api/admin/invitations", input);
+}
+
+export function adminDiagnostics(): Promise<{
+    diagnostics: AdminDiagnostic[];
+}> {
+    return apiGet("/api/admin/diagnostics");
 }
 
 // --- the LSP bridge: live diagnostics for the raw-text editor ---

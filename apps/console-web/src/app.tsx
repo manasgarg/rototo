@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { RototoMark } from "@/components/rototo-mark";
 import { fetchMe, type MeResponse, type SourceTreeSummary } from "@/lib/api";
 import { navigate, useHashPath } from "@/lib/router";
+import { AdminPage } from "@/pages/admin";
 import { ChangeSetPage, ChangesPage } from "@/pages/changes";
 import { SurfacesPage } from "@/pages/surfaces";
 import { WorkbenchPage } from "@/pages/workbench";
@@ -18,7 +19,9 @@ type Route =
     | { page: "surfaces"; treeId: string }
     | { page: "history"; treeId: string }
     | { page: "changes"; treeId: string }
-    | { page: "change-set"; id: string };
+    | { page: "change-set"; id: string }
+    | { page: "admin" }
+    | { page: "not-enrolled" };
 
 function parseRoute(path: string): Route {
     const segments = path.split("/").filter((segment) => segment !== "");
@@ -33,6 +36,12 @@ function parseRoute(path: string): Route {
     }
     if (segments[0] === "change-sets" && segments[1] !== undefined) {
         return { page: "change-set", id: segments[1] };
+    }
+    if (segments[0] === "admin") {
+        return { page: "admin" };
+    }
+    if (segments[0] === "not-enrolled") {
+        return { page: "not-enrolled" };
     }
     return { page: "home" };
 }
@@ -112,6 +121,13 @@ export function App() {
                                 : undefined
                         }
                     />
+                    {me?.capabilities?.deployment.administer.allow === true ? (
+                        <Lens
+                            label="Admin"
+                            active={route.page === "admin"}
+                            onClick={() => navigate("/admin")}
+                        />
+                    ) : null}
                 </nav>
                 <SideUser me={me} />
             </aside>
@@ -175,7 +191,11 @@ export function App() {
                         ) : route.page === "changes" ? (
                             <ChangesPage me={me} treeId={route.treeId} />
                         ) : route.page === "change-set" ? (
-                            <ChangeSetPage id={route.id} />
+                            <ChangeSetPage id={route.id} me={me} />
+                        ) : route.page === "admin" ? (
+                            <AdminPage me={me} />
+                        ) : route.page === "not-enrolled" ? (
+                            <NotEnrolled />
                         ) : (
                             <Home me={me} />
                         )}
@@ -231,23 +251,43 @@ function SideUser({ me }: { me: MeResponse | null }) {
     );
 }
 
+function NotEnrolled() {
+    return (
+        <div className="card">
+            <h1>Not enrolled</h1>
+            <p className="hint">
+                You signed in, but this identity is not enrolled here.
+                Completing authentication never grants access by itself; ask
+                an administrator for an invitation, then open its link.
+            </p>
+        </div>
+    );
+}
+
 function Home({ me }: { me: MeResponse }) {
     if (me.principal === null) {
         return (
             <div className="card">
                 <h1>Sign in</h1>
                 <p className="hint">
-                    This console runs in team mode; sign in with GitHub to see
-                    the packages your repositories give you.
+                    This console runs in team mode; what you can see and do is
+                    decided per person.
                 </p>
-                {me.signIn?.github ? (
-                    <a
-                        className="btn btn-primary"
-                        href="/api/auth/github/start"
-                    >
-                        Sign in with GitHub
-                    </a>
-                ) : null}
+                <div className="action-row">
+                    {me.signIn?.oidc != null ? (
+                        <a className="btn btn-primary" href="/api/auth/oidc/start">
+                            Sign in with {me.signIn.oidc.displayName}
+                        </a>
+                    ) : null}
+                    {me.signIn?.github ? (
+                        <a
+                            className={`btn ${me.signIn?.oidc != null ? "btn-secondary" : "btn-primary"}`}
+                            href="/api/auth/github/start"
+                        >
+                            Sign in with GitHub
+                        </a>
+                    ) : null}
+                </div>
             </div>
         );
     }
@@ -265,6 +305,10 @@ function Home({ me }: { me: MeResponse }) {
             </div>
         );
     }
+    const hasGithubCredential = (me.identities ?? []).some(
+        (identity) =>
+            identity.provider === "github" && identity.hasCredential === true,
+    );
     return (
         <div className="section">
             <div className="section-header-text">
@@ -277,6 +321,18 @@ function Home({ me }: { me: MeResponse }) {
             {trees.map((tree) => (
                 <SourceTreeCard key={tree.id} tree={tree} />
             ))}
+            {!hasGithubCredential && me.signIn?.github ? (
+                <div className="card">
+                    <p className="hint">
+                        Writes act through the console's GitHub App on your
+                        behalf. Linking your own GitHub account makes commits
+                        yours directly.{" "}
+                        <a className="pill-link" href="/api/auth/github/start?link=1">
+                            Link GitHub
+                        </a>
+                    </p>
+                </div>
+            ) : null}
         </div>
     );
 }

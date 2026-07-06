@@ -9,13 +9,17 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
     abandonChangeSet,
+    approveChangeSet,
     fetchReview,
     listChangeSets,
+    mergeChangeSet,
     readChangeSet,
     readPackage,
     reconcileChangeSet,
     saveEdit,
     submitChangeSet,
+    type ApprovalPolicyStatus,
+    type ApprovalRecord,
     type ChangeSet,
     type ChangeSetDetail,
     type ChangeSetReview,
@@ -23,6 +27,7 @@ import {
     type LintDiagnostic,
     type MeResponse,
     type PackageReview,
+    type RedactedPackageReview,
     type ReviewContext,
     type SemanticChange,
 } from "@/lib/api";
@@ -118,7 +123,13 @@ export function ChangesPage({
     );
 }
 
-export function ChangeSetPage({ id }: { id: string }) {
+export function ChangeSetPage({
+    id,
+    me,
+}: {
+    id: string;
+    me: MeResponse | null;
+}) {
     const [detail, setDetail] = useState<ChangeSetDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -249,7 +260,7 @@ export function ChangeSetPage({ id }: { id: string }) {
             </div>
 
             {changeSet.state === "draft" || changeSet.state === "proposed" ? (
-                <ReviewPanel changeSet={changeSet} onChanged={refresh} />
+                <ReviewPanel changeSet={changeSet} me={me} onChanged={refresh} />
             ) : null}
 
             <div className="section-header-text">
@@ -290,17 +301,28 @@ export function ChangeSetPage({ id }: { id: string }) {
 
 function ReviewPanel({
     changeSet,
+    me,
     onChanged,
 }: {
     changeSet: ChangeSet;
+    me: MeResponse | null;
     onChanged: () => void;
 }) {
     const [review, setReview] = useState<ChangeSetReview | null>(null);
+    const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+    const [contributors, setContributors] = useState<string[]>([]);
+    const [policy, setPolicy] = useState<ApprovalPolicyStatus | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [acting, setActing] = useState(false);
 
     const load = useCallback(() => {
         fetchReview(changeSet.id).then(
-            (response) => setReview(response.review),
+            (response) => {
+                setReview(response.review);
+                setApprovals(response.approvals);
+                setContributors(response.contributors);
+                setPolicy(response.policy);
+            },
             (failure: Error) => setError(failure.message),
         );
     }, [changeSet.id]);
@@ -314,32 +336,126 @@ function ReviewPanel({
     if (review === null) {
         return <p className="muted">Computing the review…</p>;
     }
-    if (review.packages.length === 0) {
-        return (
-            <div className="card">
-                <h2>Review</h2>
-                <p className="hint">
-                    No package changes yet; the review fills in as commits
-                    land on the branch.
-                </p>
-            </div>
-        );
-    }
+    const act = (action: Promise<unknown>) => {
+        setActing(true);
+        action
+            .then(
+                () => {
+                    setError(null);
+                    load();
+                    onChanged();
+                },
+                (failure: Error) => setError(failure.message),
+            )
+            .finally(() => setActing(false));
+    };
+    const isContributor =
+        me?.principal != null && contributors.includes(me.principal.id);
+
     return (
         <>
-            {review.packages.map((pkg) => (
-                <PackageReviewView
-                    key={pkg.path}
-                    changeSet={changeSet}
-                    headPin={review.headPin}
-                    pkg={pkg}
-                    onPromoted={() => {
-                        load();
-                        onChanged();
-                    }}
-                />
-            ))}
+            {changeSet.state === "proposed" && policy !== null ? (
+                <div className="card">
+                    <h2>Approval</h2>
+                    {policy.satisfied ? (
+                        <p className="hint">
+                            Every requirement is satisfied; merging will land
+                            the change.
+                        </p>
+                    ) : (
+                        <div>
+                            {policy.missing.map((line, index) => (
+                                <p className="diagnostic" key={index}>
+                                    <span className="pill pill-info">
+                                        waiting on
+                                    </span>{" "}
+                                    {line}
+                                </p>
+                            ))}
+                        </div>
+                    )}
+                    {approvals.length > 0 ? (
+                        <p className="hint">
+                            Approved by{" "}
+                            {approvals
+                                .map((approval) => approval.principalId)
+                                .join(", ")}
+                        </p>
+                    ) : null}
+                    <div className="card-actions">
+                        {isContributor ? (
+                            <span
+                                className="hint"
+                                title="The two-person rule: everyone who committed is disqualified"
+                            >
+                                You contributed to this change, so you cannot
+                                approve it.
+                            </span>
+                        ) : (
+                            <button
+                                className="btn btn-primary btn-sm"
+                                disabled={acting}
+                                onClick={() =>
+                                    act(approveChangeSet(changeSet.id))
+                                }
+                            >
+                                Approve
+                            </button>
+                        )}
+                        {policy.satisfied ? (
+                            <button
+                                className="btn btn-secondary btn-sm"
+                                disabled={acting}
+                                onClick={() =>
+                                    act(mergeChangeSet(changeSet.id))
+                                }
+                            >
+                                Merge
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+            {review.packages.length === 0 ? (
+                <div className="card">
+                    <h2>Review</h2>
+                    <p className="hint">
+                        No package changes yet; the review fills in as commits
+                        land on the branch.
+                    </p>
+                </div>
+            ) : null}
+            {review.packages.map((pkg) =>
+                "redacted" in pkg ? (
+                    <RedactedPackageView key={pkg.path} pkg={pkg} />
+                ) : (
+                    <PackageReviewView
+                        key={pkg.path}
+                        changeSet={changeSet}
+                        headPin={review.headPin}
+                        pkg={pkg}
+                        onPromoted={() => {
+                            load();
+                            onChanged();
+                        }}
+                    />
+                ),
+            )}
         </>
+    );
+}
+
+// Existence is disclosed; content is not. The count keeps the reviewer
+// honest about what they cannot judge.
+function RedactedPackageView({ pkg }: { pkg: RedactedPackageReview }) {
+    return (
+        <div className="card">
+            <h3 className="mono">{pkg.path}</h3>
+            <p className="hint">
+                This change also touches {pkg.files} file
+                {pkg.files === 1 ? "" : "s"} in a package you cannot view.
+            </p>
+        </div>
     );
 }
 
