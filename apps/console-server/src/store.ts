@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export type PrincipalRow = {
     id: string;
@@ -71,6 +71,58 @@ export type IdentitySnapshot = {
     emailVerified: boolean;
     name: string | null;
     avatarUrl: string | null;
+};
+
+export type ChangeSetState = "draft" | "proposed" | "merged" | "abandoned";
+
+// One row per proposed change: one branch, at most one PR
+// (design/console-git-ops.md). Handlers write the intent columns; the
+// reconciler alone writes the observed ones (prNumber through observedVia).
+export type ChangeSetRow = {
+    id: string;
+    sourceTreeId: string;
+    title: string;
+    authorPrincipal: string;
+    actingMode: "user" | "app";
+    baseRef: string;
+    baseShaAtCreation: string | null;
+    state: ChangeSetState;
+    prNumber: number | null;
+    prUrl: string | null;
+    headSha: string | null;
+    behindBase: boolean;
+    conflicted: boolean;
+    observedVia: string | null;
+    lastReconciledAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+// The observed facts, written only by the reconciler.
+export type ChangeSetObserved = {
+    state?: ChangeSetState;
+    prNumber?: number | null;
+    prUrl?: string | null;
+    headSha: string | null;
+    behindBase: boolean;
+    conflicted: boolean;
+    observedVia: string;
+};
+
+export type ChangeSetCollaboratorRow = {
+    changeSetId: string;
+    principalId: string;
+    addedBy: string;
+    addedAt: string;
+};
+
+export type ChangeSetEventRow = {
+    id: number;
+    changeSetId: string;
+    at: string;
+    actor: string | null;
+    event: string;
+    detail: string | null;
 };
 
 export class Store {
@@ -164,6 +216,41 @@ export class Store {
                 event TEXT NOT NULL,
                 detail TEXT
             );
+            CREATE TABLE IF NOT EXISTS change_sets (
+                id TEXT PRIMARY KEY,
+                source_tree_id TEXT NOT NULL REFERENCES source_trees(id),
+                title TEXT NOT NULL,
+                author_principal TEXT NOT NULL,
+                acting_mode TEXT NOT NULL CHECK (acting_mode IN ('user', 'app')),
+                base_ref TEXT NOT NULL,
+                base_sha_at_creation TEXT,
+                state TEXT NOT NULL
+                    CHECK (state IN ('draft', 'proposed', 'merged', 'abandoned')),
+                pr_number INTEGER,
+                pr_url TEXT,
+                head_sha TEXT,
+                behind_base INTEGER NOT NULL DEFAULT 0,
+                conflicted INTEGER NOT NULL DEFAULT 0,
+                observed_via TEXT,
+                last_reconciled_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS change_set_collaborators (
+                change_set_id TEXT NOT NULL REFERENCES change_sets(id),
+                principal_id TEXT NOT NULL,
+                added_by TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                UNIQUE (change_set_id, principal_id)
+            );
+            CREATE TABLE IF NOT EXISTS change_set_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                change_set_id TEXT NOT NULL REFERENCES change_sets(id),
+                at TEXT NOT NULL,
+                actor TEXT,
+                event TEXT NOT NULL,
+                detail TEXT
+            );
         `);
         this.db
             .prepare(
@@ -223,6 +310,18 @@ export class Store {
                 "SELECT * FROM identities WHERE provider = ? AND subject = ?",
             )
             .get(provider, subject) as Record<string, unknown> | undefined;
+        return row === undefined ? null : identityFromRow(row);
+    }
+
+    // Best-effort lookup for the fire drill's authorship rebuild. Logins
+    // are mutable display data, never authorization keys; (provider,
+    // subject) stays the identity key everywhere else.
+    identityByLogin(provider: string, login: string): IdentityRow | null {
+        const row = this.db
+            .prepare(
+                "SELECT * FROM identities WHERE provider = ? AND login = ? ORDER BY last_seen_at DESC LIMIT 1",
+            )
+            .get(provider, login) as Record<string, unknown> | undefined;
         return row === undefined ? null : identityFromRow(row);
     }
 
@@ -440,6 +539,171 @@ export class Store {
             )
             .run(isoNow(), actor, event, detail);
     }
+
+    // Change sets. Intent columns (title, state on submit/abandon) are
+    // written by request handlers; the observed columns are written only
+    // through updateChangeSetObserved, which the reconciler owns.
+
+    insertChangeSet(input: {
+        id: string;
+        sourceTreeId: string;
+        title: string;
+        authorPrincipal: string;
+        actingMode: "user" | "app";
+        baseRef: string;
+        baseShaAtCreation: string | null;
+        state: ChangeSetState;
+    }): ChangeSetRow {
+        const now = isoNow();
+        this.db
+            .prepare(
+                `INSERT INTO change_sets (
+                    id, source_tree_id, title, author_principal, acting_mode,
+                    base_ref, base_sha_at_creation, state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+                input.id,
+                input.sourceTreeId,
+                input.title,
+                input.authorPrincipal,
+                input.actingMode,
+                input.baseRef,
+                input.baseShaAtCreation,
+                input.state,
+                now,
+                now,
+            );
+        return this.getChangeSet(input.id) as ChangeSetRow;
+    }
+
+    getChangeSet(id: string): ChangeSetRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM change_sets WHERE id = ?")
+            .get(id) as Record<string, unknown> | undefined;
+        return row === undefined ? null : changeSetFromRow(row);
+    }
+
+    listChangeSets(sourceTreeId: string): ChangeSetRow[] {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM change_sets WHERE source_tree_id = ? ORDER BY created_at DESC",
+            )
+            .all(sourceTreeId) as Record<string, unknown>[];
+        return rows.map(changeSetFromRow);
+    }
+
+    // The reconciler's work list: everything still able to change on GitHub.
+    listOpenChangeSets(): ChangeSetRow[] {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM change_sets WHERE state IN ('draft', 'proposed') ORDER BY created_at",
+            )
+            .all() as Record<string, unknown>[];
+        return rows.map(changeSetFromRow);
+    }
+
+    // Handler-side transitions: submit (draft -> proposed) and abandon.
+    setChangeSetState(id: string, state: ChangeSetState): void {
+        this.db
+            .prepare(
+                "UPDATE change_sets SET state = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(state, isoNow(), id);
+    }
+
+    // The reconciler's single writer for observed facts (rule 4: write down
+    // what we want, watch what actually happens).
+    updateChangeSetObserved(id: string, observed: ChangeSetObserved): void {
+        const now = isoNow();
+        const current = this.getChangeSet(id);
+        if (current === null) {
+            return;
+        }
+        this.db
+            .prepare(
+                `UPDATE change_sets SET
+                    state = ?, pr_number = ?, pr_url = ?, head_sha = ?,
+                    behind_base = ?, conflicted = ?, observed_via = ?,
+                    last_reconciled_at = ?, updated_at = ?
+                 WHERE id = ?`,
+            )
+            .run(
+                observed.state ?? current.state,
+                observed.prNumber === undefined
+                    ? current.prNumber
+                    : observed.prNumber,
+                observed.prUrl === undefined ? current.prUrl : observed.prUrl,
+                observed.headSha,
+                observed.behindBase ? 1 : 0,
+                observed.conflicted ? 1 : 0,
+                observed.observedVia,
+                now,
+                now,
+                id,
+            );
+    }
+
+    addChangeSetCollaborator(
+        changeSetId: string,
+        principalId: string,
+        addedBy: string,
+    ): void {
+        this.db
+            .prepare(
+                `INSERT OR IGNORE INTO change_set_collaborators
+                    (change_set_id, principal_id, added_by, added_at)
+                 VALUES (?, ?, ?, ?)`,
+            )
+            .run(changeSetId, principalId, addedBy, isoNow());
+    }
+
+    listChangeSetCollaborators(
+        changeSetId: string,
+    ): ChangeSetCollaboratorRow[] {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM change_set_collaborators WHERE change_set_id = ? ORDER BY added_at",
+            )
+            .all(changeSetId) as Record<string, unknown>[];
+        return rows.map((row) => ({
+            changeSetId: row.change_set_id as string,
+            principalId: row.principal_id as string,
+            addedBy: row.added_by as string,
+            addedAt: row.added_at as string,
+        }));
+    }
+
+    // The append-only diary: Layer 2's audit trail.
+    appendChangeSetEvent(
+        changeSetId: string,
+        actor: string | null,
+        event: string,
+        detail: string | null,
+    ): void {
+        this.db
+            .prepare(
+                `INSERT INTO change_set_events (change_set_id, at, actor, event, detail)
+                 VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(changeSetId, isoNow(), actor, event, detail);
+    }
+
+    listChangeSetEvents(changeSetId: string): ChangeSetEventRow[] {
+        const rows = this.db
+            .prepare(
+                "SELECT * FROM change_set_events WHERE change_set_id = ? ORDER BY id",
+            )
+            .all(changeSetId) as Record<string, unknown>[];
+        return rows.map((row) => ({
+            id: row.id as number,
+            changeSetId: row.change_set_id as string,
+            at: row.at as string,
+            actor: row.actor as string | null,
+            event: row.event as string,
+            detail: row.detail as string | null,
+        }));
+    }
 }
 
 function principalFromRow(row: Record<string, unknown>): PrincipalRow {
@@ -467,6 +731,28 @@ function identityFromRow(row: Record<string, unknown>): IdentityRow {
         credentialCiphertext: row.credential_ciphertext as string | null,
         createdAt: row.created_at as string,
         lastSeenAt: row.last_seen_at as string,
+    };
+}
+
+function changeSetFromRow(row: Record<string, unknown>): ChangeSetRow {
+    return {
+        id: row.id as string,
+        sourceTreeId: row.source_tree_id as string,
+        title: row.title as string,
+        authorPrincipal: row.author_principal as string,
+        actingMode: row.acting_mode as "user" | "app",
+        baseRef: row.base_ref as string,
+        baseShaAtCreation: row.base_sha_at_creation as string | null,
+        state: row.state as ChangeSetState,
+        prNumber: row.pr_number as number | null,
+        prUrl: row.pr_url as string | null,
+        headSha: row.head_sha as string | null,
+        behindBase: Boolean(row.behind_base),
+        conflicted: Boolean(row.conflicted),
+        observedVia: row.observed_via as string | null,
+        lastReconciledAt: row.last_reconciled_at as string | null,
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
     };
 }
 

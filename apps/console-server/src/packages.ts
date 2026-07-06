@@ -1,0 +1,64 @@
+// Staged package reading (design/console-git-ops.md rule 2): the Rust core
+// caches trees by (remote, pin), so nothing here can go stale and there is
+// no invalidation. TypeScript resolves refs; only full commit SHAs cross
+// this boundary.
+
+import path from "node:path";
+
+import { native, type NativePinStore } from "./native.ts";
+import type { SourceTreeRow } from "./store.ts";
+
+const PIN = /^[0-9a-f]{40}$/;
+
+export function isPin(value: string): boolean {
+    return PIN.test(value);
+}
+
+export type StagerOptions = {
+    // Where staged trees live; per-deployment under the data dir, or a
+    // scratch directory in ephemeral mode.
+    cacheRoot: string;
+    maxBytes?: number;
+    // Test seam: where a source tree's git remote actually is. Production
+    // is always the GitHub HTTPS remote.
+    remoteFor?: (tree: SourceTreeRow) => string;
+};
+
+export class PackageStager {
+    readonly remoteFor: (tree: SourceTreeRow) => string;
+    private readonly pins: NativePinStore;
+
+    constructor(options: StagerOptions) {
+        this.pins = new native._PinStore(options.cacheRoot, options.maxBytes);
+        this.remoteFor =
+            options.remoteFor ??
+            ((tree) => `https://github.com/${tree.owner}/${tree.name}.git`);
+    }
+
+    // The staged tree for a pin, as an absolute path.
+    async stageTree(
+        tree: SourceTreeRow,
+        pin: string,
+        token: string | null,
+    ): Promise<string> {
+        return this.pins.stage(this.remoteFor(tree), pin, token ?? undefined);
+    }
+
+    // A package root inside a staged tree; refuses paths that escape it.
+    packageRoot(treeRoot: string, packagePath: string): string {
+        return containedPath(treeRoot, packagePath, "package path");
+    }
+}
+
+// Resolves `relative` under `root` and refuses traversal outside it.
+export function containedPath(
+    root: string,
+    relative: string,
+    what: string,
+): string {
+    const resolved = path.resolve(root, relative);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        throw new Error(`${what} escapes the staged tree: ${relative}`);
+    }
+    return resolved;
+}

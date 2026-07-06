@@ -43,7 +43,7 @@ export type PackageLintJson = {
     diagnostics: JsonValue[];
 };
 
-type NativePinStore = {
+export type NativePinStore = {
     stage(remote: string, pin: string, token?: string): Promise<string>;
 };
 
