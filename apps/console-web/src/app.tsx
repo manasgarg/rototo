@@ -14,6 +14,7 @@ import { WorkbenchPage } from "@/pages/workbench";
 type Route =
     | { page: "home" }
     | { page: "workbench"; treeId: string }
+    | { page: "history"; treeId: string }
     | { page: "changes"; treeId: string }
     | { page: "change-set"; id: string };
 
@@ -22,7 +23,9 @@ function parseRoute(path: string): Route {
     if (segments[0] === "trees" && segments[1] !== undefined) {
         return segments[2] === "changes"
             ? { page: "changes", treeId: segments[1] }
-            : { page: "workbench", treeId: segments[1] };
+            : segments[2] === "history"
+              ? { page: "history", treeId: segments[1] }
+              : { page: "workbench", treeId: segments[1] };
     }
     if (segments[0] === "change-sets" && segments[1] !== undefined) {
         return { page: "change-set", id: segments[1] };
@@ -40,7 +43,9 @@ export function App() {
     }, []);
 
     const treeId =
-        route.page === "workbench" || route.page === "changes"
+        route.page === "workbench" ||
+        route.page === "changes" ||
+        route.page === "history"
             ? route.treeId
             : (me?.capabilities?.sourceTrees[0]?.id ?? null);
 
@@ -76,8 +81,14 @@ export function App() {
                     />
                     <Lens
                         label="History"
-                        disabled
-                        title="Arrives with the read-side tranche"
+                        active={route.page === "history"}
+                        disabled={treeId === null}
+                        onClick={() => navigate(`/trees/${treeId}/history`)}
+                        title={
+                            treeId === null
+                                ? "Register a source tree first"
+                                : undefined
+                        }
                     />
                     <Lens
                         label="Model"
@@ -112,9 +123,11 @@ export function App() {
                                 <span className="label">
                                     {route.page === "workbench"
                                         ? "Model"
-                                        : route.page === "change-set"
-                                          ? "Change set"
-                                          : "Changes"}
+                                        : route.page === "history"
+                                          ? "History"
+                                          : route.page === "change-set"
+                                            ? "Change set"
+                                            : "Changes"}
                                 </span>
                             </>
                         ) : null}
@@ -138,6 +151,12 @@ export function App() {
                             <p className="muted">Loading…</p>
                         ) : route.page === "workbench" ? (
                             <WorkbenchPage me={me} treeId={route.treeId} />
+                        ) : route.page === "history" ? (
+                            <WorkbenchPage
+                                me={me}
+                                treeId={route.treeId}
+                                initialView="history"
+                            />
                         ) : route.page === "changes" ? (
                             <ChangesPage me={me} treeId={route.treeId} />
                         ) : route.page === "change-set" ? (

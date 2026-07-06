@@ -66,14 +66,29 @@ export type VariableModel = {
     };
 };
 
+export type ModelEntityRef = Record<string, unknown> & {
+    kind: string;
+    id?: string;
+};
+
+export type ReferenceModel = {
+    from: ModelEntityRef;
+    to: ModelEntityRef;
+    via: { kind: string; index?: number };
+    location: ModelLocation;
+    declaration?: ModelLocation;
+};
+
 export type SemanticModel = {
     version: number;
+    extends: { source: string }[];
     variables: VariableModel[];
     catalogs: { id: string; path: string }[];
     catalogEntries: { catalog: string; key: string }[];
     enums: { id: string }[];
     evaluationContexts: { id: string; path: string }[];
     layers: { id: string }[];
+    references: ReferenceModel[];
 };
 
 export type LintDiagnostic = {
@@ -153,6 +168,90 @@ export type ChangeSetDetail = {
 // One operation on the structured edit path; the server-side engine defines
 // the vocabulary and validates the shape.
 export type EditOperation = Record<string, unknown> & { op: string };
+
+// --- the read side (tranche C3) ---
+
+export type RuleTrace = {
+    index: number;
+    condition: string;
+    value: unknown;
+    matched: boolean;
+};
+
+export type ResolutionTrace = {
+    resolution: { id: string; value: unknown };
+    default_value: unknown;
+    rules: RuleTrace[];
+    provenance?: string;
+    allocation?: {
+        layer: string;
+        allocation: string;
+        enrolled: boolean;
+        bucket?: number;
+        arm?: string;
+    };
+};
+
+// One variable in the lenient batch: the trace, or the error that stopped
+// it (a rule reading a context key the chosen context does not carry).
+export type TraceOutcome = {
+    id: string;
+    trace?: ResolutionTrace;
+    error?: string;
+};
+
+export type SampleContext = {
+    evaluationContext: string;
+    key: string;
+    context: Record<string, unknown> | null;
+};
+
+// A synthesized boundary context from the fixtures machinery: one behavior
+// case of one variable, with the expected outcome.
+export type SynthesizedContext = {
+    target: { kind: "variable"; id: string };
+    caseId: string;
+    title: string;
+    because: string | null;
+    context: Record<string, unknown>;
+    expect: {
+        kind: string;
+        value: unknown;
+        matched: { kind: string; index?: number; condition?: string };
+    };
+};
+
+export type ContextInventory = {
+    pin: string;
+    path: string;
+    samples: SampleContext[];
+    synthesized: SynthesizedContext[];
+};
+
+export type UpcomingChange = {
+    variable: string;
+    site:
+        | { kind: "rule"; index: number }
+        | { kind: "queryFilter" }
+        | { kind: "querySort" };
+    boundary: string;
+    comparison: string;
+    expression: string;
+    location: { path: string };
+};
+
+export type CommitRecord = {
+    sha: string;
+    message: string;
+    authorName: string | null;
+    date: string;
+};
+
+export type CompositionEdge = {
+    from: string;
+    source: string;
+    to: string | null;
+};
 
 export class ApiError extends Error {
     readonly status: number;
@@ -294,3 +393,114 @@ export function reconcileChangeSet(
 ): Promise<{ changeSet: ChangeSet }> {
     return apiPost(`/api/change-sets/${id}/reconcile`, {});
 }
+
+// --- read-side calls (tranche C3) ---
+
+export function fetchContexts(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+): Promise<ContextInventory> {
+    return apiGet(
+        `/api/source-trees/${treeId}/contexts?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+    );
+}
+
+export function runPreview(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+    context: Record<string, unknown>,
+): Promise<{ pin: string; outcomes: TraceOutcome[] }> {
+    return apiPost(
+        `/api/source-trees/${treeId}/preview?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+        { context },
+    );
+}
+
+export function fetchUpcoming(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+): Promise<{ now: string; changes: UpcomingChange[] }> {
+    return apiGet(
+        `/api/source-trees/${treeId}/upcoming?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+    );
+}
+
+export function fetchHistory(
+    treeId: string,
+    packagePath: string,
+    until?: string,
+): Promise<{ ref: string; commits: CommitRecord[] }> {
+    const bound =
+        until === undefined ? "" : `&until=${encodeURIComponent(until)}`;
+    return apiGet(
+        `/api/source-trees/${treeId}/history?path=${encodeURIComponent(packagePath)}${bound}`,
+    );
+}
+
+export function fetchComposition(
+    treeId: string,
+    ref?: string,
+): Promise<{
+    ref: string;
+    pin: string;
+    nodes: { path: string }[];
+    edges: CompositionEdge[];
+}> {
+    const query = ref === undefined ? "" : `?ref=${encodeURIComponent(ref)}`;
+    return apiGet(`/api/source-trees/${treeId}/composition${query}`);
+}
+
+// --- the LSP bridge: live diagnostics for the raw-text editor ---
+
+export function openLspSession(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+): Promise<{ session: string }> {
+    return apiPost(`/api/source-trees/${treeId}/lsp-sessions`, {
+        path: packagePath,
+        pin,
+    });
+}
+
+export function lspNotify(
+    session: string,
+    method: string,
+    params: unknown,
+): Promise<{ ok: boolean }> {
+    return apiPost(`/api/lsp-sessions/${session}/notify`, { method, params });
+}
+
+export function lspRequest<T>(
+    session: string,
+    method: string,
+    params: unknown,
+): Promise<{ result: T }> {
+    return apiPost(`/api/lsp-sessions/${session}/request`, { method, params });
+}
+
+export function lspNotifications(
+    session: string,
+): Promise<{ notifications: LspServerMessage[] }> {
+    return apiGet(`/api/lsp-sessions/${session}/notifications`);
+}
+
+export function closeLspSession(session: string): Promise<{ ok: boolean }> {
+    return apiPost(`/api/lsp-sessions/${session}/close`, {});
+}
+
+export type LspServerMessage = {
+    method: string;
+    params?: {
+        uri?: string;
+        diagnostics?: {
+            message: string;
+            severity?: number;
+            code?: string;
+            range?: unknown;
+        }[];
+    };
+};

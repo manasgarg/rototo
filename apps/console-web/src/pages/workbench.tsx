@@ -1,29 +1,54 @@
-// Workbench editing v1 (tranche C2): entity views from the semantic model,
-// the form-submits-operations editor for variables, and the raw-text escape
-// hatch. Edits land on a change set's branch; without an active change set
-// the workbench is read-only and says why.
+// Workbench editing v1 (tranche C2) plus the read side (tranche C3): entity
+// views from the semantic model, the form-submits-operations editor for
+// variables, the raw-text escape hatch with live LSP diagnostics, and the
+// execution facet — one chosen context carried across the trace previews
+// and the lit-up reference graph. Edits land on a change set's branch;
+// without an active change set the workbench is read-only and says why.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     ApiError,
+    closeLspSession,
     createChangeSet,
+    fetchContexts,
     listChangeSets,
     listPackageFiles,
     listPackages,
+    lspNotifications,
+    lspNotify,
+    openLspSession,
     readPackage,
     readPackageFile,
+    runPreview,
     saveEdit,
     type ChangeSet,
+    type ContextInventory,
     type EditOperation,
     type EditResponse,
+    type LspServerMessage,
     type MeResponse,
     type PackageDetail,
     type PackageListing,
     type RuleModel,
     type SourceTreeSummary,
+    type SynthesizedContext,
+    type TraceOutcome,
     type VariableModel,
 } from "@/lib/api";
+import {
+    ContextPicker,
+    contextLabel,
+    type ChosenContext,
+} from "@/components/context-picker";
+import {
+    CompositionPanel,
+    HistoryPanel,
+    UpcomingPanel,
+    ValidityPanel,
+} from "@/components/insight";
+import { LitGraph } from "@/components/lit-graph";
+import { TracePreview } from "@/components/trace-preview";
 import { navigate } from "@/lib/router";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
@@ -31,14 +56,17 @@ type Banner = { kind: "ok" | "err" | "warn"; text: string };
 type View =
     | { kind: "entities" }
     | { kind: "variable"; id: string }
-    | { kind: "file"; path: string };
+    | { kind: "file"; path: string }
+    | { kind: "history" };
 
 export function WorkbenchPage({
     me,
     treeId,
+    initialView,
 }: {
     me: MeResponse;
     treeId: string;
+    initialView?: "entities" | "history";
 }) {
     const tree = me.capabilities?.sourceTrees.find(
         (candidate) => candidate.id === treeId,
@@ -48,11 +76,23 @@ export function WorkbenchPage({
     const [listing, setListing] = useState<PackageListing | null>(null);
     const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
     const [detail, setDetail] = useState<PackageDetail | null>(null);
-    const [view, setView] = useState<View>({ kind: "entities" });
+    const [view, setView] = useState<View>({
+        kind: initialView ?? "entities",
+    });
     const [banner, setBanner] = useState<Banner | null>(null);
+    // The read side's execution facet: one chosen context, carried across
+    // the previews and the graph; and an optional historical pin, which
+    // makes the whole workbench a read-only view of that instant.
+    const [chosen, setChosen] = useState<ChosenContext>({ kind: "none" });
+    const [inventory, setInventory] = useState<ContextInventory | null>(null);
+    const [outcomes, setOutcomes] = useState<Map<string, TraceOutcome> | null>(
+        null,
+    );
+    const [historicalPin, setHistoricalPin] = useState<string | null>(null);
 
     const active = changeSets.find((entry) => entry.id === activeId) ?? null;
     const editable =
+        historicalPin === null &&
         active !== null &&
         (active.state === "draft" || active.state === "proposed");
 
@@ -98,7 +138,7 @@ export function WorkbenchPage({
         };
     }, [treeId, ref]);
 
-    const pin = listing?.pin ?? null;
+    const pin = historicalPin ?? listing?.pin ?? null;
     useEffect(() => {
         if (pin === null || selectedPackage === null) {
             return;
@@ -120,6 +160,66 @@ export function WorkbenchPage({
             stale = true;
         };
     }, [treeId, selectedPackage, pin]);
+
+    // The context inventory follows the pin: samples change with the
+    // package, synthesized cases change with the rules.
+    useEffect(() => {
+        if (pin === null || selectedPackage === null) {
+            return;
+        }
+        let stale = false;
+        fetchContexts(treeId, selectedPackage, pin).then(
+            (response) => {
+                if (!stale) {
+                    setInventory(response);
+                }
+            },
+            () => {
+                if (!stale) {
+                    setInventory(null);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, selectedPackage, pin]);
+
+    // The chosen context resolves the whole package: one lenient batch
+    // feeds every preview and the lit-up graph.
+    useEffect(() => {
+        if (chosen.kind === "none" || pin === null || selectedPackage === null) {
+            setOutcomes(null);
+            return;
+        }
+        let stale = false;
+        runPreview(treeId, selectedPackage, pin, chosen.context).then(
+            (response) => {
+                if (!stale) {
+                    setOutcomes(
+                        new Map(
+                            response.outcomes.map((outcome) => [
+                                outcome.id,
+                                outcome,
+                            ]),
+                        ),
+                    );
+                }
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setOutcomes(null);
+                    setBanner({
+                        kind: "warn",
+                        text: `The ${contextLabel(chosen)} was refused: ${error.message}`,
+                    });
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, selectedPackage, pin, chosen]);
 
     const afterSave = useCallback(
         (result: EditResponse) => {
@@ -176,17 +276,33 @@ export function WorkbenchPage({
                 <div className="section-header-text">
                     <h1>{treeName}</h1>
                     <p className="hint">
-                        {listing === null
-                            ? "Resolving…"
-                            : `${listing.ref} @ ${listing.pin.slice(0, 10)}`}
+                        {historicalPin !== null
+                            ? `viewing ${historicalPin.slice(0, 10)} (historical)`
+                            : listing === null
+                              ? "Resolving…"
+                              : `${listing.ref} @ ${listing.pin.slice(0, 10)}`}
                     </p>
                 </div>
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => navigate(`/trees/${treeId}/changes`)}
-                >
-                    Change sets
-                </button>
+                <span className="action-row">
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                            setView(
+                                view.kind === "history"
+                                    ? { kind: "entities" }
+                                    : { kind: "history" },
+                            )
+                        }
+                    >
+                        {view.kind === "history" ? "Model" : "History"}
+                    </button>
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => navigate(`/trees/${treeId}/changes`)}
+                    >
+                        Change sets
+                    </button>
+                </span>
             </div>
 
             <EditingStrip
@@ -206,6 +322,26 @@ export function WorkbenchPage({
                 }}
                 onError={saveFailed}
             />
+
+            <ContextPicker
+                inventory={inventory}
+                chosen={chosen}
+                onChange={setChosen}
+            />
+
+            {historicalPin !== null ? (
+                <div className="banner banner-info">
+                    Viewing the package as it was at{" "}
+                    <span className="mono">{historicalPin.slice(0, 10)}</span>;
+                    editing is off.{" "}
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setHistoricalPin(null)}
+                    >
+                        Back to now
+                    </button>
+                </div>
+            ) : null}
 
             {banner !== null ? (
                 <div
@@ -235,7 +371,21 @@ export function WorkbenchPage({
                 </div>
             ) : null}
 
-            {detail === null ? (
+            {view.kind === "history" ? (
+                selectedPackage !== null ? (
+                    <HistoryPanel
+                        treeId={treeId}
+                        packagePath={selectedPackage}
+                        viewingPin={historicalPin}
+                        onViewPin={(candidate) => {
+                            setHistoricalPin(candidate);
+                            setBanner(null);
+                        }}
+                    />
+                ) : (
+                    <p className="muted">Loading…</p>
+                )
+            ) : detail === null ? (
                 <p className="muted">Loading package…</p>
             ) : view.kind === "variable" ? (
                 <VariablePanel
@@ -244,6 +394,10 @@ export function WorkbenchPage({
                     variableId={view.id}
                     editable={editable}
                     changeSet={active}
+                    chosen={chosen}
+                    outcome={outcomes?.get(view.id) ?? null}
+                    synthesized={inventory?.synthesized ?? []}
+                    onUseContext={setChosen}
                     onBack={() => setView({ kind: "entities" })}
                     onSaved={afterSave}
                     onError={saveFailed}
@@ -264,8 +418,14 @@ export function WorkbenchPage({
                 <EntityLists
                     treeId={treeId}
                     detail={detail}
+                    refName={ref}
+                    outcomes={outcomes}
                     onOpenVariable={(id) => setView({ kind: "variable", id })}
                     onOpenFile={(path) => setView({ kind: "file", path })}
+                    onOpenPackage={(path) => {
+                        setSelectedPackage(path);
+                        setView({ kind: "entities" });
+                    }}
                 />
             )}
         </div>
@@ -371,53 +531,95 @@ function EditingStrip({
 function EntityLists({
     treeId,
     detail,
+    refName,
+    outcomes,
     onOpenVariable,
     onOpenFile,
+    onOpenPackage,
 }: {
     treeId: string;
     detail: PackageDetail;
+    refName: string | undefined;
+    outcomes: Map<string, TraceOutcome> | null;
     onOpenVariable: (id: string) => void;
     onOpenFile: (path: string) => void;
+    onOpenPackage: (path: string) => void;
 }) {
     const model = detail.model;
-    const errors = detail.lint.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === "error",
-    );
     return (
         <>
-            {errors.length > 0 ? (
-                <div className="banner banner-warn">
-                    Lint reports {errors.length} error
-                    {errors.length === 1 ? "" : "s"} on this package.
-                </div>
+            {model.variables.length > 1 ? (
+                <>
+                    <div className="section-header-text">
+                        <h2>
+                            {outcomes === null
+                                ? "Reference graph"
+                                : "What this package does"}
+                        </h2>
+                        <p className="hint">
+                            {outcomes === null
+                                ? "Structure only; pick a context to light it up."
+                                : "Every variable resolved under the chosen context; bright paths fired, dim paths never ran."}
+                        </p>
+                    </div>
+                    <LitGraph
+                        model={model}
+                        outcomes={outcomes}
+                        onOpenVariable={onOpenVariable}
+                    />
+                </>
             ) : null}
+
+            <UpcomingPanel
+                treeId={treeId}
+                packagePath={detail.path}
+                pin={detail.pin}
+            />
 
             <div className="section-header-text">
                 <h2>Variables</h2>
             </div>
             <div className="row-list">
-                {model.variables.map((variable) => (
-                    <button
-                        className="row"
-                        key={variable.id}
-                        onClick={() => onOpenVariable(variable.id)}
-                    >
-                        <span className="row-text">
-                            <span className="row-title mono">
-                                {variable.id}
+                {model.variables.map((variable) => {
+                    const outcome = outcomes?.get(variable.id);
+                    return (
+                        <button
+                            className="row"
+                            key={variable.id}
+                            onClick={() => onOpenVariable(variable.id)}
+                        >
+                            <span className="row-text">
+                                <span className="row-title mono">
+                                    {variable.id}
+                                </span>
+                                <span className="row-sub">
+                                    {variable.declaration.value ?? "?"}
+                                    {variable.description !== undefined
+                                        ? ` — ${variable.description}`
+                                        : ""}
+                                </span>
                             </span>
-                            <span className="row-sub">
-                                {variable.declaration.value ?? "?"}
-                                {variable.description !== undefined
-                                    ? ` — ${variable.description}`
-                                    : ""}
+                            <span className="row-side mono">
+                                {outcome === undefined ? (
+                                    summarizeDefault(variable)
+                                ) : outcome.error !== undefined ? (
+                                    <span
+                                        className="pill pill-warn"
+                                        title={outcome.error}
+                                    >
+                                        cannot resolve
+                                    </span>
+                                ) : (
+                                    <span className="pill pill-sea">
+                                        {clipValue(
+                                            outcome.trace?.resolution.value,
+                                        )}
+                                    </span>
+                                )}
                             </span>
-                        </span>
-                        <span className="row-side mono">
-                            {summarizeDefault(variable)}
-                        </span>
-                    </button>
-                ))}
+                        </button>
+                    );
+                })}
             </div>
 
             <Inventory
@@ -440,9 +642,22 @@ function EntityLists({
                 items={model.evaluationContexts.map((entry) => entry.id)}
             />
 
+            <ValidityPanel diagnostics={detail.lint.diagnostics} />
+
+            <CompositionPanel
+                treeId={treeId}
+                refName={refName}
+                onOpenPackage={onOpenPackage}
+            />
+
             <FileList treeId={treeId} detail={detail} onOpenFile={onOpenFile} />
         </>
     );
+}
+
+function clipValue(value: unknown): string {
+    const text = JSON.stringify(value) ?? "";
+    return text.length > 20 ? `${text.slice(0, 20)}…` : text;
 }
 
 function Inventory({ title, items }: { title: string; items: string[] }) {
@@ -527,6 +742,10 @@ function VariablePanel({
     variableId,
     editable,
     changeSet,
+    chosen,
+    outcome,
+    synthesized,
+    onUseContext,
     onBack,
     onSaved,
     onError,
@@ -535,6 +754,10 @@ function VariablePanel({
     variableId: string;
     editable: boolean;
     changeSet: ChangeSet | null;
+    chosen: ChosenContext;
+    outcome: TraceOutcome | null;
+    synthesized: SynthesizedContext[];
+    onUseContext: (chosen: ChosenContext) => void;
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
@@ -597,6 +820,36 @@ function VariablePanel({
             .finally(() => setSaving(false));
     };
 
+    // Promote a synthesized boundary context to a real sample, in the same
+    // change set: the sample corpus grows as a side effect of editing.
+    const promote = (entry: SynthesizedContext) => {
+        if (changeSet === null) {
+            return;
+        }
+        const contextId = detail.model.evaluationContexts[0]?.id;
+        if (contextId === undefined) {
+            onError(
+                new Error(
+                    "the package declares no evaluation context to hold the sample",
+                ),
+            );
+            return;
+        }
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            operations: [
+                {
+                    op: "create_sample",
+                    context: contextId,
+                    key: sampleKey(entry),
+                    content: entry.context,
+                },
+            ],
+            summary: `Add sample for ${variableId}`,
+        }).then(onSaved, onError);
+    };
+
     return (
         <div className="card card-stretch">
             <div className="card-head">
@@ -610,6 +863,16 @@ function VariablePanel({
                     Back
                 </button>
             </div>
+
+            <TracePreview
+                variableId={variableId}
+                chosen={chosen}
+                outcome={outcome}
+                synthesized={synthesized}
+                canPromote={editable}
+                onUseContext={onUseContext}
+                onPromote={promote}
+            />
 
             <div className="form-fields">
                 <div className="field-row">
@@ -816,9 +1079,14 @@ function FilePanel({
 }) {
     const [content, setContent] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-    const diagnostics = detail.lint.diagnostics.filter(
-        (diagnostic) => diagnostic.location?.path === file,
-    );
+    // Live diagnostics from the LSP bridge track the unsaved buffer; until
+    // the first publication arrives the staged lint report stands in.
+    const [live, setLive] = useState<
+        { severity: string; rule?: string; message: string }[] | null
+    >(null);
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const opened = useRef(false);
+    const version = useRef(1);
 
     useEffect(() => {
         let stale = false;
@@ -834,6 +1102,97 @@ function FilePanel({
             stale = true;
         };
     }, [treeId, detail.path, detail.pin, file, onError]);
+
+    // One editing session per open file; a bridge failure just means the
+    // static lint diagnostics stand.
+    useEffect(() => {
+        let stale = false;
+        let id: string | null = null;
+        openLspSession(treeId, detail.path, detail.pin).then(
+            (response) => {
+                if (stale) {
+                    void closeLspSession(response.session).catch(() => {});
+                    return;
+                }
+                id = response.session;
+                setSessionId(id);
+            },
+            () => {},
+        );
+        return () => {
+            stale = true;
+            if (id !== null) {
+                void closeLspSession(id).catch(() => {});
+            }
+        };
+    }, [treeId, detail.path, detail.pin]);
+
+    // The buffer rides as an LSP overlay: didOpen once, then debounced
+    // full-document didChange while typing.
+    useEffect(() => {
+        if (sessionId === null || content === null) {
+            return;
+        }
+        if (!opened.current) {
+            opened.current = true;
+            void lspNotify(sessionId, "textDocument/didOpen", {
+                textDocument: {
+                    uri: file,
+                    languageId: "toml",
+                    version: version.current,
+                    text: content,
+                },
+            }).catch(() => {});
+            return;
+        }
+        const handle = setTimeout(() => {
+            version.current += 1;
+            void lspNotify(sessionId, "textDocument/didChange", {
+                textDocument: { uri: file, version: version.current },
+                contentChanges: [{ text: content }],
+            }).catch(() => {});
+        }, 300);
+        return () => clearTimeout(handle);
+    }, [sessionId, content, file]);
+
+    // Diagnostics arrive from the server's debounced build; poll and keep
+    // the latest publication for this file.
+    useEffect(() => {
+        if (sessionId === null) {
+            return;
+        }
+        const interval = setInterval(() => {
+            lspNotifications(sessionId).then((response) => {
+                for (const message of response.notifications) {
+                    if (
+                        message.method ===
+                            "textDocument/publishDiagnostics" &&
+                        message.params?.uri === file
+                    ) {
+                        setLive(
+                            (message.params.diagnostics ?? []).map(
+                                (diagnostic) => ({
+                                    severity:
+                                        diagnostic.severity === 1
+                                            ? "error"
+                                            : "warning",
+                                    rule: diagnostic.code,
+                                    message: diagnostic.message,
+                                }),
+                            ),
+                        );
+                    }
+                }
+            }, () => {});
+        }, 500);
+        return () => clearInterval(interval);
+    }, [sessionId, file]);
+
+    const diagnostics =
+        live ??
+        detail.lint.diagnostics.filter(
+            (diagnostic) => diagnostic.location?.path === file,
+        );
 
     const save = () => {
         if (changeSet === null || content === null) {
@@ -856,7 +1215,10 @@ function FilePanel({
                 <div className="card-head-text">
                     <h2 className="mono">{file}</h2>
                     <p className="hint">
-                        Raw text: lint judges the result after the save.
+                        Raw text
+                        {live !== null
+                            ? "; diagnostics track the buffer as you type."
+                            : ": lint judges the result after the save."}
                     </p>
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={onBack}>
@@ -883,10 +1245,17 @@ function FilePanel({
                             >
                                 {diagnostic.severity}
                             </span>{" "}
+                            {diagnostic.rule !== undefined ? (
+                                <span className="mono">
+                                    {diagnostic.rule}{" "}
+                                </span>
+                            ) : null}
                             {diagnostic.message}
                         </p>
                     ))}
                 </div>
+            ) : live !== null ? (
+                <p className="hint">No findings in the open buffer.</p>
             ) : null}
             <div className="card-actions">
                 {editable ? (
@@ -1027,6 +1396,16 @@ function textToValue(text: string, type: string): unknown {
     } catch {
         throw new Error(`${text || "(empty)"} is not valid JSON for ${type}`);
     }
+}
+
+// Sample ids are lowercase snake_case like every rototo id; the case id
+// arrives kebab-flavored from the fixtures machinery.
+function sampleKey(entry: SynthesizedContext): string {
+    return `${entry.target.id}_${entry.caseId}`
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "");
 }
 
 function defaultRuleValue(type: string): string {

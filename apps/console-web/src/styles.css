@@ -2939,3 +2939,194 @@ select.input {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* ------------------------------------------------------------- read side --
+   Tranche C3: the context picker, trace previews, and the lit-up
+   reference graph. One chosen context parameterizes all of them. */
+
+.context-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--paper-1);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+}
+
+.context-picker-peek {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-picker-editor {
+    flex: 1 1 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.preview-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    background: var(--paper-1);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+}
+
+.preview-cases {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.preview-case {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px dashed var(--line-2);
+    border-radius: var(--radius-2);
+}
+
+.preview-case .row-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 46ch;
+    display: inline-block;
+}
+
+.trace-walk {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.trace-result {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.trace-value {
+    font-weight: 600;
+    color: var(--sea-700);
+}
+
+.trace-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.trace-rule {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: var(--radius-1);
+    font-size: 12.5px;
+}
+
+.trace-rule-matched {
+    background: var(--ok-bg);
+}
+
+.trace-rule-dormant {
+    opacity: 0.55;
+}
+
+.trace-rule-when {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.trace-rule-value {
+    flex: none;
+    color: var(--ink-2);
+}
+
+.graph-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+    background: var(--paper-1);
+    padding: 4px;
+}
+
+.lit-graph {
+    display: block;
+}
+
+.graph-node {
+    cursor: pointer;
+}
+
+.graph-node rect {
+    fill: var(--paper-0);
+    stroke: var(--line-strong);
+}
+
+.graph-node:hover rect {
+    stroke: var(--sea-500);
+}
+
+.graph-node-resolved rect {
+    stroke: var(--sea-400);
+}
+
+.graph-node-error rect {
+    stroke: var(--warn-500);
+    stroke-dasharray: 4 3;
+}
+
+.graph-node-id {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    fill: var(--ink-0);
+}
+
+.graph-node-value {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    fill: var(--sea-700);
+}
+
+.graph-node-error .graph-node-value {
+    fill: var(--warn-700);
+}
+
+.graph-edge {
+    fill: none;
+    stroke-width: 1.4;
+    color: var(--line-strong);
+    stroke: currentColor;
+}
+
+.graph-edge-fired {
+    color: var(--sea-500);
+    stroke-width: 2.2;
+}
+
+.graph-edge-dormant {
+    opacity: 0.25;
+}
+
+.row-static {
+    cursor: default;
+}
+
+.row-indent {
+    margin-left: 28px;
+}
