@@ -13,6 +13,7 @@ import type { ConsoleContext } from "../context.ts";
 import type { Subject } from "../decide.ts";
 import { ApiError } from "../errors.ts";
 import { isPin } from "../packages.ts";
+import { buildReview } from "../review.ts";
 import type { ChangeSetRow, SourceTreeRow } from "../store.ts";
 
 export function changeSetRoutes(ctx: ConsoleContext): Hono {
@@ -139,6 +140,22 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
             events: ctx.store.listChangeSetEvents(changeSet.id),
             collaborators: ctx.store.listChangeSetCollaborators(changeSet.id),
         });
+    });
+
+    // The three-delta review: what changed, what it does (with the
+    // denominator stated), whether it is healthy. A read: anyone who can
+    // view the tree reads the review, because approving happens on GitHub
+    // in this tranche and informed eyes are the whole point.
+    app.get("/change-sets/:id/review", async (c) => {
+        const subject = subjectOf(c);
+        const changeSet = changeSetOf(c);
+        const tree = treeOf(changeSet.sourceTreeId);
+        await decide(subject, "view", tree);
+        const review = await buildReview(
+            { git: ctx.git, stager: ctx.stager },
+            { tree, changeSet, token: await tokenOf(subject) },
+        );
+        return c.json({ changeSet: payload(changeSet), review });
     });
 
     app.post("/change-sets/:id/edits", async (c) => {

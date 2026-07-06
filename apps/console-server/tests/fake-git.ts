@@ -258,6 +258,7 @@ export class FakeGit implements GitOps {
         return {
             aheadBy,
             behindBy,
+            mergeBase,
             files: diff === "" ? [] : diff.split("\n"),
         };
     }

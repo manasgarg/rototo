@@ -178,6 +178,54 @@ pub async fn diff_packages(
     to_json(&diff)
 }
 
+/// The two-package diff evaluated under several labeled contexts at once:
+/// one set of semantic changes plus lenient per-context resolution impacts.
+/// `contexts` is `[{ label, context }, ...]`; this is the review panel's
+/// execution delta with its denominator attached.
+#[napi(js_name = "diffPackagesWithContexts")]
+pub async fn diff_packages_with_contexts(
+    before_root: String,
+    after_root: String,
+    contexts: JsonValue,
+) -> Result<JsonValue> {
+    let contexts = labeled_contexts(contexts)?;
+    let diff = rototo::diff_packages_with_contexts(
+        Path::new(&before_root),
+        Path::new(&after_root),
+        &contexts,
+    )
+    .await
+    .map_err(js_err)?;
+    to_json(&diff)
+}
+
+fn labeled_contexts(input: JsonValue) -> Result<Vec<rototo::model::LabeledContext>> {
+    let JsonValue::Array(entries) = input else {
+        return Err(Error::from_reason(
+            "contexts must be an array of { label, context } objects",
+        ));
+    };
+    entries
+        .into_iter()
+        .map(|entry| {
+            let JsonValue::Object(mut fields) = entry else {
+                return Err(Error::from_reason(
+                    "each context must be a { label, context } object",
+                ));
+            };
+            let label = match fields.get("label") {
+                Some(JsonValue::String(label)) => label.clone(),
+                _ => return Err(Error::from_reason("context label must be a string")),
+            };
+            let context = fields
+                .remove("context")
+                .filter(JsonValue::is_object)
+                .ok_or_else(|| Error::from_reason("context must be a JSON object"))?;
+            Ok(rototo::model::LabeledContext { label, context })
+        })
+        .collect()
+}
+
 /// Applies edit operations to the package at `root` and returns
 /// `{ plan: { writes, deletes }, records }`. Pure: nothing is written; the
 /// server turns the plan into one commit (or one local write).

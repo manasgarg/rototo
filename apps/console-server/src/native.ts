@@ -89,6 +89,33 @@ export type ResolveFixtureJson = {
     expect: JsonValue;
 };
 
+export type LabeledContextJson = {
+    label: string;
+    context: JsonObject;
+};
+
+export type OutcomeImpactJson = {
+    variable: string;
+    before?: { id: string; value: JsonValue; source: JsonValue };
+    before_error?: string;
+    after?: { id: string; value: JsonValue; source: JsonValue };
+    after_error?: string;
+};
+
+export type ContextImpactJson = {
+    context: string;
+    impacts: OutcomeImpactJson[];
+    compared: number;
+};
+
+export type DiffWithContextsJson = {
+    before: string;
+    after: string;
+    changes: JsonValue[];
+    context_impacts: ContextImpactJson[];
+    impact_error?: string;
+};
+
 export type NativeModule = {
     version(): string;
     buildProfile(): "release" | "debug";
@@ -102,6 +129,11 @@ export type NativeModule = {
         afterRoot: string,
         context?: JsonObject,
     ): Promise<JsonValue>;
+    diffPackagesWithContexts(
+        beforeRoot: string,
+        afterRoot: string,
+        contexts: LabeledContextJson[],
+    ): Promise<DiffWithContextsJson>;
     applyEdit(
         root: string,
         operations: JsonValue[],

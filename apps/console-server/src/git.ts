@@ -39,6 +39,9 @@ export type PullRecord = {
 export type CompareResult = {
     aheadBy: number;
     behindBy: number;
+    // The merge base's sha: what a review diffs `head` against, so base
+    // drift never shows up as part of the change under review.
+    mergeBase: string;
     // Paths changed on `head` since the merge base (GitHub's three-dot
     // compare); what the staleness check intersects with a plan's paths.
     files: string[];
@@ -261,11 +264,13 @@ export class GitHubGit implements GitOps {
         const body = (await response.json()) as {
             ahead_by: number;
             behind_by: number;
+            merge_base_commit: { sha: string };
             files?: { filename: string }[];
         };
         return {
             aheadBy: body.ahead_by,
             behindBy: body.behind_by,
+            mergeBase: body.merge_base_commit.sha,
             files: (body.files ?? []).map((file) => file.filename),
         };
     }

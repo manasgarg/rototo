@@ -12,10 +12,21 @@ import type { Context } from "hono";
 import type { ConsoleContext } from "../context.ts";
 import type { Subject } from "../decide.ts";
 import { ApiError } from "../errors.ts";
-import { repoId } from "../change-sets.ts";
+import type { CommitRecord } from "../git.ts";
+import { branchFor, repoId } from "../change-sets.ts";
 import { native } from "../native.ts";
 import { containedPath, isPin } from "../packages.ts";
 import type { SourceTreeRow } from "../store.ts";
+import {
+    audienceAllows,
+    bindingPaths,
+    boundVariables,
+    readSurfaces,
+    schemaFreshness,
+    suggestSurfaces,
+    surfaceItems,
+    type ModelView,
+} from "../surfaces.ts";
 
 type TreeAccess = {
     tree: SourceTreeRow;
@@ -305,6 +316,137 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
             }
         }
         return c.json({ ref, pin, nodes, edges });
+    });
+
+    // The package's surfaces: console/surfaces catalog entries validated on
+    // load, audience-filtered, with cold-start suggestions when there are
+    // none. A surface is ordinary catalog data; this route just knows how to
+    // read it.
+    app.get("/source-trees/:tree/surfaces", async (c) => {
+        const { tree, token } = await access(c);
+        const pin = stagedPin(c);
+        const packagePath = packagePathOf(c);
+        const treeRoot = await ctx.stager.stageTree(tree, pin, token);
+        const packageRoot = ctx.stager.packageRoot(treeRoot, packagePath);
+        const model = (await native.semanticModel(packageRoot)) as ModelView;
+        // Every session is internal until tenants arrive; the filter is the
+        // mechanism, "internal" is today's only parameter.
+        const surfaces = readSurfaces(model).filter((surface) =>
+            audienceAllows(surface, "internal"),
+        );
+        const freshness = schemaFreshness(model);
+        return c.json({
+            pin,
+            path: packagePath,
+            surfaces,
+            diagnostics: freshness === null ? [] : [freshness],
+            suggestions: surfaces.length === 0 ? suggestSurfaces(model) : [],
+        });
+    });
+
+    // One surface, rendered at floor fidelity, with its four read
+    // affordances: items with inferred controls, upcoming changes on bound
+    // variables, the bound files' history, and open change sets touching
+    // the bindings.
+    app.get("/source-trees/:tree/surface", async (c) => {
+        const { tree, token } = await access(c);
+        const pin = stagedPin(c);
+        const packagePath = packagePathOf(c);
+        const id = c.req.query("id");
+        if (id === undefined || id === "") {
+            throw new ApiError(400, "id is required");
+        }
+        const treeRoot = await ctx.stager.stageTree(tree, pin, token);
+        const packageRoot = ctx.stager.packageRoot(treeRoot, packagePath);
+        const model = (await native.semanticModel(packageRoot)) as ModelView;
+        const surface = readSurfaces(model).find(
+            (candidate) => candidate.id === id,
+        );
+        if (surface === undefined) {
+            throw new ApiError(404, `no such surface: ${id}`);
+        }
+        const items = surfaceItems(surface, model);
+
+        const now = new Date().toISOString();
+        const bound = boundVariables(surface);
+        const upcoming = (
+            await native.upcomingChanges(packageRoot, now)
+        ).filter((change) => bound.has(change.variable));
+
+        // Surface history: the bound files' commits, reachable from the pin
+        // being read so the view stays self-consistent.
+        const repo = repoId(tree);
+        const prefix =
+            packagePath === "." || packagePath === ""
+                ? ""
+                : `${packagePath.replace(/\/+$/, "")}/`;
+        const paths = bindingPaths(surface, model);
+        const commits = new Map<string, CommitRecord>();
+        for (const bindingPath of paths) {
+            const records = await ctx.git.listCommits(token, repo, {
+                ref: pin,
+                path: prefix + bindingPath,
+                perPage: 20,
+            });
+            for (const record of records) {
+                commits.set(record.sha, record);
+            }
+        }
+        const history = [...commits.values()]
+            .sort((left, right) => right.date.localeCompare(left.date))
+            .slice(0, 20);
+
+        // Pending change sets: open ones whose files touch the bindings.
+        const pending: {
+            id: string;
+            title: string;
+            state: string;
+            prNumber: number | null;
+        }[] = [];
+        const open = ctx.store
+            .listChangeSets(tree.id)
+            .filter(
+                (row) => row.state === "draft" || row.state === "proposed",
+            );
+        for (const row of open) {
+            try {
+                const comparison = await ctx.git.compare(
+                    token,
+                    repo,
+                    row.baseRef,
+                    branchFor(row.id),
+                );
+                const touches = comparison.files.some((file) =>
+                    paths.some(
+                        (bindingPath) =>
+                            file === prefix + bindingPath ||
+                            file.startsWith(`${prefix + bindingPath}/`),
+                    ),
+                );
+                if (touches) {
+                    pending.push({
+                        id: row.id,
+                        title: row.title,
+                        state: row.state,
+                        prNumber: row.prNumber,
+                    });
+                }
+            } catch {
+                // A branch deleted mid-listing is an abandoned change set
+                // the reconciler has not caught up with; skip it.
+            }
+        }
+
+        return c.json({
+            pin,
+            path: packagePath,
+            surface,
+            items,
+            now,
+            upcoming,
+            history,
+            pending,
+        });
     });
 
     // One file's text, for the raw-text editor.
