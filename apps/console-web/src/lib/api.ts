@@ -295,6 +295,24 @@ export type Control =
 
 export type FieldControl = Control & { field: string };
 
+// The semantic view of a variable's rules and allocation, joined by the
+// server so experiences can derive domain status through the contract.
+export type VariableRuleView = {
+    index: number;
+    when: string | null;
+    value: unknown;
+};
+
+export type VariableAllocationView = {
+    layer: string;
+    id: string;
+    status: string | null;
+    unit: string | null;
+    totalBuckets: number | null;
+    eligibility: string | null;
+    arms: { name: string; buckets: string | null; value: unknown }[];
+};
+
 export type SurfaceItem =
     | {
           kind: "variable";
@@ -304,6 +322,9 @@ export type SurfaceItem =
           control: Control;
           default: unknown;
           ruleCount: number;
+          method: string | null;
+          rules: VariableRuleView[];
+          allocation: VariableAllocationView | null;
       }
     | {
           kind: "catalog";
@@ -323,6 +344,20 @@ export type SurfaceItem =
           value: unknown;
           editableFields: string[] | null;
           fields: FieldControl[];
+      }
+    | {
+          kind: "layer";
+          id: string;
+          description: string | null;
+          unit: string | null;
+          buckets: number | null;
+          allocations: {
+              id: string | null;
+              status: string | null;
+              eligibility: string | null;
+              arms: { name: string | null; buckets: string | null }[];
+              variables: string[];
+          }[];
       }
     | { kind: "missing"; target: string };
 

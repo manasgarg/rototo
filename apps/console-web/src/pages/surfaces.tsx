@@ -4,15 +4,25 @@
 // operations — the affordance boundary, with enforcement below. Empty
 // states propose their next step, and the next step is a change set.
 
-import { useCallback, useEffect, useState } from "react";
+import {
+    Component,
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from "react";
 
+import type { ExperienceRead } from "@/extension-api.ts";
 import {
     ApiError,
     createChangeSet,
+    fetchContexts,
     fetchSurface,
     fetchSurfaces,
     listChangeSets,
     listPackages,
+    runPreview,
     saveEdit,
     type ChangeSet,
     type Control,
@@ -25,6 +35,8 @@ import {
     type SurfaceList,
     type SurfaceSuggestion,
 } from "@/lib/api";
+import { experienceFor } from "@/lib/experiences";
+import { ControlInput, UI_KIT } from "@/lib/ui-kit";
 import { navigate } from "@/lib/router";
 import { EditingStrip } from "@/pages/workbench";
 
@@ -163,8 +175,7 @@ export function SurfacesPage({
                 setActiveId(changeSet.id);
                 saveEdit(changeSet.id, {
                     packagePath: selectedPackage,
-                    expectedPin:
-                        changeSet.baseShaAtCreation ?? listing.pin,
+                    expectedPin: changeSet.baseShaAtCreation ?? listing.pin,
                     operations: suggestion.operations,
                     summary: `Add the ${suggestion.title} surface`,
                 }).then(afterSave, saveFailed);
@@ -367,7 +378,9 @@ function SurfaceCatalog({
                             <span className="row-side">
                                 {surface.kind !== null ? (
                                     <span className="pill pill-neutral">
-                                        {surface.kind} · floor
+                                        {experienceFor(surface.kind) !== null
+                                            ? surface.kind
+                                            : `${surface.kind} · floor`}
                                     </span>
                                 ) : null}
                                 {surface.approval !== null ? (
@@ -437,7 +450,28 @@ function SurfacePanel({
         };
     }, [treeId, packagePath, pin, surfaceId, onError]);
 
-    if (detail === null) {
+    // The read capability an experience receives: the read side the host
+    // already fetched, plus contexts and previews scoped by the server.
+    const read = useMemo<ExperienceRead | null>(
+        () =>
+            detail === null
+                ? null
+                : {
+                      pin,
+                      packagePath,
+                      upcoming: detail.upcoming,
+                      history: detail.history,
+                      pending: detail.pending,
+                      contexts: () => fetchContexts(treeId, packagePath, pin),
+                      preview: (context) =>
+                          runPreview(treeId, packagePath, pin, context).then(
+                              (response) => response.outcomes,
+                          ),
+                  },
+        [treeId, packagePath, pin, detail],
+    );
+
+    if (detail === null || read === null) {
         return <p className="muted">Loading surface…</p>;
     }
     const surface = detail.surface;
@@ -457,18 +491,27 @@ function SurfacePanel({
             .finally(() => setSaving(false));
     };
 
+    const experience = experienceFor(surface.kind);
+    const floor = (
+        <>
+            {detail.items.map((item, index) => (
+                <SurfaceItemView
+                    key={index}
+                    item={item}
+                    editable={editable && !saving}
+                    onPropose={propose}
+                />
+            ))}
+        </>
+    );
+
     return (
         <div className="section">
             <div className="card">
                 <div className="card-head">
                     <div className="card-head-text">
                         <h2>{surface.title}</h2>
-                        <p className="hint">
-                            {surface.description ?? ""}
-                            {surface.kind !== null
-                                ? ` (kind "${surface.kind}" renders on the floor)`
-                                : ""}
-                        </p>
+                        <p className="hint">{surface.description ?? ""}</p>
                     </div>
                     <button className="btn btn-ghost btn-sm" onClick={onBack}>
                         Back
@@ -490,14 +533,33 @@ function SurfacePanel({
                         surface.
                     </p>
                 ) : null}
-                {detail.items.map((item, index) => (
-                    <SurfaceItemView
-                        key={index}
-                        item={item}
-                        editable={editable && !saving}
-                        onPropose={propose}
-                    />
-                ))}
+                {experience !== null ? (
+                    <ExperienceBoundary
+                        note={`The "${surface.kind}" experience failed to render; showing the floor.`}
+                        fallback={floor}
+                    >
+                        <experience.Render
+                            surface={surface}
+                            items={detail.items}
+                            editable={editable && !saving}
+                            now={detail.now}
+                            read={read}
+                            propose={propose}
+                            ui={UI_KIT}
+                            openWorkbench={() => navigate(`/trees/${treeId}`)}
+                        />
+                    </ExperienceBoundary>
+                ) : (
+                    <>
+                        {surface.kind !== null ? (
+                            <p className="hint">
+                                No installed experience renders kind "
+                                {surface.kind}"; showing the floor.
+                            </p>
+                        ) : null}
+                        {floor}
+                    </>
+                )}
             </div>
 
             {detail.upcoming.length > 0 ? (
@@ -506,8 +568,9 @@ function SurfacePanel({
                     {detail.upcoming.map((change, index) => (
                         <p className="diagnostic" key={index}>
                             <span className="mono">{change.variable}</span>{" "}
-                            crosses <span className="mono">{change.boundary}</span>{" "}
-                            ({change.expression})
+                            crosses{" "}
+                            <span className="mono">{change.boundary}</span> (
+                            {change.expression})
                         </p>
                     ))}
                 </div>
@@ -571,6 +634,33 @@ function SurfacePanel({
     );
 }
 
+// Degradation (design/console-surfaces.md): an experience that throws
+// renders as the floor plus a plain note. A missing or broken extension
+// never breaks a deployment and never hides configuration; it only makes
+// it plainer.
+class ExperienceBoundary extends Component<
+    { note: string; fallback: ReactNode; children: ReactNode },
+    { failed: boolean }
+> {
+    override state = { failed: false };
+
+    static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true };
+    }
+
+    override render(): ReactNode {
+        if (this.state.failed) {
+            return (
+                <>
+                    <div className="banner banner-warn">{this.props.note}</div>
+                    {this.props.fallback}
+                </>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 function SurfaceItemView({
     item,
     editable,
@@ -632,6 +722,91 @@ function SurfaceItemView({
                 editable={editable}
                 onPropose={onPropose}
             />
+        );
+    }
+    if (item.kind === "layer") {
+        // The floor's layer: the allocation list with a range dial at text
+        // fidelity. Each arm's bucket range commits one set_arm_buckets;
+        // the status select commits one set_allocation_status.
+        return (
+            <div className="surface-item">
+                <div className="section-header-text">
+                    <h3 className="mono">layer {item.id}</h3>
+                    {item.description !== null ? (
+                        <p className="hint">{item.description}</p>
+                    ) : null}
+                </div>
+                {item.allocations.map((allocation, index) => (
+                    <div className="field-row surface-item" key={index}>
+                        <span className="label mono">
+                            {allocation.id ?? `#${index}`}
+                        </span>
+                        <select
+                            className="input"
+                            disabled={!editable || allocation.id === null}
+                            value={allocation.status ?? "draft"}
+                            onChange={(event) =>
+                                onPropose(
+                                    [
+                                        {
+                                            op: "set_allocation_status",
+                                            layer: item.id,
+                                            id: allocation.id,
+                                            status: event.target.value,
+                                        },
+                                    ],
+                                    `Set ${item.id}/${allocation.id} ${event.target.value}`,
+                                )
+                            }
+                        >
+                            {["draft", "running", "concluded"].map((status) => (
+                                <option key={status} value={status}>
+                                    {status}
+                                </option>
+                            ))}
+                        </select>
+                        {allocation.arms.map((arm, armIndex) => (
+                            <span
+                                className="field-row"
+                                key={armIndex}
+                                title={`arm ${arm.name ?? armIndex}`}
+                            >
+                                <span className="hint mono">
+                                    {arm.name ?? `arm ${armIndex}`}
+                                </span>
+                                <ControlInput
+                                    control={{ control: "text" }}
+                                    value={arm.buckets}
+                                    disabled={
+                                        !editable ||
+                                        allocation.id === null ||
+                                        arm.name === null
+                                    }
+                                    onCommit={(value) =>
+                                        onPropose(
+                                            [
+                                                {
+                                                    op: "set_arm_buckets",
+                                                    layer: item.id,
+                                                    allocation: allocation.id,
+                                                    arm: arm.name,
+                                                    buckets: value,
+                                                },
+                                            ],
+                                            `Set ${item.id}/${allocation.id} ${arm.name} buckets`,
+                                        )
+                                    }
+                                />
+                            </span>
+                        ))}
+                        {allocation.variables.length > 0 ? (
+                            <span className="hint">
+                                drives {allocation.variables.join(", ")}
+                            </span>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
         );
     }
     return (
@@ -816,108 +991,6 @@ function AddEntryForm({
             </button>
         </div>
     );
-}
-
-// One inferred control. Commit-on-blur (or on toggle/select change): every
-// commit is one operation, one save, one commit on the change set.
-function ControlInput({
-    control,
-    value,
-    disabled,
-    onCommit,
-}: {
-    control: Control;
-    value: unknown;
-    disabled: boolean;
-    onCommit: (value: unknown) => void;
-}) {
-    const [text, setText] = useState(() => controlText(control, value));
-    const commitText = () => {
-        if (text === controlText(control, value)) {
-            return;
-        }
-        try {
-            onCommit(textToControlValue(control, text));
-        } catch {
-            setText(controlText(control, value));
-        }
-    };
-    if (control.control === "toggle") {
-        return (
-            <button
-                className={`toggle ${value === true ? "toggle-on" : ""}`}
-                role="switch"
-                aria-checked={value === true}
-                disabled={disabled}
-                onClick={() => onCommit(value !== true)}
-            >
-                <span className="toggle-knob" />
-            </button>
-        );
-    }
-    if (control.control === "select") {
-        return (
-            <select
-                className="input"
-                disabled={disabled}
-                value={JSON.stringify(value)}
-                onChange={(event) => onCommit(JSON.parse(event.target.value))}
-            >
-                {!control.options.some(
-                    (option) =>
-                        JSON.stringify(option) === JSON.stringify(value),
-                ) ? (
-                    <option value={JSON.stringify(value)}>
-                        {String(value)}
-                    </option>
-                ) : null}
-                {control.options.map((option, index) => (
-                    <option key={index} value={JSON.stringify(option)}>
-                        {String(option)}
-                    </option>
-                ))}
-            </select>
-        );
-    }
-    return (
-        <input
-            className="input mono"
-            type={control.control === "number" ? "number" : "text"}
-            disabled={disabled}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onBlur={commitText}
-            onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                    commitText();
-                }
-            }}
-        />
-    );
-}
-
-function controlText(control: Control, value: unknown): string {
-    if (value === undefined || value === null) {
-        return "";
-    }
-    if (control.control === "text" && typeof value === "string") {
-        return value;
-    }
-    return JSON.stringify(value);
-}
-
-function textToControlValue(control: Control, text: string): unknown {
-    if (control.control === "number") {
-        const value = Number(text);
-        if (!Number.isFinite(value)) {
-            throw new Error(`${text} is not a number`);
-        }
-        return value;
-    }
-    if (control.control === "text") {
-        return text;
-    }
-    return JSON.parse(text);
 }
 
 function fieldValue(entry: unknown, field: string): unknown {

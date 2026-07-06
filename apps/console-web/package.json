@@ -6,10 +6,12 @@
     "type": "module",
     "scripts": {
         "build": "tsc --noEmit && vite build",
+        "check": "npm run test && npm run build",
         "dev": "vite",
-        "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" \"index.html\"",
-        "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" \"index.html\"",
+        "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/*.mjs\" \"*.{json,ts}\" \"index.html\"",
+        "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/*.mjs\" \"*.{json,ts}\" \"index.html\"",
         "lint": "npm run typecheck",
+        "test": "node scripts/check-extension-contract.mjs && node --test \"src/extensions/flags/logic.test.ts\" \"src/extensions/table/logic.test.ts\"",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {

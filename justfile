@@ -482,10 +482,11 @@ test-console-server:
     npm --prefix apps/console-server run build:native
     npm --prefix apps/console-server run check
 
-# Typecheck and build the new console frontend bundle.
+# The new console frontend: the extension contract proof, the extension
+# logic tests, the typecheck, and the bundle build.
 [group('04. test')]
 test-console-web:
-    npm --prefix apps/console-web run build
+    npm --prefix apps/console-web run check
 
 # The console re-implementation gate from tranche C1 on: the kernel gate
 # plus the new console server (bindings, decide() honesty, latency budgets)
