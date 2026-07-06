@@ -11,6 +11,7 @@
 
 import { randomBytes } from "node:crypto";
 
+import type { ActingCredential } from "./app-credential.ts";
 import { ApiError } from "./errors.ts";
 import type { GitOps, RepoId } from "./git.ts";
 import {
@@ -78,12 +79,12 @@ export class ChangeSets {
         title: string;
         baseRef?: string;
         author: string;
-        token: string;
+        credential: ActingCredential;
     }): Promise<ChangeSetRow> {
         const { store, git } = this.deps;
         const repo = repoId(input.tree);
         const baseRef = input.baseRef ?? input.tree.defaultBranch ?? "main";
-        const basePin = await git.getRef(input.token, repo, baseRef);
+        const basePin = await git.getRef(input.credential.token, repo, baseRef);
         if (basePin === null) {
             throw new ApiError(
                 404,
@@ -91,13 +92,13 @@ export class ChangeSets {
             );
         }
         const id = `cs_${randomBytes(5).toString("hex")}`;
-        await git.createRef(input.token, repo, branchFor(id), basePin);
+        await git.createRef(input.credential.token, repo, branchFor(id), basePin);
         const row = store.insertChangeSet({
             id,
             sourceTreeId: input.tree.id,
             title: input.title,
             authorPrincipal: input.author,
-            actingMode: "user",
+            actingMode: input.credential.mode,
             baseRef,
             baseShaAtCreation: basePin,
             state: "draft",
@@ -111,16 +112,25 @@ export class ChangeSets {
         return row;
     }
 
-    // Applies one save as one commit on the change-set branch.
+    // Applies one save as one commit on the change-set branch. When the App
+    // credential acts, the commit message carries the Acting-For trailer:
+    // git-level attribution reconstructed deliberately, since the token
+    // itself no longer names the person.
     async edit(input: {
         changeSet: ChangeSetRow;
         tree: SourceTreeRow;
         edit: EditInput;
         actor: string;
-        token: string;
+        actorDisplay: string;
+        credential: ActingCredential;
+        // Called with the computed change records before anything is
+        // committed; throwing here refuses the edit. The App path uses it
+        // for entity-scoped grant enforcement (rule 5).
+        enforce?: (records: ChangeRecordJson[]) => Promise<void>;
     }): Promise<EditResult> {
         const { store, git, stager } = this.deps;
-        const { changeSet, tree, edit, token } = input;
+        const { changeSet, tree, edit } = input;
+        const token = input.credential.token;
         if (changeSet.state !== "draft" && changeSet.state !== "proposed") {
             throw new ApiError(
                 409,
@@ -195,8 +205,15 @@ export class ChangeSets {
             ) {
                 throw new ApiError(400, "the edit produced no file changes");
             }
-            const message =
+            if (input.enforce !== undefined) {
+                await input.enforce(outcome.records);
+            }
+            const summary =
                 input.edit.summary ?? summarize(outcome, packagePath);
+            const message =
+                input.credential.mode === "app"
+                    ? `${summary}\n\nActing-For: ${input.actor} (${input.actorDisplay})`
+                    : summary;
             const commit = await git.createCommit(token, repo, {
                 parent: head,
                 message,
@@ -215,7 +232,7 @@ export class ChangeSets {
                 changeSet.id,
                 input.actor,
                 "committed",
-                JSON.stringify({ sha: commit, message, packagePath }),
+                JSON.stringify({ sha: commit, message: summary, packagePath }),
             );
             // Lint on the post-edit stage: every save runs it, and the form
             // path gets its diagnostics from here.
@@ -236,10 +253,12 @@ export class ChangeSets {
         tree: SourceTreeRow;
         body?: string;
         actor: string;
-        token: string;
+        actorDisplay: string;
+        credential: ActingCredential;
     }): Promise<{ number: number; url: string }> {
         const { store, git } = this.deps;
-        const { changeSet, tree, token } = input;
+        const { changeSet, tree } = input;
+        const token = input.credential.token;
         if (changeSet.state !== "draft") {
             throw new ApiError(
                 409,
@@ -255,8 +274,12 @@ export class ChangeSets {
                 `the branch for change set ${changeSet.id} is gone`,
             );
         }
+        const actingFor =
+            input.credential.mode === "app"
+                ? `\nActing-For: ${input.actor} (${input.actorDisplay})`
+                : "";
         const body =
-            `${input.body ?? ""}\n\n${CHANGE_SET_MARKER} ${changeSet.id}`.trim();
+            `${input.body ?? ""}\n\n${CHANGE_SET_MARKER} ${changeSet.id}${actingFor}`.trim();
         const pull = await git.createPull(token, repo, {
             title: changeSet.title,
             body,
@@ -277,10 +300,11 @@ export class ChangeSets {
         changeSet: ChangeSetRow;
         tree: SourceTreeRow;
         actor: string;
-        token: string;
+        credential: ActingCredential;
     }): Promise<void> {
         const { store, git } = this.deps;
-        const { changeSet, tree, token } = input;
+        const { changeSet, tree } = input;
+        const token = input.credential.token;
         if (changeSet.state !== "draft" && changeSet.state !== "proposed") {
             throw new ApiError(
                 409,

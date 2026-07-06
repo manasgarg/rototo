@@ -267,7 +267,7 @@ test("linking attaches a GitHub credential to an SSO principal, never by email",
         }),
     );
     assert.equal(start.status, 302, await start.clone().text());
-    const jar = {
+    const jar: Record<string, string> = {
         ...cookiesOf(start),
         [SESSION_COOKIE]: session,
     };

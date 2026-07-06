@@ -273,7 +273,7 @@ test("the stakeholder walkthrough, end to end and timed", async (t) => {
 
     // 6. Informed, the approver merges on GitHub (Backend A: GitHub is the
     // authority in this tranche) and the reconciler observes it.
-    harness.fakeGit.mergePull(submitted.pull.number);
+    harness.fakeGit.externalMerge(submitted.pull.number);
     await timed("reconcile", () => harness.app.reconciler.reconcileAll());
     const observed = await json(
         await harness.get(`/api/change-sets/${changeSet.id}`, approver.headers),

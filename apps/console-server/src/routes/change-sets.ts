@@ -8,7 +8,13 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 
-import { branchFor, type EditInput } from "../change-sets.ts";
+import type { ActingCredential } from "../app-credential.ts";
+import {
+    approvalPolicy,
+    contributorsOf,
+    policyStatus,
+} from "../approvals.ts";
+import { branchFor, repoId, type EditInput } from "../change-sets.ts";
 import type { ConsoleContext } from "../context.ts";
 import type { Subject } from "../decide.ts";
 import { ApiError } from "../errors.ts";
@@ -61,20 +67,51 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
             kind: "source-tree",
             sourceTree: tree.id,
         });
-        if (!verdict.allow) {
-            throw new ApiError(403, verdict.reason);
+        if (verdict.allow) {
+            return;
         }
+        // A propose grant scoped to a package (or entity) within the tree
+        // still lets its holder carry a change set — the branch and PR are
+        // vehicles; the entity-level checks bind what the edits may touch.
+        if (action === "propose" && subject.kind === "principal") {
+            const scoped = ctx.store
+                .grantsForPrincipal(subject.id)
+                .some(
+                    (grant) =>
+                        ["propose", "approve", "administer"].includes(
+                            grant.action,
+                        ) &&
+                        (grant.resource.startsWith(`package:${tree.id}/`) ||
+                            grant.resource.startsWith(`entity:${tree.id}/`)),
+                );
+            if (scoped) {
+                return;
+            }
+        }
+        throw new ApiError(403, verdict.reason);
     };
 
-    const tokenOf = async (subject: Subject): Promise<string> => {
-        const token = await ctx.actingToken(subject);
-        if (token === null) {
+    const credentialOf = async (
+        subject: Subject,
+        tree: SourceTreeRow,
+    ): Promise<ActingCredential> => {
+        const credential = await ctx.actingCredential(subject, tree);
+        if (credential === null) {
             throw new ApiError(
                 403,
-                "no GitHub credential is available to act with",
+                "no credential can act on this tree: link a GitHub identity or install the console's GitHub App",
             );
         }
-        return token;
+        return credential;
+    };
+
+    const displayOf = (subject: Subject): string => {
+        if (subject.kind === "local") {
+            return "local";
+        }
+        return (
+            ctx.store.getPrincipal(subject.id)?.displayName ?? subject.id
+        );
     };
 
     const changeSetOf = (c: Context): ChangeSetRow => {
@@ -112,7 +149,7 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
             title: input.title.trim(),
             baseRef: input.baseRef as string | undefined,
             author: ctx.subjectId(subject),
-            token: await tokenOf(subject),
+            credential: await credentialOf(subject, tree),
         });
         return c.json(payload(row), 201);
     });
@@ -151,11 +188,29 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         const changeSet = changeSetOf(c);
         const tree = treeOf(changeSet.sourceTreeId);
         await decide(subject, "view", tree);
+        const credential = await credentialOf(subject, tree);
         const review = await buildReview(
             { git: ctx.git, stager: ctx.stager },
-            { tree, changeSet, token: await tokenOf(subject) },
+            { tree, changeSet, token: credential.token },
         );
-        return c.json({ changeSet: payload(changeSet), review });
+        // The approval requirements ride along, so the reviewer sees what
+        // this change must satisfy and what is still missing.
+        const policy = await approvalPolicy(
+            { git: ctx.git, stager: ctx.stager },
+            tree,
+            changeSet,
+            credential.token,
+        );
+        return c.json({
+            changeSet: payload(changeSet),
+            review,
+            approvals: ctx.store.listApprovals(changeSet.id),
+            contributors: contributorsOf(ctx.store, changeSet),
+            policy: {
+                ...policy,
+                ...policyStatus(ctx.store, changeSet, policy),
+            },
+        });
     });
 
     app.post("/change-sets/:id/edits", async (c) => {
@@ -172,12 +227,44 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         }
         const input = await body(c);
         const edit = editInput(input);
+        const credential = await credentialOf(subject, tree);
+        // On the App path the console is the enforcement point (rule 5):
+        // before anything is committed, every computed operation is checked
+        // against the actor's grants at entity scope, quantized to the
+        // entity address. GitHub enforces nothing for the App token beyond
+        // the installation itself.
+        const enforce =
+            credential.mode !== "app"
+                ? undefined
+                : async (records: { address: string }[]): Promise<void> => {
+                      for (const record of records) {
+                          const entity = record.address.split("#")[0] as string;
+                          const verdict = await ctx.decision.decide(
+                              subject,
+                              "propose",
+                              {
+                                  kind: "entity",
+                                  sourceTree: tree.id,
+                                  path: edit.packagePath,
+                                  entity,
+                              },
+                          );
+                          if (!verdict.allow) {
+                              throw new ApiError(
+                                  403,
+                                  `the change to ${entity} exceeds your grants: ${verdict.reason}`,
+                              );
+                          }
+                      }
+                  };
         const result = await ctx.changeSets.edit({
             changeSet,
             tree,
             edit,
             actor,
-            token: await tokenOf(subject),
+            actorDisplay: displayOf(subject),
+            credential,
+            enforce,
         });
         return c.json(result);
     });
@@ -190,19 +277,20 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         const actor = ctx.subjectId(subject);
         requireAuthor(changeSet, actor, "submit");
         const input = await body(c);
-        const token = await tokenOf(subject);
+        const credential = await credentialOf(subject, tree);
         const pull = await ctx.changeSets.submit({
             changeSet,
             tree,
             body: typeof input.body === "string" ? input.body : undefined,
             actor,
-            token,
+            actorDisplay: displayOf(subject),
+            credential,
         });
         // Fill the observed columns right away so the response and the next
         // render carry the PR; the reconciler stays their only writer.
         const fresh = await ctx.reconciler.reconcile(
             ctx.store.getChangeSet(changeSet.id) as ChangeSetRow,
-            token,
+            credential.token,
         );
         return c.json({ changeSet: payload(fresh), pull });
     });
@@ -218,7 +306,7 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
             changeSet,
             tree,
             actor,
-            token: await tokenOf(subject),
+            credential: await credentialOf(subject, tree),
         });
         return c.json({
             changeSet: payload(
@@ -263,10 +351,129 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         await decide(subject, "view", tree);
         const fresh = await ctx.reconciler.reconcile(
             changeSet,
-            await tokenOf(subject),
+            (await credentialOf(subject, tree)).token,
         );
         return c.json({ changeSet: payload(fresh) });
     });
+
+    // Approving records the act, comments on the PR (the copy the fire
+    // drill can rebuild from), and — once every requirement is satisfied —
+    // merges. decide() carries the contributors, so helping write a change
+    // disqualifies approving it (the two-person default under Backend B).
+    app.post("/change-sets/:id/approve", async (c) => {
+        const subject = subjectOf(c);
+        const changeSet = changeSetOf(c);
+        const tree = treeOf(changeSet.sourceTreeId);
+        if (changeSet.state !== "proposed") {
+            throw new ApiError(
+                409,
+                `change set ${changeSet.id} is ${changeSet.state}; submit it first`,
+            );
+        }
+        const contributors = contributorsOf(ctx.store, changeSet);
+        const verdict = await ctx.decision.decide(
+            subject,
+            "approve",
+            { kind: "source-tree", sourceTree: tree.id },
+            { contributors },
+        );
+        if (!verdict.allow) {
+            throw new ApiError(403, verdict.reason);
+        }
+        const actor = ctx.subjectId(subject);
+        const credential = await credentialOf(subject, tree);
+        ctx.store.addApproval(changeSet.id, actor);
+        ctx.store.appendChangeSetEvent(changeSet.id, actor, "approved", null);
+        if (changeSet.prNumber !== null) {
+            await ctx.git
+                .commentOnPull(
+                    credential.token,
+                    repoId(tree),
+                    changeSet.prNumber,
+                    `Approved by ${displayOf(subject)} via the rototo console.`,
+                )
+                .catch(() => {});
+        }
+        const policy = await approvalPolicy(
+            { git: ctx.git, stager: ctx.stager },
+            tree,
+            changeSet,
+            credential.token,
+        );
+        const status = policyStatus(ctx.store, changeSet, policy);
+        if (!status.satisfied) {
+            return c.json({
+                recorded: true,
+                merged: false,
+                waitingOn: status.missing,
+            });
+        }
+        const merged = await mergeChangeSet(changeSet, tree, credential, actor);
+        return c.json({ recorded: true, merged: true, mergeSha: merged });
+    });
+
+    // The explicit merge: the same policy gate when the App acts; a user's
+    // own token leaves enforcement to GitHub, exactly like `git push`.
+    app.post("/change-sets/:id/merge", async (c) => {
+        const subject = subjectOf(c);
+        const changeSet = changeSetOf(c);
+        const tree = treeOf(changeSet.sourceTreeId);
+        if (changeSet.state !== "proposed" || changeSet.prNumber === null) {
+            throw new ApiError(
+                409,
+                `change set ${changeSet.id} has no open pull request`,
+            );
+        }
+        await decide(subject, "view", tree);
+        const credential = await credentialOf(subject, tree);
+        if (credential.mode === "app") {
+            const policy = await approvalPolicy(
+                { git: ctx.git, stager: ctx.stager },
+                tree,
+                changeSet,
+                credential.token,
+            );
+            const status = policyStatus(ctx.store, changeSet, policy);
+            if (!status.satisfied) {
+                throw new ApiError(
+                    409,
+                    `approval policy is not satisfied: ${status.missing.join("; ")}`,
+                );
+            }
+        }
+        const merged = await mergeChangeSet(
+            changeSet,
+            tree,
+            credential,
+            ctx.subjectId(subject),
+        );
+        return c.json({ merged: true, mergeSha: merged });
+    });
+
+    async function mergeChangeSet(
+        changeSet: ChangeSetRow,
+        tree: SourceTreeRow,
+        credential: ActingCredential,
+        actor: string,
+    ): Promise<string> {
+        const sha = await ctx.git.mergePull(
+            credential.token,
+            repoId(tree),
+            changeSet.prNumber as number,
+            `${changeSet.title} (#${changeSet.prNumber})`,
+        );
+        ctx.store.appendChangeSetEvent(
+            changeSet.id,
+            actor,
+            "merged",
+            JSON.stringify({ sha, via: "console" }),
+        );
+        await ctx.reconciler.reconcile(
+            ctx.store.getChangeSet(changeSet.id) as ChangeSetRow,
+            credential.token,
+        );
+        return sha;
+    }
 
     return app;
 }

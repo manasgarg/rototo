@@ -9,9 +9,17 @@
 import os from "node:os";
 import path from "node:path";
 
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import { Hono } from "hono";
 
-import { ChangeSets } from "./change-sets.ts";
+import {
+    GitHubAppCredentials,
+    NO_APP,
+    type ActingCredential,
+    type AppCredentials,
+} from "./app-credential.ts";
+import { BRANCH_PREFIX, ChangeSets } from "./change-sets.ts";
 import type { ServerConfig } from "./config.ts";
 import type { ConsoleContext } from "./context.ts";
 import {
@@ -52,6 +60,9 @@ export type AppDeps = {
     // Test seam for the OIDC code exchange; defaults to the configured
     // provider's own verified exchange.
     oidcExchange?: OidcExchange;
+    // Test seam for the GitHub App installation tokens; defaults to the
+    // configured App, or no App at all.
+    appCredentials?: AppCredentials;
     // Git-data operations; tests substitute a local fake, production is the
     // GitHub REST implementation.
     git?: GitOps;
@@ -129,6 +140,40 @@ export function buildApp(deps: AppDeps): App {
     const subjectId = (subject: Subject): string =>
         subject.kind === "principal" ? subject.id : "local";
 
+    const appCredentials =
+        deps.appCredentials ??
+        (config.githubApp !== null
+            ? new GitHubAppCredentials(config.githubApp)
+            : NO_APP);
+
+    // Whose token does the work (design/console-git-ops.md): the person's
+    // own GitHub credential when they have one — GitHub enforces, the
+    // console predicts — else the App's installation token, where the
+    // console itself is the enforcement point. Null means read-only.
+    const actingCredential = async (
+        subject: Subject,
+        tree: SourceTreeRow,
+    ): Promise<ActingCredential | null> => {
+        const token = await principalToken(subjectId(subject));
+        if (token !== null) {
+            return { token, mode: "user" };
+        }
+        if (
+            tree.kind === "github" &&
+            tree.owner !== null &&
+            tree.name !== null
+        ) {
+            const appToken = await appCredentials.installationToken(
+                tree.owner,
+                tree.name,
+            );
+            if (appToken !== null) {
+                return { token: appToken, mode: "app" };
+            }
+        }
+        return null;
+    };
+
     const git = deps.git ?? new GitHubGit();
     const stager = new PackageStager({
         cacheRoot:
@@ -142,14 +187,36 @@ export function buildApp(deps: AppDeps): App {
     const reconciler = new Reconciler({
         store,
         git,
-        tokenFor: (changeSet) => principalToken(changeSet.authorPrincipal),
+        // The author's own credential, or the App's for change sets whose
+        // authors have none (they could not have created them otherwise).
+        tokenFor: async (changeSet) => {
+            const token = await principalToken(changeSet.authorPrincipal);
+            if (token !== null) {
+                return token;
+            }
+            const tree = store.getSourceTree(changeSet.sourceTreeId);
+            if (
+                tree !== null &&
+                tree.kind === "github" &&
+                tree.owner !== null &&
+                tree.name !== null
+            ) {
+                return appCredentials.installationToken(tree.owner, tree.name);
+            }
+            return null;
+        },
     });
 
     const app = new Hono();
 
     // The mutation guard: header plus Origin allowlist on anything unsafe.
+    // The webhook endpoint is the one exception: a machine caller whose
+    // authentication is its HMAC signature, checked in the route.
     app.use("/api/*", async (c, next) => {
         const method = c.req.method.toUpperCase();
+        if (c.req.path === "/api/webhooks/github") {
+            return next();
+        }
         if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
             if (c.req.header(CONSOLE_HEADER) === undefined) {
                 return c.json(
@@ -227,6 +294,7 @@ export function buildApp(deps: AppDeps): App {
         subjectFor,
         subjectId,
         actingToken: (subject) => principalToken(subjectId(subject)),
+        actingCredential,
     };
     app.route("/api", packageRoutes(ctx));
     app.route("/api", changeSetRoutes(ctx));
@@ -246,6 +314,52 @@ export function buildApp(deps: AppDeps): App {
     );
 
     app.get("/api/health", (c) => c.json({ ok: true }));
+
+    // Webhooks are nudges, never truth (design/console-git-ops.md rule 4):
+    // the payload is verified, reduced to "check sooner", and dropped. If
+    // every webhook were lost, the reconciler's own loop would still make
+    // the rows right, just a little later.
+    app.post("/api/webhooks/github", async (c) => {
+        if (config.webhookSecret === null) {
+            return c.json(
+                { error: { message: "webhooks are not configured" } },
+                404,
+            );
+        }
+        const payload = await c.req.text();
+        const signature = c.req.header("x-hub-signature-256") ?? "";
+        const expected = `sha256=${createHmac("sha256", config.webhookSecret)
+            .update(payload)
+            .digest("hex")}`;
+        const left = Buffer.from(signature, "utf8");
+        const right = Buffer.from(expected, "utf8");
+        if (left.length !== right.length || !timingSafeEqual(left, right)) {
+            return c.json(
+                { error: { message: "the webhook signature does not verify" } },
+                401,
+            );
+        }
+        const event = c.req.header("x-github-event") ?? "";
+        let nudged = false;
+        if (event === "pull_request" || event === "push") {
+            const body = JSON.parse(payload) as {
+                pull_request?: { head?: { ref?: string } };
+                ref?: string;
+            };
+            const ref =
+                body.pull_request?.head?.ref ??
+                body.ref?.replace(/^refs\/heads\//, "") ??
+                "";
+            if (ref.startsWith(BRANCH_PREFIX)) {
+                // The nudge: run the reconciler's normal pass now instead
+                // of at the next interval. Nothing is copied out of the
+                // payload.
+                await reconciler.reconcileAll();
+                nudged = true;
+            }
+        }
+        return c.json({ ok: true, nudged });
+    });
 
     app.get("/api/me", async (c) => {
         const subject = subjectFor(c.req.header("cookie"));

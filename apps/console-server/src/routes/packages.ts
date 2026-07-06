@@ -72,14 +72,14 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
         if (!verdict.allow) {
             throw new ApiError(403, verdict.reason);
         }
-        const token = await ctx.actingToken(subject);
-        if (token === null) {
+        const credential = await ctx.actingCredential(subject, tree);
+        if (credential === null) {
             throw new ApiError(
                 403,
                 "no GitHub credential is available to read this tree with",
             );
         }
-        return { tree, subject, token };
+        return { tree, subject, token: credential.token };
     };
 
     const stagedPin = (c: Context): string => {

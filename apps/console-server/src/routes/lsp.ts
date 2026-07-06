@@ -50,13 +50,14 @@ export function lspRoutes(ctx: ConsoleContext): Hono {
         if (!verdict.allow) {
             throw new ApiError(403, verdict.reason);
         }
-        const token = await ctx.actingToken(subject);
-        if (token === null) {
+        const credential = await ctx.actingCredential(subject, tree);
+        if (credential === null) {
             throw new ApiError(
                 403,
                 "no GitHub credential is available to read this tree with",
             );
         }
+        const token = credential.token;
         const body = (await c.req.json().catch(() => null)) as {
             path?: string;
             pin?: string;

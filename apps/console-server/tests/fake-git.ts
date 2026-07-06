@@ -31,6 +31,8 @@ export class FakeGit implements GitOps {
     readonly gitDir: string;
     private readonly scratch: string;
     private readonly pulls: PullRecord[] = [];
+    // The PR timeline's comments, per pull number; what approval leaves.
+    readonly pullComments = new Map<number, string[]>();
     private nextPullNumber = 1;
     private readonly conflictedPulls = new Set<number>();
     private nextIndex = 0;
@@ -118,7 +120,7 @@ export class FakeGit implements GitOps {
     // An "external" merge: someone presses the button on GitHub. Squash
     // semantics with delete-branch-on-merge, like the deployments we care
     // about configure.
-    mergePull(number: number): string {
+    externalMerge(number: number, commitTitle?: string): string {
         const pull = this.pulls.find((entry) => entry.number === number);
         if (pull === undefined || pull.state !== "open") {
             throw new Error(`pull #${number} is not open`);
@@ -139,7 +141,7 @@ export class FakeGit implements GitOps {
                 "-p",
                 base,
                 "-m",
-                `${pull.title} (#${number})`,
+                commitTitle ?? `${pull.title} (#${number})`,
             ],
             undefined,
         );
@@ -319,6 +321,26 @@ export class FakeGit implements GitOps {
             return;
         }
         pull.state = "closed";
+    }
+
+    async mergePull(
+        _token: string,
+        _repo: RepoId,
+        number: number,
+        commitTitle?: string,
+    ): Promise<string> {
+        return this.externalMerge(number, commitTitle);
+    }
+
+    async commentOnPull(
+        _token: string,
+        _repo: RepoId,
+        number: number,
+        body: string,
+    ): Promise<void> {
+        const comments = this.pullComments.get(number) ?? [];
+        comments.push(body);
+        this.pullComments.set(number, comments);
     }
 
     async listCommits(

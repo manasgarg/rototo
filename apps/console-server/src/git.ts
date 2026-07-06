@@ -114,6 +114,23 @@ export interface GitOps {
         branch: string,
     ): Promise<PullRecord | null>;
     closePull(token: string, repo: RepoId, number: number): Promise<void>;
+    // Console-initiated merge: GitHub's merge API, squash by default, the
+    // branch deleted after. The caller has already enforced approval policy
+    // when the acting token is the App's.
+    mergePull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        commitTitle?: string,
+    ): Promise<string>;
+    // The approval comment: deliberate redundancy that puts the approval
+    // into the PR timeline, where the fire drill can find it.
+    commentOnPull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        body: string,
+    ): Promise<void>;
     // Branches under a prefix; what the fire drill walks.
     listBranches(
         token: string,
@@ -336,6 +353,49 @@ export class GitHubGit implements GitOps {
             { state: "closed" },
         );
         await ensureOk(response, "close pull request");
+    }
+
+    async mergePull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        commitTitle?: string,
+    ): Promise<string> {
+        const response = await this.request(
+            token,
+            "PUT",
+            `/repos/${repo.owner}/${repo.name}/pulls/${number}/merge`,
+            {
+                merge_method: "squash",
+                ...(commitTitle === undefined
+                    ? {}
+                    : { commit_title: commitTitle }),
+            },
+        );
+        await ensureOk(response, "merge pull request");
+        const body = (await response.json()) as { sha: string };
+        // Branch deletion mirrors delete-branch-on-merge; a 422 from a
+        // repo-side auto-delete racing us is fine.
+        const pull = await this.getPull(token, repo, number);
+        if (pull !== null) {
+            await this.deleteRef(token, repo, pull.headRef).catch(() => {});
+        }
+        return body.sha;
+    }
+
+    async commentOnPull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        body: string,
+    ): Promise<void> {
+        const response = await this.request(
+            token,
+            "POST",
+            `/repos/${repo.owner}/${repo.name}/issues/${number}/comments`,
+            { body },
+        );
+        await ensureOk(response, "comment on pull request");
     }
 
     async listBranches(

@@ -139,7 +139,7 @@ test("the developer walkthrough, end to end and timed", async (t) => {
     assert.ok(submitted.pull.number > 0);
 
     // 7. Merge on GitHub — outside the console, like the gate demands.
-    harness.fakeGit.mergePull(submitted.pull.number);
+    harness.fakeGit.externalMerge(submitted.pull.number);
 
     // 8. The reconciler observes the merge on its normal pass.
     await timed("reconcile", () => harness.app.reconciler.reconcileAll());

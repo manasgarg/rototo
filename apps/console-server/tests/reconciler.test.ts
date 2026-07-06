@@ -55,7 +55,7 @@ async function submitted(title: string): Promise<any> {
 
 test("an external merge is observed as merged, via the background pass", async () => {
     const changeSet = await submitted("Merged on GitHub");
-    harness.fakeGit.mergePull(changeSet.prNumber);
+    harness.fakeGit.externalMerge(changeSet.prNumber);
 
     // The loop the interval drives, using the author's own credential.
     await harness.app.reconciler.reconcileAll();
@@ -138,7 +138,7 @@ test("behind-base and conflicted are observed facts, not states", async () => {
 
 test("reconciling the same fact twice changes nothing", async () => {
     const changeSet = await submitted("Idempotent");
-    harness.fakeGit.mergePull(changeSet.prNumber);
+    harness.fakeGit.externalMerge(changeSet.prNumber);
     await harness.post(
         `/api/change-sets/${changeSet.id}/reconcile`,
         {},
