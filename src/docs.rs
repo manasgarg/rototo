@@ -415,11 +415,12 @@ value = "redesign"
   <section>
     <h2>Operate it from the console</h2>
     <p>
-      <code>rototo console</code> serves a web console from the same binary as
-      the CLI: browse packages, trace how a variable resolves against saved
-      contexts, edit review branches, and publish pull requests. Run it
-      on your laptop with your own GitHub token, or behind your proxy with
-      GitHub OAuth for the whole team.
+      The rototo console is a companion web app that ships separately as
+      <code>@rototo/console</code>: browse packages, trace how a variable
+      resolves against saved contexts, edit through curated surfaces, and
+      review changes with their resolution impact before they merge. Run it
+      on your laptop with your own GitHub token, or host it for the team
+      with GitHub OAuth and SSO.
     </p>
     <p><a href="docs/concepts.html">Read the concepts →</a></p>
   </section>

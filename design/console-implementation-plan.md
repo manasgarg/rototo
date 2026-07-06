@@ -170,6 +170,26 @@ or beside the `rototo console` command).
 Gate: the old console is removable with `just check` green, all
 walkthroughs green, all budgets green.
 
+**Shipped (July 2026).** The product-shape decision landed as full
+decoupling: the console is its own product, `@rototo/console`, one Node
+process serving the web app and the JSON API; the `rototo console`
+command, the Cargo console feature, `src/console/`, and `apps/console/`
+are gone, and the rototo binary is pure core and CLI. The parity
+checklist against the old console:
+
+- Carried, and grown well past parity: GitHub-backed browsing, editing
+  (change sets over the git-data API instead of direct branch pushes),
+  traced previews, pull-request flow, team auth (OAuth plus OIDC and the
+  App write path), LSP-backed diagnostics.
+- Consciously dropped: the local-package quick look (`rototo console
+  --package ./dir`). The CLI's `show`, `inspect`, `resolve`, and `lsp`
+  cover that persona; the console's value begins where git-backed review
+  begins. Also dropped: the `--write direct-push` mode (every console
+  write is a change set) and the embedded-SPA single binary.
+- Deferred, recorded in the specs: tenants, estate views, production
+  context capture, npm publish automation for `@rototo/console` (the
+  package is shaped for it: bin, files, staged web bundle).
+
 ## Deliberately in no tranche
 
 Tenants (identity, isolation, self-service), ring 3 estate views, WASM

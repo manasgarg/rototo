@@ -368,34 +368,6 @@ rototo setup --agent claude
 - **`--dry-run`** - show planned changes without touching the filesystem.
 - **`--force`** - overwrite rototo-owned generated files that already exist.
 
-## console - the web UI
-
-`console` serves the rototo console - a web UI plus a JSON API - from the same
-binary, over a package.
-
-```sh
-rototo console --package app-config
-rototo console --package app-config --bind 127.0.0.1:8080
-```
-
-The main flags:
-
-- **`--package <source>`** - the package to open at startup.
-- **`--bind <addr>`** - the address to listen on.
-- **`--data-dir <dir>`** - where console state lives (also
-  `ROTOTO_CONSOLE_DATA_DIR`).
-- **`--public-url <url>`** - the public origin, for running behind a reverse
-  proxy (also `ROTOTO_CONSOLE_PUBLIC_URL`).
-- **`--state ephemeral|persistent`** - whether console state (repos, drafts,
-  sessions) survives a restart. Defaults to `ephemeral` for a local folder
-  package and `persistent` otherwise.
-- **`--deployment local|hosted`** - single-user local mode versus a hosted
-  deployment. Defaults to `local` when `--package` is given, `hosted`
-  otherwise.
-- **`--write disabled|pull-request|direct-push`** - how branch edits leave the
-  console: not at all, as GitHub pull requests, or pushed directly. Defaults
-  to `direct-push` for a local fixed package and `pull-request` otherwise.
-
 ## lsp - the language server
 
 `lsp` runs the rototo language server over stdin/stdout. You don't usually run

@@ -106,7 +106,6 @@ rototo diff <before-package-source> <after-package-source> [--context <context> 
 rototo show [package-source] [selectors]
 rototo resolve [package-source] [--variable <id> ... | --variables] [--context <context> ...]
 rototo docs [-p <page-prefix>]
-rototo console ...
 rototo lsp
 rototo completions <shell>
 ```
@@ -155,30 +154,36 @@ rototo resolve examples/basic --variable checkout_redesign \
 
 ## Console
 
-`rototo console` serves the web console and its JSON API from the same binary
-as the CLI. The Rust server lives in `src/console/` and owns all data access:
-package staging, lint, the semantic model, resolution previews, the GitHub
-REST write path (draft branches, file commits, pull requests), an in-process
-LSP bridge, and a SQLite store for repos/packages/drafts/sessions under the
-console data directory. The frontend in `apps/console` is a Vite + React
-static SPA with no server runtime; it talks only to `/api/*` and its built
-`dist/` bundle is embedded into the binary (staged via `build.rs`, served by
-`rust-embed`).
+The console is its own product, fully decoupled from the CLI: there is no
+`rototo console` command and the rototo binary carries no server stack. It
+ships as `@rototo/console` (Node 24+): the TypeScript server in
+`apps/console-server` serves the JSON API and the built web app from one
+process, reaching the Rust core through an internal napi binding crate
+(`rototo-console-native`, a workspace member; TypeScript resolves refs, the
+bindings only ever see 40-hex pins). The frontend in `apps/console-web` is a
+Vite + React SPA; `just console-build` stages its bundle into the server's
+`web/` directory for serving.
 
-Auth modes are resolved at startup: local (default — no login; ambient GitHub
-token from `--package-token`/`ROTOTO_PACKAGE_TOKEN`, a stored device-flow
-sign-in, or `gh auth token`), team (`ROTOTO_GITHUB_CLIENT_ID` +
-`ROTOTO_GITHUB_CLIENT_SECRET` turn on the GitHub OAuth web flow with per-user
-tokens encrypted via `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only
-(`--read-only --package <source>`, no auth, writes rejected). Mutating routes
-require the `x-rototo-console` header plus an Origin check; keep that invariant
-when adding routes. Console writes go through the GitHub API only — do not add
-a generic git write backend without reopening the design.
+The design contracts live in `design/console-*.md`. Load-bearing invariants:
+git is content and the SQLite store is coordination (the store is rebuildable
+from GitHub); every write is a change set (branch + PR through the GitHub
+API) — do not add a generic git write backend without reopening the design;
+authorization goes through one `decide()` seam (GitHub-derived and advisory
+when a user token acts, console grants authoritative when the App credential
+acts); mutating routes require the `x-rototo-console` header plus an Origin
+check (the HMAC-verified webhook endpoint is the sole exception). Surfaces
+are catalog entries in `console/surfaces` — the console configures itself
+with rototo — and experiences are build-time extensions that may import only
+react and `apps/console-web/src/extension-api.ts` (enforced by the contract
+check in the web test suite).
 
-Wire shapes are serde camelCase and mirrored in
-`apps/console/src/lib/types.ts`; the Rust server is the source of truth.
-Keep the console feature flag in Cargo.toml: SDK binding crates build with
-`default-features = false` so the server stack stays out of their artifacts.
+Auth modes resolve at startup: local (no login; ambient GitHub token from
+env, stored credentials, or `gh auth token`), and team
+(`ROTOTO_GITHUB_CLIENT_ID`/`ROTOTO_GITHUB_CLIENT_SECRET` for GitHub OAuth,
+optional OIDC via `ROTOTO_CONSOLE_OIDC_*`, per-user tokens encrypted with
+`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`, enrollment by invitation by default).
+Wire shapes are serde camelCase mirrored in `apps/console-web/src/lib/api.ts`;
+the server is the source of truth.
 
 ## Lint Expectations
 

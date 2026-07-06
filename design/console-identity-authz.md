@@ -547,7 +547,7 @@ Two consequences worth recording:
   SQLite. Token encryption at rest is reimplemented in TypeScript with the
   same format and key semantics as `token_crypto` today.
 
-One open consequence belongs to the product-shape layer, not here: the
-single-binary story. `rototo console` currently serves an embedded SPA from
-the Rust binary; a TypeScript server changes how the console ships and
-starts. Recorded here so it is not lost; decided there.
+One consequence belonged to the product-shape layer, not here, and is now
+decided (C7): the console ships as its own product, `@rototo/console`,
+serving the web app and API from one Node process. The rototo binary
+carries no console and no `rototo console` command.
