@@ -131,6 +131,12 @@ type DecisionDeps = {
     store: Store;
     github: GitHubFacts;
     tokenCrypto: () => TokenCrypto;
+    // The undirected extends-adjacency of package paths within a source
+    // tree, for the lineage derivation (design/console-identity-authz.md
+    // section 6): propose on a package derives view over the packages its
+    // composition connects it to. Absent or empty means the derivation is
+    // inert, which is also its state under Backend A (repo-wide view).
+    packageLinks?: (sourceTree: string) => Promise<Map<string, string[]>>;
 };
 
 export class DecisionPoint {
@@ -206,6 +212,21 @@ export class DecisionPoint {
             }
         }
 
+        // The lineage derivation: propose on a package grants view over the
+        // packages its composition connects it to, in both directions —
+        // upstream to edit with understanding, downstream to judge impact.
+        // Derived visibility is view only; nothing else is ever derived.
+        if (
+            action === "view" &&
+            resource.kind === "package" &&
+            this.deps.packageLinks !== undefined
+        ) {
+            const derived = await this.derivedView(grants, resource);
+            if (derived !== null) {
+                return derived;
+            }
+        }
+
         // Backend A: GitHub-derived, advisory. Only source-tree-scoped
         // resources map onto a repository; deployment scope is grants-only.
         if (resource.kind !== "deployment") {
@@ -224,6 +245,54 @@ export class DecisionPoint {
             backend: null,
             reason: "no grant or GitHub permission matched (default deny)",
         };
+    }
+
+    // Every allow carries its path, so an auditor can always answer "why
+    // can this person see this?".
+    private async derivedView(
+        grants: { action: string; resource: string }[],
+        resource: Extract<Resource, { kind: "package" }>,
+    ): Promise<Decision | null> {
+        const packagePrefix = `package:${resource.sourceTree}/`;
+        const entityPrefix = `entity:${resource.sourceTree}/`;
+        const proposedOn = new Set<string>();
+        for (const grant of grants) {
+            if (
+                !isAction(grant.action) ||
+                !actionImplies(grant.action, "propose")
+            ) {
+                continue;
+            }
+            if (grant.resource.startsWith(packagePrefix)) {
+                proposedOn.add(grant.resource.slice(packagePrefix.length));
+            } else if (grant.resource.startsWith(entityPrefix)) {
+                // The entity's package anchors the closure. The entity
+                // segment is an address (`variable=x`); everything before
+                // the first address-shaped segment is the package path.
+                const rest = grant.resource.slice(entityPrefix.length);
+                const cut = rest.search(/\/[a-z-]+=/);
+                proposedOn.add(cut === -1 ? rest : rest.slice(0, cut));
+            }
+        }
+        if (proposedOn.size === 0) {
+            return null;
+        }
+        const links = await (
+            this.deps.packageLinks as (
+                sourceTree: string,
+            ) => Promise<Map<string, string[]>>
+        )(resource.sourceTree);
+        for (const start of proposedOn) {
+            const path = connectedPath(links, start, resource.path);
+            if (path !== null) {
+                return {
+                    allow: true,
+                    backend: "grant",
+                    reason: `view derived from propose on package:${resource.sourceTree}/${start} (connected via ${path.join(" -> ")})`,
+                };
+            }
+        }
+        return null;
     }
 
     private async decideFromGitHub(
@@ -314,4 +383,39 @@ function grantedByPermissions(permissions: {
 
 function isAction(value: string): value is Action {
     return (ACTIONS as readonly string[]).includes(value);
+}
+
+// Breadth-first over the undirected extends graph; returns the connecting
+// path (start included) or null. Small graphs — a tree holds tens of
+// packages, not thousands.
+function connectedPath(
+    links: Map<string, string[]>,
+    start: string,
+    goal: string,
+): string[] | null {
+    if (start === goal) {
+        return [start];
+    }
+    const previous = new Map<string, string>([[start, start]]);
+    const queue = [start];
+    while (queue.length > 0) {
+        const current = queue.shift() as string;
+        for (const next of links.get(current) ?? []) {
+            if (previous.has(next)) {
+                continue;
+            }
+            previous.set(next, current);
+            if (next === goal) {
+                const path = [goal];
+                let step = goal;
+                while (step !== start) {
+                    step = previous.get(step) as string;
+                    path.unshift(step);
+                }
+                return path;
+            }
+            queue.push(next);
+        }
+    }
+    return null;
 }

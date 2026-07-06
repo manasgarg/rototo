@@ -15,7 +15,7 @@ import { ApiError } from "../errors.ts";
 import type { CommitRecord } from "../git.ts";
 import { branchFor, repoId } from "../change-sets.ts";
 import { native } from "../native.ts";
-import { containedPath, isPin } from "../packages.ts";
+import { containedPath, isPin, resolveExtend } from "../packages.ts";
 import type { SourceTreeRow } from "../store.ts";
 import {
     audienceAllows,
@@ -471,24 +471,4 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
     });
 
     return app;
-}
-
-// A base package another package extends, resolved to a tree-relative
-// package path when the source is a local path inside the tree; remote
-// sources (git+, https) stay external and return null.
-function resolveExtend(
-    fromPackage: string,
-    source: string,
-    known: Set<string>,
-): string | null {
-    if (source.includes("://")) {
-        return null;
-    }
-    const fromDir = fromPackage === "." ? "" : fromPackage;
-    const resolved = path.posix.normalize(path.posix.join(fromDir, source));
-    const candidate = resolved === "" ? "." : resolved;
-    if (candidate.startsWith("..")) {
-        return null;
-    }
-    return known.has(candidate) ? candidate : null;
 }

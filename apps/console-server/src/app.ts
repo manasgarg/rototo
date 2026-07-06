@@ -35,9 +35,10 @@ import { type GitOps, GitHubGit } from "./git.ts";
 import type { GitHubFacts } from "./github.ts";
 import { LocalAuth } from "./local-auth.ts";
 import { LspBridge } from "./lsp-bridge.ts";
+import { native } from "./native.ts";
 import type { OidcExchange } from "./oidc.ts";
 import { OidcProvider } from "./oidc.ts";
-import { PackageStager } from "./packages.ts";
+import { PackageStager, resolveExtend } from "./packages.ts";
 import { Reconciler } from "./reconciler.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes, defaultOauthExchange } from "./routes/auth.ts";
@@ -102,11 +103,78 @@ export function buildApp(deps: AppDeps): App {
         return crypto;
     };
 
+    // The extends-adjacency of a tree's packages, for the lineage-derived
+    // view. Read with the App credential (composition is content, not
+    // permission); when no credential can read the tree the derivation is
+    // simply inert, exactly like Backend A's repo-wide view makes it.
+    const linksCache = new Map<
+        string,
+        { at: number; links: Map<string, string[]> }
+    >();
+    const packageLinks = async (
+        sourceTreeId: string,
+    ): Promise<Map<string, string[]>> => {
+        const cached = linksCache.get(sourceTreeId);
+        if (cached !== undefined && Date.now() - cached.at < 300_000) {
+            return cached.links;
+        }
+        const links = new Map<string, string[]>();
+        try {
+            const tree = store.getSourceTree(sourceTreeId);
+            if (
+                tree === null ||
+                tree.kind !== "github" ||
+                tree.owner === null ||
+                tree.name === null
+            ) {
+                throw new Error("not a github tree");
+            }
+            const token =
+                (await appCredentials.installationToken(
+                    tree.owner,
+                    tree.name,
+                )) ?? "";
+            const pin = await git.getRef(
+                token,
+                { owner: tree.owner, name: tree.name },
+                tree.defaultBranch ?? "main",
+            );
+            if (pin === null) {
+                throw new Error("no default branch");
+            }
+            const treeRoot = await stager.stageTree(tree, pin, token);
+            const packages = await native.discoverPackages(treeRoot);
+            const known = new Set(packages);
+            for (const packagePath of packages) {
+                const model = (await native
+                    .semanticModel(stager.packageRoot(treeRoot, packagePath))
+                    .catch(() => null)) as {
+                    extends?: { source: string }[];
+                } | null;
+                for (const extend of model?.extends ?? []) {
+                    const to = resolveExtend(packagePath, extend.source, known);
+                    if (to !== null) {
+                        links.set(packagePath, [
+                            ...(links.get(packagePath) ?? []),
+                            to,
+                        ]);
+                        links.set(to, [...(links.get(to) ?? []), packagePath]);
+                    }
+                }
+            }
+        } catch {
+            // Inert: an empty adjacency derives nothing.
+        }
+        linksCache.set(sourceTreeId, { at: Date.now(), links });
+        return links;
+    };
+
     const decision = new DecisionPoint({
         authMode: config.authMode,
         store,
         github,
         tokenCrypto,
+        packageLinks,
     });
 
     // The acting credential for a principal (user tokens only in C2): the

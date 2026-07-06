@@ -14,6 +14,26 @@ export function isPin(value: string): boolean {
     return PIN.test(value);
 }
 
+// A base package another package extends, resolved to a tree-relative
+// package path when the source is a local path inside the tree; remote
+// sources (git+, https) stay external and return null.
+export function resolveExtend(
+    fromPackage: string,
+    source: string,
+    known: Set<string>,
+): string | null {
+    if (source.includes("://")) {
+        return null;
+    }
+    const fromDir = fromPackage === "." ? "" : fromPackage;
+    const resolved = path.posix.normalize(path.posix.join(fromDir, source));
+    const candidate = resolved === "" ? "." : resolved;
+    if (candidate.startsWith("..")) {
+        return null;
+    }
+    return known.has(candidate) ? candidate : null;
+}
+
 export type StagerOptions = {
     // Where staged trees live; per-deployment under the data dir, or a
     // scratch directory in ephemeral mode.

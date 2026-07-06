@@ -65,11 +65,20 @@ export type PackageReview = {
     }[];
 };
 
+// A touched package outside the reviewer's view: existence is disclosed,
+// content is not (design/console-identity-authz.md 6.2). The count keeps
+// the reviewer honest about what they cannot judge.
+export type RedactedPackageReview = {
+    path: string;
+    redacted: true;
+    files: number;
+};
+
 export type ChangeSetReview = {
     basePin: string;
     headPin: string;
     files: string[];
-    packages: PackageReview[];
+    packages: (PackageReview | RedactedPackageReview)[];
 };
 
 type ReviewDeps = {
@@ -79,7 +88,15 @@ type ReviewDeps = {
 
 export async function buildReview(
     deps: ReviewDeps,
-    input: { tree: SourceTreeRow; changeSet: ChangeSetRow; token: string },
+    input: {
+        tree: SourceTreeRow;
+        changeSet: ChangeSetRow;
+        token: string;
+        // Whether the reviewer may view a touched package; absent means
+        // everything is visible (the pre-grants callers). A package this
+        // refuses renders redacted: counted, never shown.
+        canView?: (packagePath: string) => Promise<boolean>;
+    },
 ): Promise<ChangeSetReview> {
     const { git, stager } = deps;
     const { tree, changeSet, token } = input;
@@ -108,8 +125,16 @@ export async function buildReview(
     const packages = await native.discoverPackages(afterTree);
 
     const touched = touchedPackages(comparison.files, packages);
-    const reviews: PackageReview[] = [];
+    const reviews: (PackageReview | RedactedPackageReview)[] = [];
     for (const [packagePath, files] of touched) {
+        if (input.canView !== undefined && !(await input.canView(packagePath))) {
+            reviews.push({
+                path: packagePath,
+                redacted: true,
+                files: files.length,
+            });
+            continue;
+        }
         reviews.push(
             await reviewPackage(
                 stager.packageRoot(beforeTree, packagePath),

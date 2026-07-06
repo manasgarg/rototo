@@ -319,3 +319,53 @@ test("the two-person rule: a contributor's grant cannot approve their own change
     );
     assert.equal(second.allow, true);
 });
+
+test("propose derives view over composition-connected packages, view only", async () => {
+    const store = new Store(null);
+    const principal = store.createPrincipal("Tenant Editor");
+    store.insertGrant({
+        granteeKind: "principal",
+        granteeId: principal.id,
+        action: "propose",
+        resource: "package:st_1/packages/overlay",
+        createdBy: null,
+    });
+    const decide = new DecisionPoint({
+        authMode: "team",
+        store,
+        github: new FakeGitHub(),
+        tokenCrypto: () => TokenCrypto.fromEnvValue(TEST_KEY),
+        packageLinks: async () =>
+            new Map([
+                ["packages/overlay", ["packages/basic"]],
+                ["packages/basic", ["packages/overlay"]],
+            ]),
+    });
+    const subject = { kind: "principal", id: principal.id } as const;
+
+    // Upstream visibility: the base the overlay extends.
+    const derived = await decide.decide(subject, "view", {
+        kind: "package",
+        sourceTree: "st_1",
+        path: "packages/basic",
+    });
+    assert.equal(derived.allow, true);
+    assert.match(derived.reason, /derived from propose/);
+    assert.match(derived.reason, /packages\/overlay -> packages\/basic/);
+
+    // Derived visibility is view only; nothing about write is derived.
+    const propose = await decide.decide(subject, "propose", {
+        kind: "package",
+        sourceTree: "st_1",
+        path: "packages/basic",
+    });
+    assert.equal(propose.allow, false);
+
+    // A package the composition does not connect stays invisible.
+    const unrelated = await decide.decide(subject, "view", {
+        kind: "package",
+        sourceTree: "st_1",
+        path: "packages/unrelated",
+    });
+    assert.equal(unrelated.allow, false);
+});

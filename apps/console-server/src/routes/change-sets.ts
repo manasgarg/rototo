@@ -70,17 +70,20 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         if (verdict.allow) {
             return;
         }
-        // A propose grant scoped to a package (or entity) within the tree
-        // still lets its holder carry a change set — the branch and PR are
-        // vehicles; the entity-level checks bind what the edits may touch.
-        if (action === "propose" && subject.kind === "principal") {
+        // A grant scoped to a package (or entity) within the tree still
+        // lets its holder see the tree exists and carry a change set — the
+        // branch and PR are vehicles; package-level view checks and the
+        // entity-level edit checks bind the content.
+        if (subject.kind === "principal") {
+            const needed =
+                action === "propose"
+                    ? ["propose", "approve", "administer"]
+                    : ["view", "propose", "approve", "administer"];
             const scoped = ctx.store
                 .grantsForPrincipal(subject.id)
                 .some(
                     (grant) =>
-                        ["propose", "approve", "administer"].includes(
-                            grant.action,
-                        ) &&
+                        needed.includes(grant.action) &&
                         (grant.resource.startsWith(`package:${tree.id}/`) ||
                             grant.resource.startsWith(`entity:${tree.id}/`)),
                 );
@@ -191,7 +194,21 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         const credential = await credentialOf(subject, tree);
         const review = await buildReview(
             { git: ctx.git, stager: ctx.stager },
-            { tree, changeSet, token: credential.token },
+            {
+                tree,
+                changeSet,
+                token: credential.token,
+                // Touched packages outside the reviewer's view render
+                // redacted: the count and nothing else.
+                canView: async (packagePath) =>
+                    (
+                        await ctx.decision.decide(subject, "view", {
+                            kind: "package",
+                            sourceTree: tree.id,
+                            path: packagePath,
+                        })
+                    ).allow,
+            },
         );
         // The approval requirements ride along, so the reviewer sees what
         // this change must satisfy and what is still missing.
