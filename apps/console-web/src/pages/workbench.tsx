@@ -434,7 +434,9 @@ export function WorkbenchPage({
 
 // The editing context: which change set commits accumulate on. Viewing the
 // default branch is read-only by design; the branch is the durable draft.
-function EditingStrip({
+// The domain lens reuses this strip so "which change set am I on" looks the
+// same everywhere.
+export function EditingStrip({
     treeId,
     canPropose,
     changeSets,

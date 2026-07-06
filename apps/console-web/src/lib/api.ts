@@ -253,6 +253,171 @@ export type CompositionEdge = {
     to: string | null;
 };
 
+// --- surfaces (tranche C4): the domain lens at floor fidelity ---
+
+export type SurfaceDiagnostic = {
+    severity: "error" | "warning" | "info";
+    message: string;
+};
+
+export type SurfaceBinding = {
+    target: string;
+    editableFields: string[] | null;
+    canAdd: boolean;
+    canDelete: boolean;
+};
+
+export type Surface = {
+    id: string;
+    kind: string | null;
+    title: string;
+    description: string | null;
+    audience: string[];
+    approval: string | null;
+    caution: string | null;
+    config: Record<string, unknown> | null;
+    bindings: SurfaceBinding[];
+    diagnostics: SurfaceDiagnostic[];
+};
+
+export type Control =
+    | { control: "toggle" }
+    | { control: "select"; options: unknown[] }
+    | { control: "number" }
+    | { control: "text" }
+    | { control: "json" };
+
+export type FieldControl = Control & { field: string };
+
+export type SurfaceItem =
+    | {
+          kind: "variable";
+          id: string;
+          variableType: string | null;
+          description: string | null;
+          control: Control;
+          default: unknown;
+          ruleCount: number;
+      }
+    | {
+          kind: "catalog";
+          id: string;
+          description: string | null;
+          schema: unknown;
+          entries: { key: string; value: unknown }[];
+          editableFields: string[] | null;
+          canAdd: boolean;
+          canDelete: boolean;
+          fields: FieldControl[];
+      }
+    | {
+          kind: "entry";
+          catalog: string;
+          key: string;
+          value: unknown;
+          editableFields: string[] | null;
+          fields: FieldControl[];
+      }
+    | { kind: "missing"; target: string };
+
+export type SurfaceSuggestion = {
+    id: string;
+    kind: string;
+    title: string;
+    reason: string;
+    operations: EditOperation[];
+};
+
+export type SurfaceList = {
+    pin: string;
+    path: string;
+    surfaces: Surface[];
+    diagnostics: SurfaceDiagnostic[];
+    suggestions: SurfaceSuggestion[];
+};
+
+export type SurfaceDetail = {
+    pin: string;
+    path: string;
+    surface: Surface;
+    items: SurfaceItem[];
+    now: string;
+    upcoming: UpcomingChange[];
+    history: CommitRecord[];
+    pending: {
+        id: string;
+        title: string;
+        state: string;
+        prNumber: number | null;
+    }[];
+};
+
+// --- the three-delta review (tranche C4) ---
+
+export type SemanticChange = {
+    kind: string;
+    target: {
+        entity: Record<string, unknown> & { kind: string };
+        field?: Record<string, unknown>;
+    };
+    before?: unknown;
+    after?: unknown;
+};
+
+export type OutcomeImpact = {
+    variable: string;
+    before?: { id: string; value: unknown };
+    before_error?: string;
+    after?: { id: string; value: unknown };
+    after_error?: string;
+};
+
+export type ContextImpact = {
+    context: string;
+    impacts: OutcomeImpact[];
+    compared: number;
+};
+
+export type ReviewContext = {
+    label: string;
+    source: "sample" | "synthetic";
+    context: Record<string, unknown>;
+};
+
+export type ReviewDenominator = {
+    samples: number;
+    synthesized: number;
+    variables: {
+        id: string;
+        sampleCount: number;
+        defaultCovered: boolean;
+        rules: { index: number; covered: boolean }[];
+    }[];
+};
+
+export type PackageReview = {
+    path: string;
+    changes: SemanticChange[];
+    contexts: ReviewContext[];
+    contextImpacts: ContextImpact[];
+    impactError: string | null;
+    denominator: ReviewDenominator;
+    lint: { introduced: LintDiagnostic[]; resolved: LintDiagnostic[] };
+    surfaces: {
+        id: string;
+        title: string;
+        approval: string | null;
+        caution: string | null;
+    }[];
+};
+
+export type ChangeSetReview = {
+    basePin: string;
+    headPin: string;
+    files: string[];
+    packages: PackageReview[];
+};
+
 export class ApiError extends Error {
     readonly status: number;
     readonly paths: string[] | undefined;
@@ -451,6 +616,35 @@ export function fetchComposition(
 }> {
     const query = ref === undefined ? "" : `?ref=${encodeURIComponent(ref)}`;
     return apiGet(`/api/source-trees/${treeId}/composition${query}`);
+}
+
+// --- surfaces and review calls (tranche C4) ---
+
+export function fetchSurfaces(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+): Promise<SurfaceList> {
+    return apiGet(
+        `/api/source-trees/${treeId}/surfaces?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+    );
+}
+
+export function fetchSurface(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+    id: string,
+): Promise<SurfaceDetail> {
+    return apiGet(
+        `/api/source-trees/${treeId}/surface?path=${encodeURIComponent(packagePath)}&pin=${pin}&id=${encodeURIComponent(id)}`,
+    );
+}
+
+export function fetchReview(
+    changeSetId: string,
+): Promise<{ changeSet: ChangeSet; review: ChangeSetReview }> {
+    return apiGet(`/api/change-sets/${changeSetId}/review`);
 }
 
 // --- the LSP bridge: live diagnostics for the raw-text editor ---

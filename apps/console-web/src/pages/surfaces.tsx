@@ -1,0 +1,928 @@
+// The Domain lens (tranche C4): surfaces at floor fidelity. A surface is a
+// catalog entry in console/surfaces; the floor renders each binding with a
+// control inferred from its type, and a control emits exactly its
+// operations — the affordance boundary, with enforcement below. Empty
+// states propose their next step, and the next step is a change set.
+
+import { useCallback, useEffect, useState } from "react";
+
+import {
+    ApiError,
+    createChangeSet,
+    fetchSurface,
+    fetchSurfaces,
+    listChangeSets,
+    listPackages,
+    saveEdit,
+    type ChangeSet,
+    type Control,
+    type EditOperation,
+    type EditResponse,
+    type MeResponse,
+    type PackageListing,
+    type SurfaceDetail,
+    type SurfaceItem,
+    type SurfaceList,
+    type SurfaceSuggestion,
+} from "@/lib/api";
+import { navigate } from "@/lib/router";
+import { EditingStrip } from "@/pages/workbench";
+
+type Banner = { kind: "ok" | "err" | "warn"; text: string };
+
+export function SurfacesPage({
+    me,
+    treeId,
+}: {
+    me: MeResponse;
+    treeId: string;
+}) {
+    const tree = me.capabilities?.sourceTrees.find(
+        (candidate) => candidate.id === treeId,
+    );
+    const [changeSets, setChangeSets] = useState<ChangeSet[]>([]);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [listing, setListing] = useState<PackageListing | null>(null);
+    const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
+    const [surfaces, setSurfaces] = useState<SurfaceList | null>(null);
+    const [openSurface, setOpenSurface] = useState<string | null>(null);
+    const [banner, setBanner] = useState<Banner | null>(null);
+
+    const active = changeSets.find((entry) => entry.id === activeId) ?? null;
+    const editable =
+        active !== null &&
+        (active.state === "draft" || active.state === "proposed");
+
+    const refreshChangeSets = useCallback(() => {
+        listChangeSets(treeId).then(
+            (response) => setChangeSets(response.changeSets),
+            (error: Error) => setBanner({ kind: "err", text: error.message }),
+        );
+    }, [treeId]);
+    useEffect(() => {
+        refreshChangeSets();
+    }, [refreshChangeSets]);
+
+    const ref = active?.branch;
+    useEffect(() => {
+        let stale = false;
+        setListing(null);
+        listPackages(treeId, ref).then(
+            (response) => {
+                if (stale) {
+                    return;
+                }
+                setListing(response);
+                setSelectedPackage((current) =>
+                    current !== null &&
+                    response.packages.some((entry) => entry.path === current)
+                        ? current
+                        : (response.packages[0]?.path ?? null),
+                );
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setBanner({ kind: "err", text: error.message });
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, ref]);
+
+    const pin = listing?.pin ?? null;
+    useEffect(() => {
+        if (pin === null || selectedPackage === null) {
+            return;
+        }
+        let stale = false;
+        setSurfaces(null);
+        fetchSurfaces(treeId, selectedPackage, pin).then(
+            (response) => {
+                if (!stale) {
+                    setSurfaces(response);
+                }
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setBanner({ kind: "err", text: error.message });
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, selectedPackage, pin]);
+
+    const afterSave = useCallback(
+        (result: EditResponse) => {
+            setListing((current) =>
+                current === null ? current : { ...current, pin: result.pin },
+            );
+            const errors = result.lint.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === "error",
+            );
+            setBanner(
+                errors.length === 0
+                    ? { kind: "ok", text: "Saved: one commit, lint clean." }
+                    : {
+                          kind: "warn",
+                          text: `Saved, but lint reports ${errors.length} error${errors.length === 1 ? "" : "s"}: ${errors[0]?.message ?? ""}`,
+                      },
+            );
+            refreshChangeSets();
+        },
+        [refreshChangeSets],
+    );
+
+    const saveFailed = useCallback((error: unknown) => {
+        if (error instanceof ApiError && error.paths !== undefined) {
+            setBanner({
+                kind: "err",
+                text: `${error.message} (${error.paths.join(", ")})`,
+            });
+            return;
+        }
+        setBanner({
+            kind: "err",
+            text: error instanceof Error ? error.message : String(error),
+        });
+    }, []);
+
+    // Accepting a suggestion is the user's first change set: create one,
+    // apply the ready-made operations (the first vendors the schema), and
+    // land on the editing strip with it active.
+    const acceptSuggestion = (suggestion: SurfaceSuggestion) => {
+        if (selectedPackage === null || listing === null) {
+            return;
+        }
+        createChangeSet(treeId, `Add the ${suggestion.title} surface`).then(
+            (changeSet) => {
+                setChangeSets((current) => [changeSet, ...current]);
+                setActiveId(changeSet.id);
+                saveEdit(changeSet.id, {
+                    packagePath: selectedPackage,
+                    expectedPin:
+                        changeSet.baseShaAtCreation ?? listing.pin,
+                    operations: suggestion.operations,
+                    summary: `Add the ${suggestion.title} surface`,
+                }).then(afterSave, saveFailed);
+            },
+            saveFailed,
+        );
+    };
+
+    if (tree === undefined) {
+        return (
+            <div className="card">
+                <h1>Not visible</h1>
+                <p className="hint">
+                    This source tree does not exist or is not visible to you.
+                </p>
+            </div>
+        );
+    }
+    const treeName =
+        tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id;
+
+    return (
+        <div className="section">
+            <div className="section-header">
+                <div className="section-header-text">
+                    <h1>Surfaces</h1>
+                    <p className="hint">
+                        {treeName}
+                        {listing !== null
+                            ? ` · ${listing.ref} @ ${listing.pin.slice(0, 10)}`
+                            : ""}
+                    </p>
+                </div>
+                <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => navigate(`/trees/${treeId}`)}
+                >
+                    Workbench
+                </button>
+            </div>
+
+            <EditingStrip
+                treeId={treeId}
+                canPropose={tree.capabilities.propose}
+                changeSets={changeSets}
+                active={active}
+                onSelect={(id) => {
+                    setActiveId(id);
+                    setBanner(null);
+                }}
+                onCreated={(changeSet) => {
+                    setChangeSets((current) => [changeSet, ...current]);
+                    setActiveId(changeSet.id);
+                    setBanner(null);
+                }}
+                onError={saveFailed}
+            />
+
+            {banner !== null ? (
+                <div
+                    className={`banner ${banner.kind === "ok" ? "banner-info" : banner.kind === "warn" ? "banner-warn" : "banner-err"}`}
+                >
+                    {banner.text}
+                </div>
+            ) : null}
+
+            {listing !== null && listing.packages.length > 1 ? (
+                <div className="field-row">
+                    <span className="label">Package</span>
+                    <select
+                        className="input"
+                        value={selectedPackage ?? ""}
+                        onChange={(event) => {
+                            setSelectedPackage(event.target.value);
+                            setOpenSurface(null);
+                        }}
+                    >
+                        {listing.packages.map((entry) => (
+                            <option key={entry.path} value={entry.path}>
+                                {entry.path}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            ) : null}
+
+            {surfaces === null || pin === null || selectedPackage === null ? (
+                <p className="muted">Loading…</p>
+            ) : openSurface !== null ? (
+                <SurfacePanel
+                    key={`${openSurface}@${pin}`}
+                    treeId={treeId}
+                    packagePath={selectedPackage}
+                    pin={pin}
+                    surfaceId={openSurface}
+                    editable={editable}
+                    changeSet={active}
+                    onBack={() => setOpenSurface(null)}
+                    onSaved={afterSave}
+                    onError={saveFailed}
+                />
+            ) : (
+                <SurfaceCatalog
+                    surfaces={surfaces}
+                    onOpen={setOpenSurface}
+                    onAccept={acceptSuggestion}
+                    canPropose={tree.capabilities.propose.allow}
+                />
+            )}
+        </div>
+    );
+}
+
+function SurfaceCatalog({
+    surfaces,
+    onOpen,
+    onAccept,
+    canPropose,
+}: {
+    surfaces: SurfaceList;
+    onOpen: (id: string) => void;
+    onAccept: (suggestion: SurfaceSuggestion) => void;
+    canPropose: boolean;
+}) {
+    if (surfaces.surfaces.length === 0) {
+        return (
+            <div className="card">
+                <h2>No surfaces yet</h2>
+                <p className="hint">
+                    This package works fully without them; a surface is a
+                    curated view for the people who should never need rototo's
+                    vocabulary. The package's shape suggests these:
+                </p>
+                <div className="row-list">
+                    {surfaces.suggestions.map((suggestion) => (
+                        <div className="row row-static" key={suggestion.id}>
+                            <span className="row-text">
+                                <span className="row-title">
+                                    {suggestion.title}
+                                </span>
+                                <span className="row-sub">
+                                    {suggestion.reason}
+                                </span>
+                            </span>
+                            <span className="row-side">
+                                {canPropose ? (
+                                    <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={() => onAccept(suggestion)}
+                                    >
+                                        Draft change set
+                                    </button>
+                                ) : (
+                                    <span className="pill pill-neutral">
+                                        {suggestion.kind}
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                {surfaces.suggestions.length === 0 ? (
+                    <p className="hint">
+                        Nothing to suggest: the package declares no catalogs or
+                        bool variables yet.
+                    </p>
+                ) : null}
+            </div>
+        );
+    }
+    return (
+        <>
+            {surfaces.diagnostics.map((diagnostic, index) => (
+                <div className="banner banner-info" key={index}>
+                    {diagnostic.message}
+                </div>
+            ))}
+            <div className="row-list">
+                {surfaces.surfaces.map((surface) => {
+                    const errors = surface.diagnostics.filter(
+                        (diagnostic) => diagnostic.severity === "error",
+                    );
+                    return (
+                        <button
+                            className="row"
+                            key={surface.id}
+                            onClick={() => onOpen(surface.id)}
+                        >
+                            <span className="row-text">
+                                <span className="row-title">
+                                    {surface.title}
+                                </span>
+                                <span className="row-sub">
+                                    {surface.description ??
+                                        surface.bindings
+                                            .map((binding) => binding.target)
+                                            .join(", ")}
+                                </span>
+                            </span>
+                            <span className="row-side">
+                                {surface.kind !== null ? (
+                                    <span className="pill pill-neutral">
+                                        {surface.kind} · floor
+                                    </span>
+                                ) : null}
+                                {surface.approval !== null ? (
+                                    <span
+                                        className="pill pill-info"
+                                        title="Approval requirement; GitHub enforces in this phase"
+                                    >
+                                        {surface.approval}
+                                    </span>
+                                ) : null}
+                                {errors.length > 0 ? (
+                                    <span
+                                        className="pill pill-err"
+                                        title={errors[0]?.message}
+                                    >
+                                        {errors.length} problem
+                                        {errors.length === 1 ? "" : "s"}
+                                    </span>
+                                ) : null}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </>
+    );
+}
+
+// --- one surface: the floor renderer plus the four read affordances ---
+
+function SurfacePanel({
+    treeId,
+    packagePath,
+    pin,
+    surfaceId,
+    editable,
+    changeSet,
+    onBack,
+    onSaved,
+    onError,
+}: {
+    treeId: string;
+    packagePath: string;
+    pin: string;
+    surfaceId: string;
+    editable: boolean;
+    changeSet: ChangeSet | null;
+    onBack: () => void;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
+}) {
+    const [detail, setDetail] = useState<SurfaceDetail | null>(null);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        let stale = false;
+        fetchSurface(treeId, packagePath, pin, surfaceId).then(
+            (response) => {
+                if (!stale) {
+                    setDetail(response);
+                }
+            },
+            (error: Error) => onError(error),
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, packagePath, pin, surfaceId, onError]);
+
+    if (detail === null) {
+        return <p className="muted">Loading surface…</p>;
+    }
+    const surface = detail.surface;
+
+    const propose = (operations: EditOperation[], summary: string) => {
+        if (changeSet === null) {
+            return;
+        }
+        setSaving(true);
+        saveEdit(changeSet.id, {
+            packagePath,
+            expectedPin: pin,
+            operations,
+            summary,
+        })
+            .then(onSaved, onError)
+            .finally(() => setSaving(false));
+    };
+
+    return (
+        <div className="section">
+            <div className="card">
+                <div className="card-head">
+                    <div className="card-head-text">
+                        <h2>{surface.title}</h2>
+                        <p className="hint">
+                            {surface.description ?? ""}
+                            {surface.kind !== null
+                                ? ` (kind "${surface.kind}" renders on the floor)`
+                                : ""}
+                        </p>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </div>
+                {surface.caution !== null ? (
+                    <div className="banner banner-warn">{surface.caution}</div>
+                ) : null}
+                {surface.diagnostics
+                    .filter((diagnostic) => diagnostic.severity === "error")
+                    .map((diagnostic, index) => (
+                        <div className="banner banner-err" key={index}>
+                            {diagnostic.message}
+                        </div>
+                    ))}
+                {!editable ? (
+                    <p className="hint">
+                        Start or pick a change set above to edit through this
+                        surface.
+                    </p>
+                ) : null}
+                {detail.items.map((item, index) => (
+                    <SurfaceItemView
+                        key={index}
+                        item={item}
+                        editable={editable && !saving}
+                        onPropose={propose}
+                    />
+                ))}
+            </div>
+
+            {detail.upcoming.length > 0 ? (
+                <div className="card">
+                    <h3>Scheduled to change on its own</h3>
+                    {detail.upcoming.map((change, index) => (
+                        <p className="diagnostic" key={index}>
+                            <span className="mono">{change.variable}</span>{" "}
+                            crosses <span className="mono">{change.boundary}</span>{" "}
+                            ({change.expression})
+                        </p>
+                    ))}
+                </div>
+            ) : null}
+
+            {detail.pending.length > 0 ? (
+                <div className="card">
+                    <h3>Pending change sets touching this surface</h3>
+                    <div className="row-list">
+                        {detail.pending.map((row) => (
+                            <button
+                                className="row"
+                                key={row.id}
+                                onClick={() =>
+                                    navigate(`/change-sets/${row.id}`)
+                                }
+                            >
+                                <span className="row-text">
+                                    <span className="row-title">
+                                        {row.title}
+                                    </span>
+                                </span>
+                                <span className="row-side">
+                                    <span className="pill pill-info">
+                                        {row.state}
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
+
+            <div className="card">
+                <h3>History of what this surface binds</h3>
+                <div className="timeline">
+                    {detail.history.map((commit) => (
+                        <div className="tl-row" key={commit.sha}>
+                            <span className="tl-icon" aria-hidden>
+                                •
+                            </span>
+                            <span className="tl-body">
+                                <span className="tl-detail">
+                                    {commit.message}
+                                    {commit.authorName !== null
+                                        ? ` — ${commit.authorName}`
+                                        : ""}
+                                </span>
+                                <span className="tl-when">
+                                    {commit.date.slice(0, 10)} ·{" "}
+                                    <span className="mono">
+                                        {commit.sha.slice(0, 10)}
+                                    </span>
+                                </span>
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function SurfaceItemView({
+    item,
+    editable,
+    onPropose,
+}: {
+    item: SurfaceItem;
+    editable: boolean;
+    onPropose: (operations: EditOperation[], summary: string) => void;
+}) {
+    if (item.kind === "missing") {
+        return (
+            <div className="banner banner-err">
+                Binding <span className="mono">{item.target}</span> resolves to
+                nothing at this pin.
+            </div>
+        );
+    }
+    if (item.kind === "variable") {
+        return (
+            <div className="field-row surface-item">
+                <span className="label" title={item.description ?? undefined}>
+                    {item.id}
+                </span>
+                <ControlInput
+                    control={item.control}
+                    value={item.default}
+                    disabled={!editable}
+                    onCommit={(value) =>
+                        onPropose(
+                            [
+                                {
+                                    op: "set_default",
+                                    variable: item.id,
+                                    value,
+                                },
+                            ],
+                            `Set ${item.id} default`,
+                        )
+                    }
+                />
+                {item.ruleCount > 0 ? (
+                    <span
+                        className="hint"
+                        title="Rules may answer before this default; the workbench shows them"
+                    >
+                        +{item.ruleCount} rule{item.ruleCount === 1 ? "" : "s"}
+                    </span>
+                ) : null}
+            </div>
+        );
+    }
+    if (item.kind === "entry") {
+        return (
+            <EntryTable
+                catalog={item.catalog}
+                fields={item.fields}
+                entries={[{ key: item.key, value: item.value }]}
+                canDelete={false}
+                editable={editable}
+                onPropose={onPropose}
+            />
+        );
+    }
+    return (
+        <div className="surface-item">
+            <div className="section-header-text">
+                <h3 className="mono">{item.id}</h3>
+                {item.description !== null ? (
+                    <p className="hint">{item.description}</p>
+                ) : null}
+            </div>
+            <EntryTable
+                catalog={item.id}
+                fields={item.fields}
+                entries={item.entries}
+                canDelete={item.canDelete}
+                editable={editable}
+                onPropose={onPropose}
+            />
+            {item.canAdd && editable ? (
+                <AddEntryForm catalog={item.id} onPropose={onPropose} />
+            ) : null}
+        </div>
+    );
+}
+
+// The floor's table: one row per entry, one schema-driven cell per editable
+// field. A cell edit emits exactly one set_field against the entry address.
+function EntryTable({
+    catalog,
+    fields,
+    entries,
+    canDelete,
+    editable,
+    onPropose,
+}: {
+    catalog: string;
+    fields: { field: string; control: string; options?: unknown[] }[];
+    entries: { key: string; value: unknown }[];
+    canDelete: boolean;
+    editable: boolean;
+    onPropose: (operations: EditOperation[], summary: string) => void;
+}) {
+    return (
+        <div className="table-scroll">
+            <table className="data-table">
+                <thead>
+                    <tr>
+                        <th>entry</th>
+                        {fields.map((field) => (
+                            <th key={field.field} className="mono">
+                                {field.field}
+                            </th>
+                        ))}
+                        {canDelete ? <th /> : null}
+                    </tr>
+                </thead>
+                <tbody>
+                    {entries.map((entry) => (
+                        <tr key={entry.key}>
+                            <td className="mono">{entry.key}</td>
+                            {fields.map((field) => (
+                                <td key={field.field}>
+                                    <ControlInput
+                                        control={field as Control}
+                                        value={fieldValue(
+                                            entry.value,
+                                            field.field,
+                                        )}
+                                        disabled={!editable}
+                                        onCommit={(value) =>
+                                            onPropose(
+                                                [
+                                                    {
+                                                        op: "set_field",
+                                                        target: `catalog=${catalog}:entry=${entry.key}#/${field.field}`,
+                                                        value,
+                                                    },
+                                                ],
+                                                `Set ${catalog}/${entry.key} ${field.field}`,
+                                            )
+                                        }
+                                    />
+                                </td>
+                            ))}
+                            {canDelete ? (
+                                <td>
+                                    <button
+                                        className="btn btn-icon btn-sm btn-remove"
+                                        disabled={!editable}
+                                        title="Delete entry"
+                                        onClick={() =>
+                                            onPropose(
+                                                [
+                                                    {
+                                                        op: "delete",
+                                                        target: `catalog=${catalog}:entry=${entry.key}`,
+                                                    },
+                                                ],
+                                                `Delete ${catalog}/${entry.key}`,
+                                            )
+                                        }
+                                    >
+                                        ×
+                                    </button>
+                                </td>
+                            ) : null}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function AddEntryForm({
+    catalog,
+    onPropose,
+}: {
+    catalog: string;
+    onPropose: (operations: EditOperation[], summary: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [key, setKey] = useState("");
+    const [fieldsText, setFieldsText] = useState("{}");
+    if (!open) {
+        return (
+            <div className="action-row">
+                <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setOpen(true)}
+                >
+                    Add entry
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="inline-form">
+            <input
+                className="input mono"
+                placeholder="entry_id"
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+            />
+            <input
+                className="input mono"
+                placeholder="fields as JSON"
+                value={fieldsText}
+                onChange={(event) => setFieldsText(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={key.trim() === ""}
+                onClick={() => {
+                    let parsed: unknown;
+                    try {
+                        parsed = JSON.parse(fieldsText);
+                    } catch {
+                        return;
+                    }
+                    setOpen(false);
+                    onPropose(
+                        [
+                            {
+                                op: "create_entry",
+                                catalog,
+                                key: key.trim(),
+                                fields: parsed,
+                            },
+                        ],
+                        `Add ${catalog}/${key.trim()}`,
+                    );
+                }}
+            >
+                Create
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setOpen(false)}
+            >
+                Cancel
+            </button>
+        </div>
+    );
+}
+
+// One inferred control. Commit-on-blur (or on toggle/select change): every
+// commit is one operation, one save, one commit on the change set.
+function ControlInput({
+    control,
+    value,
+    disabled,
+    onCommit,
+}: {
+    control: Control;
+    value: unknown;
+    disabled: boolean;
+    onCommit: (value: unknown) => void;
+}) {
+    const [text, setText] = useState(() => controlText(control, value));
+    const commitText = () => {
+        if (text === controlText(control, value)) {
+            return;
+        }
+        try {
+            onCommit(textToControlValue(control, text));
+        } catch {
+            setText(controlText(control, value));
+        }
+    };
+    if (control.control === "toggle") {
+        return (
+            <button
+                className={`toggle ${value === true ? "toggle-on" : ""}`}
+                role="switch"
+                aria-checked={value === true}
+                disabled={disabled}
+                onClick={() => onCommit(value !== true)}
+            >
+                <span className="toggle-knob" />
+            </button>
+        );
+    }
+    if (control.control === "select") {
+        return (
+            <select
+                className="input"
+                disabled={disabled}
+                value={JSON.stringify(value)}
+                onChange={(event) => onCommit(JSON.parse(event.target.value))}
+            >
+                {!control.options.some(
+                    (option) =>
+                        JSON.stringify(option) === JSON.stringify(value),
+                ) ? (
+                    <option value={JSON.stringify(value)}>
+                        {String(value)}
+                    </option>
+                ) : null}
+                {control.options.map((option, index) => (
+                    <option key={index} value={JSON.stringify(option)}>
+                        {String(option)}
+                    </option>
+                ))}
+            </select>
+        );
+    }
+    return (
+        <input
+            className="input mono"
+            type={control.control === "number" ? "number" : "text"}
+            disabled={disabled}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onBlur={commitText}
+            onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                    commitText();
+                }
+            }}
+        />
+    );
+}
+
+function controlText(control: Control, value: unknown): string {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    if (control.control === "text" && typeof value === "string") {
+        return value;
+    }
+    return JSON.stringify(value);
+}
+
+function textToControlValue(control: Control, text: string): unknown {
+    if (control.control === "number") {
+        const value = Number(text);
+        if (!Number.isFinite(value)) {
+            throw new Error(`${text} is not a number`);
+        }
+        return value;
+    }
+    if (control.control === "text") {
+        return text;
+    }
+    return JSON.parse(text);
+}
+
+function fieldValue(entry: unknown, field: string): unknown {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        return undefined;
+    }
+    return (entry as Record<string, unknown>)[field];
+}

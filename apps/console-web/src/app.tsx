@@ -1,7 +1,7 @@
-// The shared home plus the first two live lenses (tranche C2): Model is the
-// workbench, Changes is the change-set list. Domain and History arrive with
-// later tranches. What a user can do is decided server-side; everything
-// rendered here is explanation.
+// The shared home plus its lenses: Domain is the surfaces floor, Changes is
+// the change-set list with the three-delta review, History browses any pin,
+// Model is the workbench. What a user can do is decided server-side;
+// everything rendered here is explanation.
 
 import { useEffect, useState } from "react";
 
@@ -9,11 +9,13 @@ import { RototoMark } from "@/components/rototo-mark";
 import { fetchMe, type MeResponse, type SourceTreeSummary } from "@/lib/api";
 import { navigate, useHashPath } from "@/lib/router";
 import { ChangeSetPage, ChangesPage } from "@/pages/changes";
+import { SurfacesPage } from "@/pages/surfaces";
 import { WorkbenchPage } from "@/pages/workbench";
 
 type Route =
     | { page: "home" }
     | { page: "workbench"; treeId: string }
+    | { page: "surfaces"; treeId: string }
     | { page: "history"; treeId: string }
     | { page: "changes"; treeId: string }
     | { page: "change-set"; id: string };
@@ -25,7 +27,9 @@ function parseRoute(path: string): Route {
             ? { page: "changes", treeId: segments[1] }
             : segments[2] === "history"
               ? { page: "history", treeId: segments[1] }
-              : { page: "workbench", treeId: segments[1] };
+              : segments[2] === "surfaces"
+                ? { page: "surfaces", treeId: segments[1] }
+                : { page: "workbench", treeId: segments[1] };
     }
     if (segments[0] === "change-sets" && segments[1] !== undefined) {
         return { page: "change-set", id: segments[1] };
@@ -45,7 +49,8 @@ export function App() {
     const treeId =
         route.page === "workbench" ||
         route.page === "changes" ||
-        route.page === "history"
+        route.page === "history" ||
+        route.page === "surfaces"
             ? route.treeId
             : (me?.capabilities?.sourceTrees[0]?.id ?? null);
 
@@ -62,8 +67,14 @@ export function App() {
                     <div className="label nav-group-label">Lenses</div>
                     <Lens
                         label="Domain"
-                        disabled
-                        title="Arrives with the surfaces tranche"
+                        active={route.page === "surfaces"}
+                        disabled={treeId === null}
+                        onClick={() => navigate(`/trees/${treeId}/surfaces`)}
+                        title={
+                            treeId === null
+                                ? "Register a source tree first"
+                                : undefined
+                        }
                     />
                     <Lens
                         label="Changes"
@@ -123,11 +134,13 @@ export function App() {
                                 <span className="label">
                                     {route.page === "workbench"
                                         ? "Model"
-                                        : route.page === "history"
-                                          ? "History"
-                                          : route.page === "change-set"
-                                            ? "Change set"
-                                            : "Changes"}
+                                        : route.page === "surfaces"
+                                          ? "Domain"
+                                          : route.page === "history"
+                                            ? "History"
+                                            : route.page === "change-set"
+                                              ? "Change set"
+                                              : "Changes"}
                                 </span>
                             </>
                         ) : null}
@@ -151,6 +164,8 @@ export function App() {
                             <p className="muted">Loading…</p>
                         ) : route.page === "workbench" ? (
                             <WorkbenchPage me={me} treeId={route.treeId} />
+                        ) : route.page === "surfaces" ? (
+                            <SurfacesPage me={me} treeId={route.treeId} />
                         ) : route.page === "history" ? (
                             <WorkbenchPage
                                 me={me}
