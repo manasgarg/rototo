@@ -8,8 +8,6 @@ use crate::error::{Result, RototoError};
 use super::PACKAGE_MANIFEST;
 use super::auth::SourceAuth;
 use super::path::{async_is_file, relative_path_is_safe, select_subdir};
-#[cfg(feature = "console")]
-use super::types::StagedSourceTree;
 use super::types::{
     LoadedPackageSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
 };
@@ -48,35 +46,6 @@ pub(super) async fn stage_https_archive(
             immutable: false,
         }],
     })
-}
-
-#[cfg(feature = "console")]
-pub(super) async fn stage_https_archive_tree(
-    uri: &SourceUri,
-    original: &str,
-    options: &SourceOptions,
-) -> Result<StagedSourceTree> {
-    if uri.ref_.is_some() {
-        return Err(RototoError::new(
-            "https source trees only support #:subdir fragments",
-        ));
-    }
-
-    let ExtractedArchive {
-        extract_dir,
-        fingerprint,
-        tempdir,
-    } = extract_https_archive(uri, original, options).await?;
-    let root = match uri.subdir.as_deref() {
-        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
-        None => extract_dir,
-    };
-    Ok(StagedSourceTree::temporary(
-        root,
-        tempdir,
-        fingerprint,
-        false,
-    ))
 }
 
 struct ExtractedArchive {

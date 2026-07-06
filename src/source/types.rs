@@ -224,16 +224,6 @@ pub(crate) struct StagedSourceTree {
 }
 
 impl StagedSourceTree {
-    #[cfg(feature = "console")]
-    pub(super) fn local(root: PathBuf) -> Self {
-        Self {
-            root,
-            fingerprint: None,
-            immutable: false,
-            _tempdir: None,
-        }
-    }
-
     pub(super) fn temporary(
         root: PathBuf,
         tempdir: TempDir,
@@ -246,11 +236,6 @@ impl StagedSourceTree {
             immutable,
             _tempdir: Some(tempdir),
         }
-    }
-
-    #[cfg(feature = "console")]
-    pub(crate) fn root(&self) -> &Path {
-        &self.root
     }
 
     pub(super) fn fingerprint(&self) -> Option<&SourceFingerprint> {

@@ -51,7 +51,7 @@ else
     printf "warn %-18s optional; install only if you want to inspect console dev databases\n" "sqlite3 cli"
 fi
 
-if [[ -d apps/console/node_modules ]]; then
+if [[ -d apps/console-server/node_modules && -d apps/console-web/node_modules ]]; then
     printf "ok   %-18s installed\n" "console deps"
 else
     printf "fail %-18s run 'just setup'\n" "console deps"

@@ -7,8 +7,6 @@ mod transport;
 mod uri;
 
 pub use server::{serve, serve_stdio};
-#[cfg(feature = "console")]
-pub(crate) use transport::{read_message, write_notification, write_request};
 
 #[cfg(test)]
 mod tests {

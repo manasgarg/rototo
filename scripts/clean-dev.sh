@@ -3,8 +3,8 @@ set -euo pipefail
 
 paths=(
     ".rototo/dev"
-    "apps/console/dist"
-    "apps/console/tsconfig.tsbuildinfo"
+    "apps/console-server/web"
+    "apps/console-web/dist"
     "sdks/typescript/dist"
     "sdks/typescript/index.d.ts"
     "sdks/typescript/index.js"

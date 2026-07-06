@@ -52,48 +52,6 @@ where
     Ok(Some(message))
 }
 
-#[cfg(feature = "console")]
-pub(crate) async fn write_notification<W>(
-    writer: &mut W,
-    method: &str,
-    params: JsonValue,
-) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    write_message(
-        writer,
-        json!({
-            "jsonrpc": JSONRPC_VERSION,
-            "method": method,
-            "params": params,
-        }),
-    )
-    .await
-}
-
-#[cfg(feature = "console")]
-pub(crate) async fn write_request<W>(
-    writer: &mut W,
-    id: i64,
-    method: &str,
-    params: JsonValue,
-) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    write_message(
-        writer,
-        json!({
-            "jsonrpc": JSONRPC_VERSION,
-            "id": id,
-            "method": method,
-            "params": params,
-        }),
-    )
-    .await
-}
-
 pub(super) fn response_message(id: JsonValue, result: JsonValue) -> JsonValue {
     json!({
         "jsonrpc": JSONRPC_VERSION,

@@ -36,7 +36,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             sdks/typescript/package-lock.json
-            apps/console/package-lock.json
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -323,12 +322,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             sdks/typescript/package-lock.json
-            apps/console/package-lock.json
-
-      - name: Build console UI bundle for the published crate
-        run: |
-          npm --prefix apps/console ci
-          npm --prefix apps/console run build
 
       - name: Build Rust crate package for manifest
         run: cargo package --package rototo --locked --allow-dirty

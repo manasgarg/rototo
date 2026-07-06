@@ -12,14 +12,10 @@ mod uri;
 
 pub use self::auth::{ScopedBearerTokens, SourceAuth, source_auth_from_package_token_entries};
 pub(crate) use self::layer::read_resolve_provenance;
-#[cfg(feature = "console")]
-pub(crate) use self::load::stage_source_tree;
 pub use self::load::{
     load_package_source, load_package_source_snapshot, probe_package_source, stage_package_source,
 };
 pub use self::pin::PinStore;
-#[cfg(feature = "console")]
-pub(crate) use self::types::StagedSourceTree;
 pub use self::types::{
     LoadedPackageSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
 };

@@ -97,9 +97,6 @@ enum Command {
     Docs(DocsArgs),
     /// Configure shell, editor, and agent integrations.
     Setup(SetupArgs),
-    /// Serve the rototo console: web UI plus JSON API over a package.
-    #[cfg(feature = "console")]
-    Console(ConsoleArgs),
     /// Run the rototo Language Server Protocol server over stdio.
     Lsp,
 }
@@ -392,98 +389,6 @@ struct SetupArgs {
     force: bool,
 }
 
-#[cfg(feature = "console")]
-#[derive(Debug, Args)]
-struct ConsoleArgs {
-    /// Address to listen on.
-    #[arg(long = "bind", value_name = "ADDR", default_value = rototo::console::DEFAULT_BIND)]
-    bind: String,
-
-    /// Public origin for OAuth redirects and cookies, for deployments behind
-    /// a reverse proxy.
-    #[arg(
-        long = "public-url",
-        value_name = "URL",
-        env = "ROTOTO_CONSOLE_PUBLIC_URL"
-    )]
-    public_url: Option<String>,
-
-    /// Directory for console state (sessions, selected branches, credentials).
-    #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
-    data_dir: Option<PathBuf>,
-
-    /// Package source to register at startup.
-    #[arg(long = "package", value_name = "PACKAGE_SOURCE")]
-    package: Option<String>,
-
-    /// Console state persistence mode. Defaults to ephemeral for local folder
-    /// packages and persistent otherwise.
-    #[arg(long = "state", value_enum)]
-    state: Option<ConsoleStateArg>,
-
-    /// Console deployment mode. Defaults to local with --package, hosted otherwise.
-    #[arg(long = "deployment", value_enum)]
-    deployment: Option<ConsoleDeploymentArg>,
-
-    /// Write behavior for console branch edits. Defaults to direct-push for local
-    /// fixed packages and pull-request otherwise.
-    #[arg(long = "write", value_enum)]
-    write: Option<ConsoleWriteArg>,
-}
-
-#[cfg(feature = "console")]
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum ConsoleDeploymentArg {
-    Local,
-    Hosted,
-}
-
-#[cfg(feature = "console")]
-impl From<ConsoleDeploymentArg> for rototo::console::ConsoleDeployment {
-    fn from(value: ConsoleDeploymentArg) -> Self {
-        match value {
-            ConsoleDeploymentArg::Local => Self::Local,
-            ConsoleDeploymentArg::Hosted => Self::Hosted,
-        }
-    }
-}
-
-#[cfg(feature = "console")]
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum ConsoleStateArg {
-    Ephemeral,
-    Persistent,
-}
-
-#[cfg(feature = "console")]
-impl From<ConsoleStateArg> for rototo::console::ConsoleStateMode {
-    fn from(value: ConsoleStateArg) -> Self {
-        match value {
-            ConsoleStateArg::Ephemeral => Self::Ephemeral,
-            ConsoleStateArg::Persistent => Self::Persistent,
-        }
-    }
-}
-
-#[cfg(feature = "console")]
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum ConsoleWriteArg {
-    Disabled,
-    PullRequest,
-    DirectPush,
-}
-
-#[cfg(feature = "console")]
-impl From<ConsoleWriteArg> for rototo::console::ConsoleWritePolicy {
-    fn from(value: ConsoleWriteArg) -> Self {
-        match value {
-            ConsoleWriteArg::Disabled => Self::Disabled,
-            ConsoleWriteArg::PullRequest => Self::PullRequest,
-            ConsoleWriteArg::DirectPush => Self::DirectPush,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum PackageReadmeTarget {
     Python,
@@ -637,8 +542,6 @@ fn top_level_help_template() -> String {
         "setup",
         "Configure shell, editor, and agent integrations",
     ));
-    #[cfg(feature = "console")]
-    out.push_str(&command("console", "Serve the web console and JSON API"));
     out.push_str(&command("lsp", "Run the language server over stdio"));
     out.push_str(&command(
         "help",
@@ -692,28 +595,6 @@ async fn run() -> Result<ExitCode> {
         }
         Command::Docs(args) => cli::docs::run_docs(args, cli.json).await,
         Command::Setup(args) => cli::setup::run_setup(args, cli.json, cli.quiet).await,
-        #[cfg(feature = "console")]
-        Command::Console(args) => {
-            rototo::console::run(rototo::console::ConsoleOptions {
-                bind: args.bind,
-                public_url: args.public_url,
-                data_dir: args.data_dir,
-                package: args.package,
-                state_mode: args.state.map(Into::into),
-                deployment: args.deployment.map(Into::into),
-                write_policy: args.write.map(Into::into),
-                // The console's ambient GitHub token is the single-origin
-                // spelling; scoped archive entries do not apply to it.
-                package_token: match package_token_entries(&cli).as_slice() {
-                    [single] if !single.to_ascii_lowercase().starts_with("https://") => {
-                        Some(single.clone())
-                    }
-                    _ => None,
-                },
-            })
-            .await?;
-            Ok(ExitCode::SUCCESS)
-        }
         Command::Lsp => {
             rototo::lsp::serve_stdio().await?;
             Ok(ExitCode::SUCCESS)
@@ -743,23 +624,6 @@ fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
-    #[cfg(feature = "console")]
-    {
-        use tracing_subscriber::prelude::*;
-
-        let (filter, handle) = tracing_subscriber::reload::Layer::new(filter);
-        rototo::console::set_tracing_filter_reload_handle(handle);
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_target(false)
-                    .with_writer(std::io::stderr),
-            )
-            .init();
-    }
-
-    #[cfg(not(feature = "console"))]
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
