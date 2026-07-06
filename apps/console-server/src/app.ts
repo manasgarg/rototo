@@ -7,10 +7,14 @@
 //   never authority.
 
 import { randomBytes } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 
 import { Hono } from "hono";
 
+import { ChangeSets } from "./change-sets.ts";
 import type { ServerConfig } from "./config.ts";
+import type { ConsoleContext } from "./context.ts";
 import {
     type Action,
     ACTIONS,
@@ -20,8 +24,13 @@ import {
     type Subject,
     resourceString,
 } from "./decide.ts";
+import { type GitOps, GitHubGit } from "./git.ts";
 import { type GitHubFacts, exchangeOAuthCode } from "./github.ts";
 import { LocalAuth } from "./local-auth.ts";
+import { PackageStager } from "./packages.ts";
+import { Reconciler } from "./reconciler.ts";
+import { changeSetRoutes } from "./routes/change-sets.ts";
+import { packageRoutes } from "./routes/packages.ts";
 import {
     OAUTH_STATE_COOKIE,
     SESSION_COOKIE,
@@ -45,11 +54,20 @@ export type AppDeps = {
     // Test seam for the OAuth code exchange; defaults to the real GitHub
     // endpoint.
     oauthExchange?: (code: string) => Promise<string>;
+    // Git-data operations; tests substitute a local fake, production is the
+    // GitHub REST implementation.
+    git?: GitOps;
+    // Where a source tree's git remote is; tests point at local bare repos.
+    gitRemote?: (tree: SourceTreeRow) => string;
+    // Where staged pins live; defaults under the data dir, or a per-process
+    // scratch directory in ephemeral mode.
+    pinCacheRoot?: string;
 };
 
 export type App = {
     fetch: (request: Request) => Response | Promise<Response>;
     decision: DecisionPoint;
+    reconciler: Reconciler;
 };
 
 type CapabilitySummary = Record<Action, Decision>;
@@ -81,6 +99,53 @@ export function buildApp(deps: AppDeps): App {
         store,
         github,
         tokenCrypto,
+    });
+
+    // The acting credential for a principal (user tokens only in C2): the
+    // stored GitHub credential in team mode, the ambient token in local
+    // mode. Null means the principal cannot act on GitHub right now.
+    const principalToken = async (
+        principalId: string,
+    ): Promise<string | null> => {
+        if (config.authMode === "local" || principalId === "local") {
+            return (await localAuth.token())?.token ?? null;
+        }
+        const identity = store
+            .identitiesForPrincipal(principalId)
+            .find(
+                (row) =>
+                    row.provider === "github" &&
+                    row.credentialCiphertext !== null,
+            );
+        if (identity === undefined) {
+            return null;
+        }
+        try {
+            return tokenCrypto().decrypt(
+                identity.credentialCiphertext as string,
+            );
+        } catch {
+            return null;
+        }
+    };
+
+    const subjectId = (subject: Subject): string =>
+        subject.kind === "principal" ? subject.id : "local";
+
+    const git = deps.git ?? new GitHubGit();
+    const stager = new PackageStager({
+        cacheRoot:
+            deps.pinCacheRoot ??
+            (config.dataDir !== null
+                ? path.join(config.dataDir, "pins")
+                : path.join(os.tmpdir(), `rototo-console-pins-${process.pid}`)),
+        remoteFor: deps.gitRemote,
+    });
+    const changeSets = new ChangeSets({ store, git, stager });
+    const reconciler = new Reconciler({
+        store,
+        git,
+        tokenFor: (changeSet) => principalToken(changeSet.authorPrincipal),
     });
 
     const app = new Hono();
@@ -152,6 +217,21 @@ export function buildApp(deps: AppDeps): App {
             sourceTree: tree.id,
         }),
     });
+
+    const ctx: ConsoleContext = {
+        config,
+        store,
+        decision,
+        git,
+        stager,
+        changeSets,
+        reconciler,
+        subjectFor,
+        subjectId,
+        actingToken: (subject) => principalToken(subjectId(subject)),
+    };
+    app.route("/api", packageRoutes(ctx));
+    app.route("/api", changeSetRoutes(ctx));
 
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -410,17 +490,29 @@ export function buildApp(deps: AppDeps): App {
                 400,
             );
         }
+        // The default branch is a repo fact; fill it from GitHub when the
+        // registration omits it, with the registrar's own credential.
+        let defaultBranch = body.defaultBranch ?? null;
+        if (defaultBranch === null) {
+            const token = await principalToken(subjectId(subject));
+            if (token !== null) {
+                const facts = await github
+                    .repoFacts(token, body.owner, body.name)
+                    .catch(() => null);
+                defaultBranch = facts?.defaultBranch ?? null;
+            }
+        }
         const tree = store.insertSourceTree({
             kind: "github",
             owner: body.owner,
             name: body.name,
-            defaultBranch: body.defaultBranch ?? null,
+            defaultBranch,
             createdBy: subject.kind === "principal" ? subject.id : "local",
         });
         return c.json(await treePayload(subject, tree), 201);
     });
 
-    return { fetch: app.fetch, decision };
+    return { fetch: app.fetch, decision, reconciler };
 }
 
 // A fresh deployment reads ROTOTO_CONSOLE_ADMINS (`github:<login>` entries).

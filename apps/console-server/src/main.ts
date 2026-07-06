@@ -30,6 +30,10 @@ const config = resolveConfig(process.env, {
 const store = new Store(config.dataDir);
 const app = buildApp({ config, store, github: new GitHubApi() });
 
+// Every few minutes, sooner when nudged (the nudge is the reconcile route;
+// webhooks arrive with Phase B).
+app.reconciler.start(120_000);
+
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => {
     console.log(
         `rototo console server (${config.authMode} mode) on http://${config.host}:${config.port}`,

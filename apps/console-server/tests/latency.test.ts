@@ -113,8 +113,8 @@ test("preview budget: batch traced resolution on a cached package", async () => 
     );
 });
 
-test("save-ack budget is declared and waiting for the C2 save path", () => {
-    // No console save path exists in C1. The budget is declared so the
-    // harness carries it; C2's walkthrough gate measures it end to end.
+test("save-ack budget is declared; the walkthrough gate measures it", () => {
+    // The end-to-end measurement lives in walkthrough.test.ts, where a save
+    // runs the full acknowledgement: commit, CAS ref move, stage, lint.
     assert.equal(BUDGETS_MS.saveAck, 300);
 });

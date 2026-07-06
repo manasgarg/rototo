@@ -1,12 +1,20 @@
 // Shared test scaffolding: a fake GitHub, a seeded team-mode app, and a
 // signed-in session without touching the network.
 
+import path from "node:path";
+
 import type { GitHubFacts, GitHubUser, RepoFacts } from "../src/github.ts";
-import { buildApp, CONSOLE_HEADER, type App } from "../src/app.ts";
+import {
+    buildApp,
+    CONSOLE_HEADER,
+    type App,
+    type AppDeps,
+} from "../src/app.ts";
 import { resolveConfig, type ServerConfig } from "../src/config.ts";
 import { issueSession, SESSION_COOKIE } from "../src/sessions.ts";
-import { Store } from "../src/store.ts";
+import { Store, type SourceTreeRow } from "../src/store.ts";
 import { TokenCrypto } from "../src/token-crypto.ts";
+import { FakeGit } from "./fake-git.ts";
 
 export class FakeGitHub implements GitHubFacts {
     // token -> viewer
@@ -92,11 +100,12 @@ export type TeamHarness = {
 
 export function teamHarness(
     overrides: Partial<ServerConfig> = {},
+    deps: Partial<AppDeps> = {},
 ): TeamHarness {
     const config = teamConfig(overrides);
     const store = new Store(null);
     const github = new FakeGitHub();
-    const app = buildApp({ config, store, github });
+    const app = buildApp({ config, store, github, ...deps });
     const crypto = TokenCrypto.fromEnvValue(TEST_KEY);
     let nextSubject = 1000;
     return {
@@ -145,4 +154,74 @@ export async function json(response: Response): Promise<any> {
         );
     }
     return response.json();
+}
+
+export const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+
+export type GitHarness = TeamHarness & {
+    fakeGit: FakeGit;
+    tree: SourceTreeRow;
+    packagePath: string;
+    // main's pin after seeding.
+    basePin: string;
+    cleanup(): void;
+    get(path: string, headers: Record<string, string>): Promise<Response>;
+    post(
+        path: string,
+        body: unknown,
+        headers: Record<string, string>,
+    ): Promise<Response>;
+};
+
+// A team-mode app wired to a local bare repository acting as GitHub:
+// examples/basic seeded under packages/basic on main, the tree registered,
+// staged reads fetching from the same repo the fake mutates.
+export function gitHarness(): GitHarness {
+    const fakeGit = FakeGit.init();
+    const basePin = fakeGit.seedBranch(
+        "main",
+        path.join(REPO_ROOT, "examples/basic"),
+        "packages/basic",
+    );
+    const harness = teamHarness(
+        {},
+        {
+            git: fakeGit,
+            gitRemote: () => fakeGit.gitDir,
+            pinCacheRoot: path.join(fakeGit.gitDir, "..", "pins"),
+        },
+    );
+    const tree = harness.store.insertSourceTree({
+        kind: "github",
+        owner: "acme",
+        name: "config",
+        defaultBranch: "main",
+        createdBy: null,
+    });
+    return {
+        ...harness,
+        fakeGit,
+        tree,
+        packagePath: "packages/basic",
+        basePin,
+        cleanup: () => fakeGit.cleanup(),
+        get: (requestPath, headers) =>
+            Promise.resolve(
+                harness.app.fetch(
+                    new Request(`http://console.test${requestPath}`, {
+                        headers,
+                    }),
+                ),
+            ),
+        post: (requestPath, body, headers) =>
+            Promise.resolve(
+                harness.app.fetch(
+                    new Request(`http://console.test${requestPath}`, {
+                        method: "POST",
+                        headers: mutationHeaders(headers),
+                        body: JSON.stringify(body),
+                    }),
+                ),
+            ),
+    };
 }
