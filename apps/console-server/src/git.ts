@@ -44,6 +44,25 @@ export type CompareResult = {
     files: string[];
 };
 
+// One commit in a branch's history; what the console's time views list.
+export type CommitRecord = {
+    sha: string;
+    message: string;
+    authorName: string | null;
+    // The committer date, RFC3339. `until` filters on it, which is how
+    // "what was this value on March 3rd" finds its pin.
+    date: string;
+};
+
+export type ListCommitsOptions = {
+    ref: string;
+    // Restrict to commits touching this path (a package directory).
+    path?: string;
+    // Only commits at or before this RFC3339 instant.
+    until?: string;
+    perPage?: number;
+};
+
 export interface GitOps {
     // The pin a branch points at, or null when the branch does not exist.
     getRef(token: string, repo: RepoId, branch: string): Promise<string | null>;
@@ -98,6 +117,13 @@ export interface GitOps {
         repo: RepoId,
         prefix: string,
     ): Promise<{ name: string; sha: string }[]>;
+    // History newest-first from a ref, optionally path-scoped and bounded
+    // by an instant.
+    listCommits(
+        token: string,
+        repo: RepoId,
+        options: ListCommitsOptions,
+    ): Promise<CommitRecord[]>;
 }
 
 export class GitHubGit implements GitOps {
@@ -325,6 +351,43 @@ export class GitHubGit implements GitOps {
         return refs.map((ref) => ({
             name: ref.ref.replace(/^refs\/heads\//, ""),
             sha: ref.object.sha,
+        }));
+    }
+
+    async listCommits(
+        token: string,
+        repo: RepoId,
+        options: ListCommitsOptions,
+    ): Promise<CommitRecord[]> {
+        const query = new URLSearchParams({
+            sha: options.ref,
+            per_page: String(options.perPage ?? 50),
+        });
+        if (options.path !== undefined) {
+            query.set("path", options.path);
+        }
+        if (options.until !== undefined) {
+            query.set("until", options.until);
+        }
+        const response = await this.request(
+            token,
+            "GET",
+            `/repos/${repo.owner}/${repo.name}/commits?${query.toString()}`,
+        );
+        await ensureOk(response, "list commits");
+        const commits = (await response.json()) as {
+            sha: string;
+            commit: {
+                message: string;
+                author: { name?: string } | null;
+                committer: { date: string } | null;
+            };
+        }[];
+        return commits.map((entry) => ({
+            sha: entry.sha,
+            message: entry.commit.message,
+            authorName: entry.commit.author?.name ?? null,
+            date: entry.commit.committer?.date ?? "",
         }));
     }
 

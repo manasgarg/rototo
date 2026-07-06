@@ -11,8 +11,10 @@ import path from "node:path";
 
 import type {
     CommitInput,
+    CommitRecord,
     CompareResult,
     GitOps,
+    ListCommitsOptions,
     PullRecord,
     RepoId,
 } from "../src/git.ts";
@@ -94,18 +96,21 @@ export class FakeGit implements GitOps {
         return sha;
     }
 
-    // An "external" push: someone edits in vim and pushes (rule 6).
+    // An "external" push: someone edits in vim and pushes (rule 6). The
+    // optional date backdates the commit, so history tests can ask "what
+    // was this value on March 3rd" against a real dated log.
     commitDirect(
         branch: string,
         message: string,
         writes: { path: string; content: string }[],
         deletes: string[] = [],
+        date?: string,
     ): string {
         const parent = this.refSha(branch);
         if (parent === null) {
             throw new Error(`no such branch: ${branch}`);
         }
-        const sha = this.commitRaw(parent, message, writes, deletes);
+        const sha = this.commitRaw(parent, message, writes, deletes, date);
         this.plumb(["update-ref", `refs/heads/${branch}`, sha, parent]);
         return sha;
     }
@@ -315,6 +320,43 @@ export class FakeGit implements GitOps {
         pull.state = "closed";
     }
 
+    async listCommits(
+        _token: string,
+        _repo: RepoId,
+        options: ListCommitsOptions,
+    ): Promise<CommitRecord[]> {
+        const args = [
+            "log",
+            "--format=%H%x1f%an%x1f%cI%x1f%s",
+            `--max-count=${options.perPage ?? 50}`,
+        ];
+        if (options.until !== undefined) {
+            args.push(`--until=${options.until}`);
+        }
+        args.push(options.ref);
+        if (options.path !== undefined) {
+            args.push("--", options.path);
+        }
+        let output: string;
+        try {
+            output = this.plumb(args);
+        } catch {
+            return [];
+        }
+        if (output === "") {
+            return [];
+        }
+        return output.split("\n").map((line) => {
+            const [sha, authorName, date, message] = line.split("\x1f");
+            return {
+                sha: sha as string,
+                message: message ?? "",
+                authorName: authorName ?? null,
+                date: date as string,
+            };
+        });
+    }
+
     async listBranches(
         _token: string,
         _repo: RepoId,
@@ -341,11 +383,15 @@ export class FakeGit implements GitOps {
         message: string,
         writes: { path: string; content: string }[],
         deletes: string[],
+        date?: string,
     ): string {
         const indexFile = path.join(this.scratch, `index-${this.nextIndex++}`);
         const env = {
             ...process.env,
             ...COMMIT_ENV,
+            ...(date === undefined
+                ? {}
+                : { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }),
             GIT_DIR: this.gitDir,
             GIT_INDEX_FILE: indexFile,
         };

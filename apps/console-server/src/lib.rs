@@ -12,6 +12,7 @@ use std::sync::Arc;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rototo::edit::{EditOperation, EditOptions};
+use rototo::fixtures::{FixtureGenerateSelection, FixtureTargetSelection};
 use rototo::model::{InspectSelection, PackageInspectRequest};
 use rototo::{PinStore, SourceAuth, SourceOptions};
 use serde_json::Value as JsonValue;
@@ -204,6 +205,163 @@ pub async fn trace_resolutions(root: String, context: JsonValue) -> Result<JsonV
         .await
         .map_err(js_err)?;
     to_json(&traces)
+}
+
+/// The lenient batch behind the lit-up graph: every variable resolves under
+/// one shared state, and a variable that cannot resolve (a rule reading a
+/// context key the caller did not supply) carries its error instead of
+/// failing the whole batch.
+#[napi(js_name = "traceResolutionOutcomes")]
+pub async fn trace_resolution_outcomes(root: String, context: JsonValue) -> Result<JsonValue> {
+    let outcomes = rototo::trace_variable_resolution_outcomes(Path::new(&root), &context)
+        .await
+        .map_err(js_err)?;
+    to_json(&outcomes)
+}
+
+/// Behavior scheduled to change after `now`: rule and query expressions
+/// comparing `env.now` against literal instants that have not passed yet.
+#[napi(js_name = "upcomingChanges")]
+pub async fn upcoming_changes(root: String, now: String) -> Result<JsonValue> {
+    let changes = rototo::upcoming_changes(Path::new(&root), &now)
+        .await
+        .map_err(js_err)?;
+    to_json(&changes)
+}
+
+/// Synthesized boundary contexts for the package's variables, from the
+/// fixtures machinery: per behavior case, a context that exercises it and
+/// the expected outcome. `variables` narrows the sweep; omitted means all.
+#[napi(js_name = "resolveFixtures")]
+pub async fn resolve_fixtures(root: String, variables: Option<Vec<String>>) -> Result<JsonValue> {
+    let selection = FixtureGenerateSelection {
+        variables: match variables {
+            Some(ids) => FixtureTargetSelection::some(ids),
+            None => FixtureTargetSelection::All,
+        },
+    };
+    let invocations =
+        rototo::fixtures::generate_resolve_invocations(&root, &SourceOptions::new(), selection)
+            .await
+            .map_err(js_err)?;
+    let rendered = invocations
+        .into_iter()
+        .map(|invocation| {
+            Ok(serde_json::json!({
+                "target": { "kind": "variable", "id": invocation.target.id() },
+                "caseId": invocation.case_id,
+                "title": invocation.title,
+                "because": invocation.because,
+                "context": invocation.context,
+                "expect": serde_json::to_value(&invocation.expect)
+                    .map_err(|err| Error::from_reason(err.to_string()))?,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(JsonValue::Array(rendered))
+}
+
+/// One in-process LSP session over rototo's real language server: framed
+/// JSON-RPC strings in via [`send`], framed messages out via [`receive`].
+/// The TypeScript bridge owns id correlation and notification fan-out; this
+/// object owns only the transport, so cancellation, debounced diagnostics,
+/// and overlay handling behave exactly as they do over stdio.
+#[napi(js_name = "LspSession")]
+pub struct JsLspSession {
+    // The server halves wait here until the first async call: the napi
+    // constructor runs outside the tokio runtime, so spawning must be lazy.
+    pending: std::sync::Mutex<
+        Option<(
+            tokio::io::ReadHalf<tokio::io::DuplexStream>,
+            tokio::io::WriteHalf<tokio::io::DuplexStream>,
+        )>,
+    >,
+    writer: tokio::sync::Mutex<tokio::io::WriteHalf<tokio::io::DuplexStream>>,
+    reader: tokio::sync::Mutex<tokio::io::BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>>,
+}
+
+#[napi]
+impl JsLspSession {
+    #[napi(constructor)]
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let (client_io, server_io) = tokio::io::duplex(1 << 20);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let (client_read, client_write) = tokio::io::split(client_io);
+        Self {
+            pending: std::sync::Mutex::new(Some((server_read, server_write))),
+            writer: tokio::sync::Mutex::new(client_write),
+            reader: tokio::sync::Mutex::new(tokio::io::BufReader::new(client_read)),
+        }
+    }
+
+    fn ensure_started(&self) {
+        let taken = self.pending.lock().expect("lsp session lock").take();
+        if let Some((server_read, server_write)) = taken {
+            tokio::spawn(async move {
+                // The session ends when the client drops or sends exit;
+                // either way the outcome is the client's to observe.
+                let _ =
+                    rototo::lsp::serve(tokio::io::BufReader::new(server_read), server_write).await;
+            });
+        }
+    }
+
+    /// Writes one JSON-RPC message (a serialized JSON string) to the server.
+    #[napi]
+    pub async fn send(&self, message: String) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        self.ensure_started();
+        let mut writer = self.writer.lock().await;
+        let framed = format!("Content-Length: {}\r\n\r\n{message}", message.len());
+        writer
+            .write_all(framed.as_bytes())
+            .await
+            .map_err(|err| Error::from_reason(format!("lsp write failed: {err}")))?;
+        writer
+            .flush()
+            .await
+            .map_err(|err| Error::from_reason(format!("lsp flush failed: {err}")))
+    }
+
+    /// Reads the next JSON-RPC message from the server, or `null` once the
+    /// session has ended. Call from one reader loop; concurrent receives
+    /// would interleave frames.
+    #[napi]
+    pub async fn receive(&self) -> Result<Option<String>> {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+        self.ensure_started();
+        let mut reader = self.reader.lock().await;
+        let mut content_length: Option<usize> = None;
+        loop {
+            let mut line = String::new();
+            let read = reader
+                .read_line(&mut line)
+                .await
+                .map_err(|err| Error::from_reason(format!("lsp read failed: {err}")))?;
+            if read == 0 {
+                return Ok(None);
+            }
+            let line = line.trim_end_matches(['\r', '\n']);
+            if line.is_empty() {
+                break;
+            }
+            if let Some(value) = line.strip_prefix("Content-Length:") {
+                content_length = value.trim().parse().ok();
+            }
+        }
+        let Some(length) = content_length else {
+            return Err(Error::from_reason("lsp frame missing Content-Length"));
+        };
+        let mut body = vec![0; length];
+        reader
+            .read_exact(&mut body)
+            .await
+            .map_err(|err| Error::from_reason(format!("lsp read failed: {err}")))?;
+        String::from_utf8(body)
+            .map(Some)
+            .map_err(|err| Error::from_reason(format!("lsp frame is not UTF-8: {err}")))
+    }
 }
 
 /// Traced resolution of one variable under one context.

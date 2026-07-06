@@ -52,6 +52,43 @@ type NativePinStoreConstructor = new (
     maxBytes?: number,
 ) => NativePinStore;
 
+/// One in-process LSP session. `send` writes a JSON-RPC message (as a
+/// serialized string); `receive` yields the next server message, or null
+/// when the session ends. Drive receive from a single pump loop.
+export type NativeLspSession = {
+    send(message: string): Promise<void>;
+    receive(): Promise<string | null>;
+};
+
+type NativeLspSessionConstructor = new () => NativeLspSession;
+
+export type TraceOutcomeJson = {
+    id: string;
+    trace?: JsonValue;
+    error?: string;
+};
+
+export type UpcomingChangeJson = {
+    variable: string;
+    site:
+        | { kind: "rule"; index: number }
+        | { kind: "queryFilter" }
+        | { kind: "querySort" };
+    boundary: string;
+    comparison: string;
+    expression: string;
+    location: { path: string; range?: JsonValue };
+};
+
+export type ResolveFixtureJson = {
+    target: { kind: "variable"; id: string };
+    caseId: string;
+    title: string;
+    because: string | null;
+    context: JsonObject;
+    expect: JsonValue;
+};
+
 export type NativeModule = {
     version(): string;
     buildProfile(): "release" | "debug";
@@ -76,6 +113,16 @@ export type NativeModule = {
         variable: string,
         context: JsonObject,
     ): Promise<JsonValue>;
+    traceResolutionOutcomes(
+        root: string,
+        context: JsonObject,
+    ): Promise<TraceOutcomeJson[]>;
+    upcomingChanges(root: string, now: string): Promise<UpcomingChangeJson[]>;
+    resolveFixtures(
+        root: string,
+        variables?: string[],
+    ): Promise<ResolveFixtureJson[]>;
+    LspSession: NativeLspSessionConstructor;
 };
 
 export const native: NativeModule = loadNative();

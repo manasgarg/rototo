@@ -27,9 +27,11 @@ import {
 import { type GitOps, GitHubGit } from "./git.ts";
 import { type GitHubFacts, exchangeOAuthCode } from "./github.ts";
 import { LocalAuth } from "./local-auth.ts";
+import { LspBridge } from "./lsp-bridge.ts";
 import { PackageStager } from "./packages.ts";
 import { Reconciler } from "./reconciler.ts";
 import { changeSetRoutes } from "./routes/change-sets.ts";
+import { lspRoutes } from "./routes/lsp.ts";
 import { packageRoutes } from "./routes/packages.ts";
 import {
     OAUTH_STATE_COOKIE,
@@ -226,12 +228,14 @@ export function buildApp(deps: AppDeps): App {
         stager,
         changeSets,
         reconciler,
+        lsp: new LspBridge(),
         subjectFor,
         subjectId,
         actingToken: (subject) => principalToken(subjectId(subject)),
     };
     app.route("/api", packageRoutes(ctx));
     app.route("/api", changeSetRoutes(ctx));
+    app.route("/api", lspRoutes(ctx));
 
     app.get("/api/health", (c) => c.json({ ok: true }));
 

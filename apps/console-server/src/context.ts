@@ -5,6 +5,7 @@ import type { ChangeSets } from "./change-sets.ts";
 import type { ServerConfig } from "./config.ts";
 import type { DecisionPoint, Subject } from "./decide.ts";
 import type { GitOps } from "./git.ts";
+import type { LspBridge } from "./lsp-bridge.ts";
 import type { PackageStager } from "./packages.ts";
 import type { Reconciler } from "./reconciler.ts";
 import type { Store } from "./store.ts";
@@ -17,6 +18,7 @@ export type ConsoleContext = {
     stager: PackageStager;
     changeSets: ChangeSets;
     reconciler: Reconciler;
+    lsp: LspBridge;
     subjectFor(cookieHeader: string | undefined): Subject | null;
     // The stable actor id for rows and diaries: the principal id, or
     // "local" for local mode's implicit principal.
