@@ -5,7 +5,6 @@
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
         "noEmit": true,
-        "rootDir": ".",
         "strict": true,
         "target": "ES2023",
         "types": ["node"],
