@@ -127,8 +127,7 @@ export function LitGraph({
                                       ? "cannot resolve"
                                       : clip(
                                             JSON.stringify(
-                                                outcome.trace?.resolution
-                                                    .value,
+                                                outcome.trace?.resolution.value,
                                             ) ?? "",
                                             26,
                                         )}
@@ -250,7 +249,10 @@ function layout(
     return {
         nodes,
         edges,
-        width: PADDING * 2 + columnCount * NODE_WIDTH + (columnCount - 1) * COLUMN_GAP,
+        width:
+            PADDING * 2 +
+            columnCount * NODE_WIDTH +
+            (columnCount - 1) * COLUMN_GAP,
         height: PADDING * 2 + maxRows * NODE_HEIGHT + (maxRows - 1) * ROW_GAP,
     };
 }

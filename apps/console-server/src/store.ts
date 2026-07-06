@@ -611,9 +611,16 @@ export class Store {
             .run(isoNow(), actor, event, detail);
     }
 
-    listAudit(): { at: string; actor: string | null; event: string; detail: string | null }[] {
+    listAudit(): {
+        at: string;
+        actor: string | null;
+        event: string;
+        detail: string | null;
+    }[] {
         const rows = this.db
-            .prepare("SELECT at, actor, event, detail FROM authz_audit ORDER BY id")
+            .prepare(
+                "SELECT at, actor, event, detail FROM authz_audit ORDER BY id",
+            )
             .all() as Record<string, unknown>[];
         return rows.map((row) => ({
             at: row.at as string,

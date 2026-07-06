@@ -92,7 +92,12 @@ export class ChangeSets {
             );
         }
         const id = `cs_${randomBytes(5).toString("hex")}`;
-        await git.createRef(input.credential.token, repo, branchFor(id), basePin);
+        await git.createRef(
+            input.credential.token,
+            repo,
+            branchFor(id),
+            basePin,
+        );
         const row = store.insertChangeSet({
             id,
             sourceTreeId: input.tree.id,

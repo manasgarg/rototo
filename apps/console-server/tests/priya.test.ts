@@ -344,10 +344,7 @@ test("the full Priya walkthrough, end to end and timed", async (t) => {
         ),
     );
     assert.equal(selfApprove.status, 403);
-    assert.match(
-        (await json(selfApprove)).error.message,
-        /second person/,
-    );
+    assert.match((await json(selfApprove)).error.message, /second person/);
 
     // --- The approver approves; policy is satisfied; the merge lands.
     const approved = await timed("approve + merge", async () => {

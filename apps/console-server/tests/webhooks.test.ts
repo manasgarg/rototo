@@ -19,8 +19,7 @@ harness.github.grantRepo("dev-token", "acme/config", {
 test("a verified webhook nudges the reconciler; a forged one is refused", async () => {
     // Rebuild the app with a webhook secret; the harness's default has none.
     const secret = "hook-secret";
-    (harness.config as { webhookSecret: string | null }).webhookSecret =
-        secret;
+    (harness.config as { webhookSecret: string | null }).webhookSecret = secret;
 
     const created = await json(
         await harness.post(
@@ -112,7 +111,11 @@ test("console-initiated merge with a user token lands the change", async () => {
         },
         dev.headers,
     );
-    await harness.post(`/api/change-sets/${created.id}/submit`, {}, dev.headers);
+    await harness.post(
+        `/api/change-sets/${created.id}/submit`,
+        {},
+        dev.headers,
+    );
 
     // A user token merges through the console: GitHub is the enforcement
     // (the fake accepts, like an unprotected branch would), and the state
@@ -129,7 +132,5 @@ test("console-initiated merge with a user token lands the change", async () => {
         await harness.get(`/api/change-sets/${created.id}`, dev.headers),
     );
     assert.equal(observed.changeSet.state, "merged");
-    assert.ok(
-        observed.events.some((event: any) => event.event === "merged"),
-    );
+    assert.ok(observed.events.some((event: any) => event.event === "merged"));
 });

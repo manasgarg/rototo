@@ -10,7 +10,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 
 import type { ConsoleContext } from "../context.ts";
-import { ACTIONS, parseResource, type Action, type Subject } from "../decide.ts";
+import {
+    ACTIONS,
+    parseResource,
+    type Action,
+    type Subject,
+} from "../decide.ts";
 import { ApiError } from "../errors.ts";
 import { hashInvite } from "./auth.ts";
 import { grantDiagnostics } from "../grant-diagnostics.ts";
@@ -183,7 +188,10 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
     app.post("/admin/grants", async (c) => {
         const subject = subjectOf(c);
         const input = await body(c);
-        if (input.granteeKind !== "principal" && input.granteeKind !== "group") {
+        if (
+            input.granteeKind !== "principal" &&
+            input.granteeKind !== "group"
+        ) {
             throw new ApiError(400, "granteeKind must be principal or group");
         }
         if (typeof input.granteeId !== "string") {
@@ -200,7 +208,10 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
             typeof input.action !== "string" ||
             !(ACTIONS as readonly string[]).includes(input.action)
         ) {
-            throw new ApiError(400, `action must be one of ${ACTIONS.join(", ")}`);
+            throw new ApiError(
+                400,
+                `action must be one of ${ACTIONS.join(", ")}`,
+            );
         }
         if (typeof input.resource !== "string") {
             throw new ApiError(400, "resource is required");
@@ -290,11 +301,17 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
                 !(ACTIONS as readonly string[]).includes(entry.action) ||
                 typeof entry.resource !== "string"
             ) {
-                throw new ApiError(400, "initialGrants must be { action, resource } pairs");
+                throw new ApiError(
+                    400,
+                    "initialGrants must be { action, resource } pairs",
+                );
             }
             const resource = parseResource(entry.resource);
             if (resource === null) {
-                throw new ApiError(400, `unparseable grant resource: ${entry.resource}`);
+                throw new ApiError(
+                    400,
+                    `unparseable grant resource: ${entry.resource}`,
+                );
             }
             // Inviting with grants is granting: the same scope check applies.
             await requireAdminister(subject, resource);
@@ -310,7 +327,8 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
             if (typeof raw !== "string") {
                 continue;
             }
-            const group = ctx.store.getGroup(raw) ?? ctx.store.getGroupByName(raw);
+            const group =
+                ctx.store.getGroup(raw) ?? ctx.store.getGroupByName(raw);
             if (group === null) {
                 throw new ApiError(404, `no such group: ${raw}`);
             }

@@ -29,7 +29,11 @@ export function enrollOrSignIn(
     // and credential refresh as a side effect.
     const existing = store.getIdentity(snapshot.provider, snapshot.subject);
     if (existing !== null) {
-        store.refreshIdentity(existing.id, snapshot, input.credentialCiphertext);
+        store.refreshIdentity(
+            existing.id,
+            snapshot,
+            input.credentialCiphertext,
+        );
         bootstrapAdmin(store, config.admins, existing.principalId, snapshot);
         return { kind: "signed-in", principalId: existing.principalId };
     }
@@ -64,8 +68,7 @@ export function enrollOrSignIn(
     ) {
         return {
             kind: "not-enrolled",
-            reason:
-                "this identity is not enrolled; ask an administrator for an invitation",
+            reason: "this identity is not enrolled; ask an administrator for an invitation",
         };
     }
 
@@ -79,13 +82,14 @@ export function enrollOrSignIn(
         JSON.stringify({
             principal: principal.id,
             provider: snapshot.provider,
-            via: invitation !== null
-                ? `invitation ${invitation.id}`
-                : bootstrap
-                  ? "admins bootstrap"
-                  : domainEnrolls
-                    ? "domain allowlist"
-                    : "open enrollment",
+            via:
+                invitation !== null
+                    ? `invitation ${invitation.id}`
+                    : bootstrap
+                      ? "admins bootstrap"
+                      : domainEnrolls
+                        ? "domain allowlist"
+                        : "open enrollment",
         }),
     );
     if (invitation !== null) {

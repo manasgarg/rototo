@@ -118,7 +118,10 @@ test("reflection surface", async () => {
         pkg.resolveReference("catalog=features:entry=sso#/name"),
         "Single sign-on",
     );
-    assert.equal(pkg.resolveEntryRef("sso#/name", ["features"]), "Single sign-on");
+    assert.equal(
+        pkg.resolveEntryRef("sso#/name", ["features"]),
+        "Single sign-on",
+    );
 
     assert.throws(
         () => pkg.resolveReference("catalog=features:entry=absent"),

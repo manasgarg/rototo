@@ -89,9 +89,7 @@ export class GitHubAppCredentials implements AppCredentials {
         );
         const signer = createSign("RSA-SHA256");
         signer.update(`${header}.${payload}`);
-        const signature = signer
-            .sign(this.privateKey)
-            .toString("base64url");
+        const signature = signer.sign(this.privateKey).toString("base64url");
         return `${header}.${payload}.${signature}`;
     }
 

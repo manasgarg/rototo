@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
-	"slices"
 )
 
 func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
@@ -624,7 +624,6 @@ default = "` + message + `"
 		t.Fatal(err)
 	}
 }
-
 
 func TestReflectionSurface(t *testing.T) {
 	pkg, err := Load(context.Background(), filepath.Join(repoRoot(t), "examples", "billing"), nil)

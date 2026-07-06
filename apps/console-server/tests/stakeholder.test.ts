@@ -312,8 +312,7 @@ test("the stakeholder walkthrough, end to end and timed", async (t) => {
     t.diagnostic(`walkthrough total: ${total.toFixed(1)}ms`);
     if (RELEASE_NATIVE) {
         assert.ok(
-            (timings["surface list (warm)"] as number) <
-                BUDGETS_MS.interaction,
+            (timings["surface list (warm)"] as number) < BUDGETS_MS.interaction,
             `surface list ${(timings["surface list (warm)"] as number).toFixed(1)}ms exceeds ${BUDGETS_MS.interaction}ms`,
         );
         assert.ok(

@@ -68,7 +68,10 @@ export function lspRoutes(ctx: ConsoleContext): Hono {
             typeof body.pin !== "string" ||
             !isPin(body.pin)
         ) {
-            throw new ApiError(400, "expected { path, pin } with a full SHA pin");
+            throw new ApiError(
+                400,
+                "expected { path, pin } with a full SHA pin",
+            );
         }
         const treeRoot = await ctx.stager.stageTree(tree, body.pin, token);
         const packageRoot = ctx.stager.packageRoot(treeRoot, body.path);

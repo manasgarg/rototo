@@ -33,8 +33,7 @@ export function AdminPage({ me }: { me: MeResponse }) {
     const [error, setError] = useState<string | null>(null);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
 
-    const allowed =
-        me.capabilities?.deployment.administer.allow === true;
+    const allowed = me.capabilities?.deployment.administer.allow === true;
 
     const refresh = useCallback(() => {
         if (!allowed) {
@@ -357,7 +356,10 @@ function NewGrantForm({
             >
                 <option value="">grantee…</option>
                 {principals.map((principal) => (
-                    <option key={principal.id} value={`principal:${principal.id}`}>
+                    <option
+                        key={principal.id}
+                        value={`principal:${principal.id}`}
+                    >
                         {principal.displayName}
                     </option>
                 ))}

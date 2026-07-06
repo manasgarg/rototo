@@ -146,7 +146,10 @@ export async function buildReview(
         comparison.files.length === 0 ||
         packagedCount < comparison.files.length;
     for (const [packagePath, files] of touched) {
-        if (input.canView !== undefined && !(await input.canView(packagePath))) {
+        if (
+            input.canView !== undefined &&
+            !(await input.canView(packagePath))
+        ) {
             reviews.push({
                 path: packagePath,
                 redacted: true,

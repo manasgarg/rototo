@@ -260,7 +260,11 @@ export function ChangeSetPage({
             </div>
 
             {changeSet.state === "draft" || changeSet.state === "proposed" ? (
-                <ReviewPanel changeSet={changeSet} me={me} onChanged={refresh} />
+                <ReviewPanel
+                    changeSet={changeSet}
+                    me={me}
+                    onChanged={refresh}
+                />
             ) : null}
 
             <div className="section-header-text">
@@ -538,9 +542,7 @@ function SemanticChangeRow({ change }: { change: SemanticChange }) {
             </span>
             <span className="row-side mono review-values">
                 {change.before !== undefined ? (
-                    <span className="review-before">
-                        {clip(change.before)}
-                    </span>
+                    <span className="review-before">{clip(change.before)}</span>
                 ) : null}
                 {change.before !== undefined && change.after !== undefined
                     ? " → "
@@ -656,8 +658,7 @@ function ImpactView({
             {changed.length === 0 ? (
                 <p className="hint">
                     No outcome changes under any of these contexts
-                    {pkg.denominator.samples + pkg.denominator.synthesized ===
-                    0
+                    {pkg.denominator.samples + pkg.denominator.synthesized === 0
                         ? " — but no context ran, so this says nothing"
                         : ""}
                     .
@@ -692,7 +693,9 @@ function ContextImpactView({
     return (
         <div className="impact-context">
             <div className="impact-context-head">
-                <span className={`pill ${synthetic ? "pill-warn" : "pill-sea"}`}>
+                <span
+                    className={`pill ${synthetic ? "pill-warn" : "pill-sea"}`}
+                >
                     {synthetic ? "synthetic" : "sample"}
                 </span>
                 <span className="mono">{stripLabel(impact.context)}</span>
@@ -777,7 +780,8 @@ function describeTarget(target: SemanticChange["target"]): string {
     const parts = Object.entries(entity)
         .filter(([key]) => key !== "kind")
         .map(([, value]) => String(value));
-    const field = target.field as { kind?: string; path?: string[] } | undefined;
+    const field = target.field as
+        { kind?: string; path?: string[] } | undefined;
     const pointer =
         field?.path !== undefined && Array.isArray(field.path)
             ? `#/${field.path.join("/")}`

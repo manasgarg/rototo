@@ -257,8 +257,8 @@ function NotEnrolled() {
             <h1>Not enrolled</h1>
             <p className="hint">
                 You signed in, but this identity is not enrolled here.
-                Completing authentication never grants access by itself; ask
-                an administrator for an invitation, then open its link.
+                Completing authentication never grants access by itself; ask an
+                administrator for an invitation, then open its link.
             </p>
         </div>
     );
@@ -275,7 +275,10 @@ function Home({ me }: { me: MeResponse }) {
                 </p>
                 <div className="action-row">
                     {me.signIn?.oidc != null ? (
-                        <a className="btn btn-primary" href="/api/auth/oidc/start">
+                        <a
+                            className="btn btn-primary"
+                            href="/api/auth/oidc/start"
+                        >
                             Sign in with {me.signIn.oidc.displayName}
                         </a>
                     ) : null}
@@ -327,7 +330,10 @@ function Home({ me }: { me: MeResponse }) {
                         Writes act through the console's GitHub App on your
                         behalf. Linking your own GitHub account makes commits
                         yours directly.{" "}
-                        <a className="pill-link" href="/api/auth/github/start?link=1">
+                        <a
+                            className="pill-link"
+                            href="/api/auth/github/start?link=1"
+                        >
                             Link GitHub
                         </a>
                     </p>

@@ -168,11 +168,12 @@ export function authRoutes(deps: AuthDeps): Hono {
     };
 
     const checkState = (c: Context): boolean => {
-        const expected = cookieValue(c.req.header("cookie"), OAUTH_STATE_COOKIE);
-        const state = c.req.query("state");
-        return (
-            state !== undefined && expected !== null && state === expected
+        const expected = cookieValue(
+            c.req.header("cookie"),
+            OAUTH_STATE_COOKIE,
         );
+        const state = c.req.query("state");
+        return state !== undefined && expected !== null && state === expected;
     };
 
     app.get("/auth/github/start", (c) => {

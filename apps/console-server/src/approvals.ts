@@ -22,7 +22,10 @@ import {
 // collaborator with a committed diary entry. Derived from the console's
 // own records; commits pushed to the branch with raw git attribute
 // themselves through GitHub instead.
-export function contributorsOf(store: Store, changeSet: ChangeSetRow): string[] {
+export function contributorsOf(
+    store: Store,
+    changeSet: ChangeSetRow,
+): string[] {
     const contributors = new Set<string>([changeSet.authorPrincipal]);
     for (const event of store.listChangeSetEvents(changeSet.id)) {
         if (event.event === "committed" && event.actor !== null) {
@@ -95,9 +98,7 @@ export async function approvalPolicy(
     // Files in no package at all (workflows, READMEs) keep the default too.
     const inSomePackage = (file: string): boolean =>
         packages.some((packagePath) =>
-            packagePath === "."
-                ? true
-                : file.startsWith(`${packagePath}/`),
+            packagePath === "." ? true : file.startsWith(`${packagePath}/`),
         );
     if (comparison.files.some((file) => !inSomePackage(file))) {
         uncovered = true;
@@ -160,8 +161,7 @@ export function policyStatus(
         .map((row) => row.principalId)
         .filter((principal) => !contributors.has(principal))
         .filter(
-            (principal) =>
-                store.getPrincipal(principal)?.status === "active",
+            (principal) => store.getPrincipal(principal)?.status === "active",
         );
     const missing: string[] = [];
     for (const requirement of policy.requirements) {

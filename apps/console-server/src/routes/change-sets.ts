@@ -9,11 +9,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 
 import type { ActingCredential } from "../app-credential.ts";
-import {
-    approvalPolicy,
-    contributorsOf,
-    policyStatus,
-} from "../approvals.ts";
+import { approvalPolicy, contributorsOf, policyStatus } from "../approvals.ts";
 import { branchFor, repoId, type EditInput } from "../change-sets.ts";
 import type { ConsoleContext } from "../context.ts";
 import type { Subject } from "../decide.ts";
@@ -112,9 +108,7 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         if (subject.kind === "local") {
             return "local";
         }
-        return (
-            ctx.store.getPrincipal(subject.id)?.displayName ?? subject.id
-        );
+        return ctx.store.getPrincipal(subject.id)?.displayName ?? subject.id;
     };
 
     const changeSetOf = (c: Context): ChangeSetRow => {

@@ -98,7 +98,9 @@ export function resolveConfig(
         );
     }
     const oidc =
-        oidcIssuer !== null && oidcClientId !== null && oidcClientSecret !== null
+        oidcIssuer !== null &&
+        oidcClientId !== null &&
+        oidcClientSecret !== null
             ? {
                   issuer: stripTrailingSlash(oidcIssuer),
                   clientId: oidcClientId,

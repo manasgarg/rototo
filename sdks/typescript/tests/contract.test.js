@@ -63,7 +63,9 @@ async function runCase(contractCase) {
 
     if (operation === "read_entry") {
         const pkg = await Package.load(packageSource);
-        return { value: pkg.readEntry(contractCase.catalog, contractCase.entry) };
+        return {
+            value: pkg.readEntry(contractCase.catalog, contractCase.entry),
+        };
     }
 
     if (operation === "read_enum") {

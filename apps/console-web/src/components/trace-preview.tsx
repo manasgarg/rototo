@@ -32,9 +32,7 @@ export function TracePreview({
     onUseContext: (chosen: ChosenContext) => void;
     onPromote: (entry: SynthesizedContext) => void;
 }) {
-    const cases = synthesized.filter(
-        (entry) => entry.target.id === variableId,
-    );
+    const cases = synthesized.filter((entry) => entry.target.id === variableId);
 
     return (
         <div className="preview-panel">
@@ -74,9 +72,7 @@ export function TracePreview({
                     {cases.map((entry) => (
                         <div className="preview-case" key={entry.caseId}>
                             <span className="row-text">
-                                <span className="row-title">
-                                    {entry.title}
-                                </span>
+                                <span className="row-title">{entry.title}</span>
                                 <span className="row-sub mono">
                                     {JSON.stringify(entry.context)} →{" "}
                                     {JSON.stringify(entry.expect.value)}

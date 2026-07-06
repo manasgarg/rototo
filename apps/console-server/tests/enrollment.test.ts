@@ -194,10 +194,9 @@ test("the invitation loop: redeem by link, initial groups and grants apply", asy
     assert.equal(treeSummary.capabilities.propose.allow, true);
     assert.equal(treeSummary.capabilities.propose.backend, "grant");
     // The group membership landed too.
-    assert.deepEqual(
-        harness.store.listGroupMembers(group.group.id),
-        [me.principal.id],
-    );
+    assert.deepEqual(harness.store.listGroupMembers(group.group.id), [
+        me.principal.id,
+    ]);
     // Single use: the invitation is spent.
     assert.equal(
         harness.store.listInvitations()[0]?.redeemedBy,

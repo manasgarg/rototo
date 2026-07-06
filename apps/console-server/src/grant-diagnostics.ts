@@ -15,7 +15,9 @@ export type GrantDiagnostic = {
 export function grantDiagnostics(store: Store): GrantDiagnostic[] {
     const diagnostics: GrantDiagnostic[] = [];
     const trees = new Set(store.listSourceTrees().map((tree) => tree.id));
-    const groups = new Map(store.listGroups().map((group) => [group.id, group]));
+    const groups = new Map(
+        store.listGroups().map((group) => [group.id, group]),
+    );
     const principals = new Map(
         store.listPrincipals().map((principal) => [principal.id, principal]),
     );
@@ -70,9 +72,7 @@ export function grantDiagnostics(store: Store): GrantDiagnostic[] {
     for (const [id, group] of groups) {
         const activeMembers = store
             .listGroupMembers(id)
-            .filter(
-                (member) => principals.get(member)?.status === "active",
-            );
+            .filter((member) => principals.get(member)?.status === "active");
         if (activeMembers.length === 0 && grantedGroups.has(id)) {
             diagnostics.push({
                 severity: "warning",

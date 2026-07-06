@@ -139,38 +139,38 @@ import (
 )
 
 type nativeSymbols struct {
-	version                           unsafe.Pointer
-	packageLoad                       unsafe.Pointer
-	packageInspect                    unsafe.Pointer
-	packageRoot                       unsafe.Pointer
-	packageServedFallback             unsafe.Pointer
-	packageIdentity                   unsafe.Pointer
-	packageLint                       unsafe.Pointer
-	packageResolveVariable            unsafe.Pointer
-	packageListEnums                  unsafe.Pointer
-	packageReadEnum                   unsafe.Pointer
-	packageListEntries                unsafe.Pointer
-	packageReadEntry                  unsafe.Pointer
-	packageResolveReference           unsafe.Pointer
-	packageResolveEntryRef            unsafe.Pointer
-	packageFree                       unsafe.Pointer
-	refreshingPackageLoad             unsafe.Pointer
-	refreshingPackageResolveVariable  unsafe.Pointer
-	refreshingPackageRefreshNow       unsafe.Pointer
-	refreshingPackageStatus           unsafe.Pointer
-	refreshingPackageIdentity         unsafe.Pointer
-	refreshingPackageSnapshot         unsafe.Pointer
-	refreshingPackageSubscribeEvents  unsafe.Pointer
-	refreshEventsNext                 unsafe.Pointer
-	refreshEventsFree                 unsafe.Pointer
-	refreshingPackageSubscribeTrace   unsafe.Pointer
-	traceEventsNext                   unsafe.Pointer
-	traceEventsFree                   unsafe.Pointer
-	refreshingPackageShutdown         unsafe.Pointer
-	refreshingPackageFree             unsafe.Pointer
-	stringResultFree                  unsafe.Pointer
-	handleResultFree                  unsafe.Pointer
-	voidResultFree                    unsafe.Pointer
+	version                          unsafe.Pointer
+	packageLoad                      unsafe.Pointer
+	packageInspect                   unsafe.Pointer
+	packageRoot                      unsafe.Pointer
+	packageServedFallback            unsafe.Pointer
+	packageIdentity                  unsafe.Pointer
+	packageLint                      unsafe.Pointer
+	packageResolveVariable           unsafe.Pointer
+	packageListEnums                 unsafe.Pointer
+	packageReadEnum                  unsafe.Pointer
+	packageListEntries               unsafe.Pointer
+	packageReadEntry                 unsafe.Pointer
+	packageResolveReference          unsafe.Pointer
+	packageResolveEntryRef           unsafe.Pointer
+	packageFree                      unsafe.Pointer
+	refreshingPackageLoad            unsafe.Pointer
+	refreshingPackageResolveVariable unsafe.Pointer
+	refreshingPackageRefreshNow      unsafe.Pointer
+	refreshingPackageStatus          unsafe.Pointer
+	refreshingPackageIdentity        unsafe.Pointer
+	refreshingPackageSnapshot        unsafe.Pointer
+	refreshingPackageSubscribeEvents unsafe.Pointer
+	refreshEventsNext                unsafe.Pointer
+	refreshEventsFree                unsafe.Pointer
+	refreshingPackageSubscribeTrace  unsafe.Pointer
+	traceEventsNext                  unsafe.Pointer
+	traceEventsFree                  unsafe.Pointer
+	refreshingPackageShutdown        unsafe.Pointer
+	refreshingPackageFree            unsafe.Pointer
+	stringResultFree                 unsafe.Pointer
+	handleResultFree                 unsafe.Pointer
+	voidResultFree                   unsafe.Pointer
 }
 
 var (

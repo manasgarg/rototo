@@ -126,10 +126,7 @@ test("upcoming changes surface unpassed env.now boundaries", async () => {
         },
     ]);
     const body = await json(
-        await harness.get(
-            `${base}/upcoming?${packageQuery(pin)}`,
-            dev.headers,
-        ),
+        await harness.get(`${base}/upcoming?${packageQuery(pin)}`, dev.headers),
     );
     assert.equal(body.changes.length, 2);
     const [opens, closes] = body.changes;
@@ -183,10 +180,7 @@ test("history answers 'what was this value on March 3rd'", async () => {
     assert.equal(march.commits[0].message, "raise threshold for february");
     const pin = march.commits[0].sha;
     const detail = await json(
-        await harness.get(
-            `${base}/package?${packageQuery(pin)}`,
-            dev.headers,
-        ),
+        await harness.get(`${base}/package?${packageQuery(pin)}`, dev.headers),
     );
     const variable = detail.model.variables.find(
         (entry: any) => entry.id === "payments_risk_threshold",

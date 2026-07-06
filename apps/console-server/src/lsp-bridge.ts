@@ -136,7 +136,10 @@ export class LspBridge {
             setTimeout(() => {
                 if (session.pending.delete(requestId)) {
                     reject(
-                        new ApiError(504, `the language server timed out on ${method}`),
+                        new ApiError(
+                            504,
+                            `the language server timed out on ${method}`,
+                        ),
                     );
                 }
             }, REQUEST_TIMEOUT_MS).unref();
@@ -238,7 +241,10 @@ export class LspBridge {
     private outbound(session: BridgeSession, value: unknown): unknown {
         return rewriteUris(value, (uri) => {
             if (uri.startsWith("file://")) {
-                throw new ApiError(400, "send package-relative paths, not URIs");
+                throw new ApiError(
+                    400,
+                    "send package-relative paths, not URIs",
+                );
             }
             const absolute = path.resolve(session.root, uri);
             if (
