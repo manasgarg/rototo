@@ -66,8 +66,15 @@ export type ModelView = {
         location: { path: string };
         declaration: { kind: string; value?: string };
         resolve?: {
+            method?: { value?: string };
             default?: { value?: JsonValue };
-            rules?: unknown[];
+            rules?: {
+                index: number;
+                when?: { value?: string };
+                value?: { value?: JsonValue };
+            }[];
+            allocation?: { value?: string };
+            assigns?: { arm?: string; value?: JsonValue }[];
         };
     }[];
     catalogs?: {
@@ -89,6 +96,15 @@ export type ModelView = {
     layers?: {
         id: string;
         location: { path: string };
+        description?: string;
+        unit?: { value?: string };
+        buckets?: number;
+        allocations?: {
+            id?: string;
+            status?: string;
+            eligibility?: { value?: string };
+            arms?: { name?: string; buckets?: string }[];
+        }[];
     }[];
 };
 
@@ -129,6 +145,27 @@ export type Control =
 
 export type FieldControl = Control & { field: string };
 
+// The semantic view of a variable's resolution an experience may read: the
+// rules in order and, for `method = "allocation"` variables, the allocation
+// joined with its layer (arms carry the value each assigns). Experiences
+// derive domain status from this; they never see files or expressions the
+// model does not already state.
+export type VariableRuleView = {
+    index: number;
+    when: string | null;
+    value: JsonValue | null;
+};
+
+export type VariableAllocationView = {
+    layer: string;
+    id: string;
+    status: string | null;
+    unit: string | null;
+    totalBuckets: number | null;
+    eligibility: string | null;
+    arms: { name: string; buckets: string | null; value: JsonValue | null }[];
+};
+
 export type SurfaceItem =
     | {
           kind: "variable";
@@ -138,6 +175,9 @@ export type SurfaceItem =
           control: Control;
           default: JsonValue | null;
           ruleCount: number;
+          method: string | null;
+          rules: VariableRuleView[];
+          allocation: VariableAllocationView | null;
       }
     | {
           kind: "catalog";
@@ -157,6 +197,25 @@ export type SurfaceItem =
           value: JsonValue;
           editableFields: string[] | null;
           fields: FieldControl[];
+      }
+    | {
+          // The floor renders a layer as its allocation list with a range
+          // dial per arm; the operations that list may emit are
+          // set_arm_buckets and set_allocation_status, nothing else.
+          kind: "layer";
+          id: string;
+          description: string | null;
+          unit: string | null;
+          buckets: number | null;
+          allocations: {
+              id: string | null;
+              status: string | null;
+              eligibility: string | null;
+              arms: { name: string | null; buckets: string | null }[];
+              // Variables this allocation drives, for the "what does this
+              // dial move" affordance.
+              variables: string[];
+          }[];
       }
     | { kind: "missing"; target: string };
 
@@ -219,16 +278,10 @@ function parseSurface(
             message: `approval "${approval}" is not "none" or "role:<id>"`,
         });
     }
+    // `kind` is a request, not a dependency: whether an installed experience
+    // claims it is the web build's knowledge (build-time composition), so
+    // the floor fallback note renders there, not here.
     const kind = typeof raw.kind === "string" ? raw.kind : null;
-    if (kind !== null) {
-        // Extensions land in C6; until an installed experience claims the
-        // kind, the surface renders on the floor. That is degradation
-        // working, not an error.
-        diagnostics.push({
-            severity: "info",
-            message: `no installed experience renders kind "${kind}"; this surface renders on the floor`,
-        });
-    }
 
     const bindings: SurfaceBinding[] = [];
     const rawBind = Array.isArray(raw.bind) ? raw.bind : [];
@@ -283,6 +336,7 @@ type ParsedTarget =
     | { kind: "variable"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "entry"; catalog: string; entry: string }
+    | { kind: "layer"; id: string }
     | null;
 
 // Binding targets use the addressing grammar (design/addressing.md). The
@@ -305,6 +359,10 @@ export function parseTarget(target: string): ParsedTarget {
     if (variableMatch !== null) {
         return { kind: "variable", id: variableMatch[1] as string };
     }
+    const layerMatch = target.match(/^layer=([a-z0-9_/]+)$/);
+    if (layerMatch !== null) {
+        return { kind: "layer", id: layerMatch[1] as string };
+    }
     return null;
 }
 
@@ -317,7 +375,7 @@ function validateBinding(
         return [
             {
                 severity: "error",
-                message: `binding target "${binding.target}" is not a variable, catalog, or entry address`,
+                message: `binding target "${binding.target}" is not a variable, catalog, entry, or layer address`,
             },
         ];
     }
@@ -330,6 +388,18 @@ function validateBinding(
             diagnostics.push({
                 severity: "error",
                 message: `binds variable "${parsed.id}" which does not exist`,
+            });
+        }
+        return diagnostics;
+    }
+    if (parsed.kind === "layer") {
+        const exists = (model.layers ?? []).some(
+            (layer) => layer.id === parsed.id,
+        );
+        if (!exists) {
+            diagnostics.push({
+                severity: "error",
+                message: `binds layer "${parsed.id}" which does not exist`,
             });
         }
         return diagnostics;
@@ -446,6 +516,46 @@ export function surfaceItems(surface: Surface, model: ModelView): SurfaceItem[] 
                 ),
                 default: variable.resolve?.default?.value ?? null,
                 ruleCount: variable.resolve?.rules?.length ?? 0,
+                method: variable.resolve?.method?.value ?? null,
+                rules: (variable.resolve?.rules ?? []).map((rule) => ({
+                    index: rule.index,
+                    when: rule.when?.value ?? null,
+                    value: rule.value?.value ?? null,
+                })),
+                allocation: allocationView(variable, model),
+            });
+            continue;
+        }
+        if (parsed.kind === "layer") {
+            const layer = (model.layers ?? []).find(
+                (l) => l.id === parsed.id,
+            );
+            if (layer === undefined) {
+                items.push({ kind: "missing", target: binding.target });
+                continue;
+            }
+            items.push({
+                kind: "layer",
+                id: layer.id,
+                description: layer.description ?? null,
+                unit: layer.unit?.value ?? null,
+                buckets: layer.buckets ?? null,
+                allocations: (layer.allocations ?? []).map((allocation) => ({
+                    id: allocation.id ?? null,
+                    status: allocation.status ?? null,
+                    eligibility: allocation.eligibility?.value ?? null,
+                    arms: (allocation.arms ?? []).map((arm) => ({
+                        name: arm.name ?? null,
+                        buckets: arm.buckets ?? null,
+                    })),
+                    variables: (model.variables ?? [])
+                        .filter(
+                            (variable) =>
+                                variable.resolve?.allocation?.value ===
+                                allocation.id,
+                        )
+                        .map((variable) => variable.id),
+                })),
             });
             continue;
         }
@@ -496,6 +606,46 @@ export function surfaceItems(surface: Surface, model: ModelView): SurfaceItem[] 
         });
     }
     return items;
+}
+
+// The allocation a variable resolves through, joined with the layer that
+// holds it: the arms carry the value each assigns, and the layer's bucket
+// count gives an experience the denominator for "what fraction of traffic".
+function allocationView(
+    variable: NonNullable<ModelView["variables"]>[number],
+    model: ModelView,
+): VariableAllocationView | null {
+    const allocationId = variable.resolve?.allocation?.value;
+    if (allocationId === undefined || allocationId === "") {
+        return null;
+    }
+    for (const layer of model.layers ?? []) {
+        const allocation = (layer.allocations ?? []).find(
+            (candidate) => candidate.id === allocationId,
+        );
+        if (allocation === undefined) {
+            continue;
+        }
+        const assigns = variable.resolve?.assigns ?? [];
+        return {
+            layer: layer.id,
+            id: allocationId,
+            status: allocation.status ?? null,
+            unit: layer.unit?.value ?? null,
+            totalBuckets: layer.buckets ?? null,
+            eligibility: allocation.eligibility?.value ?? null,
+            arms: (allocation.arms ?? [])
+                .filter((arm) => arm.name !== undefined)
+                .map((arm) => ({
+                    name: arm.name as string,
+                    buckets: arm.buckets ?? null,
+                    value:
+                        assigns.find((assign) => assign.arm === arm.name)
+                            ?.value ?? null,
+                })),
+        };
+    }
+    return null;
 }
 
 function variableControl(
@@ -663,6 +813,15 @@ export function bindingPaths(surface: Surface, model: ModelView): string[] {
             }
             continue;
         }
+        if (parsed.kind === "layer") {
+            const layer = (model.layers ?? []).find(
+                (l) => l.id === parsed.id,
+            );
+            if (layer !== undefined) {
+                paths.add(layer.location.path);
+            }
+            continue;
+        }
         if (parsed.kind === "entry") {
             const entry = (model.catalogEntries ?? []).find(
                 (e) => e.catalog === parsed.catalog && e.key === parsed.entry,
@@ -822,6 +981,10 @@ export function suggestSurfaces(model: ModelView): SurfaceSuggestion[] {
             variable.declaration.value === "bool",
     );
     if (flags.length > 0) {
+        // The flags experience renders bool variables and layers together:
+        // the layers are the rollout lines those flags (or future flags)
+        // divert on, so the suggestion binds both.
+        const layers = model.layers ?? [];
         suggestions.push({
             id: "flags",
             kind: "flags",
@@ -836,9 +999,14 @@ export function suggestSurfaces(model: ModelView): SurfaceSuggestion[] {
                     fields: {
                         kind: "flags",
                         title: "Flags",
-                        bind: flags.map((variable) => ({
-                            target: `variable=${variable.id}`,
-                        })),
+                        bind: [
+                            ...flags.map((variable) => ({
+                                target: `variable=${variable.id}`,
+                            })),
+                            ...layers.map((layer) => ({
+                                target: `layer=${layer.id}`,
+                            })),
+                        ],
                     },
                 },
             ],

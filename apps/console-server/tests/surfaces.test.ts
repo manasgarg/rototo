@@ -35,6 +35,12 @@ target = "variable=premium_users"
 target = "catalog=tenant_limits"
 editable_fields = ["limits", "metadata"]
 can_add = true
+
+[[bind]]
+target = "variable=checkout_cta_copy"
+
+[[bind]]
+target = "layer=checkout"
 `;
 
 const BROKEN_SURFACE_TOML = `title = "Broken"
@@ -76,17 +82,10 @@ test("the surface list validates on load and stays honest about problems", async
     assert.equal(limits.title, "Tenant limits");
     assert.equal(limits.kind, "table");
     assert.equal(limits.approval, "role:plan_admins");
-    // No experience renders "table" until C6; the surface says so and
-    // renders on the floor. Degradation is information, not an error.
-    assert.ok(
-        limits.diagnostics.some(
-            (d: any) => d.severity === "info" && /floor/.test(d.message),
-        ),
-    );
-    assert.ok(
-        !limits.diagnostics.some((d: any) => d.severity === "error"),
-        JSON.stringify(limits.diagnostics),
-    );
+    // Whether an installed experience renders "table" is the web build's
+    // knowledge; the server validates the data and says nothing about
+    // renderers. A clean surface carries no diagnostics.
+    assert.deepEqual(limits.diagnostics, []);
 
     const broken = body.surfaces.find((s: any) => s.id === "broken");
     assert.ok(
@@ -112,8 +111,9 @@ test("one surface renders at floor fidelity with its read side", async () => {
 
     // The floor: a catalog-typed variable is a select over entry ids, a
     // bool variable is a toggle, a bound catalog is a table with
-    // schema-driven field controls bounded by editable_fields.
-    const [variable, flag, catalog] = body.items;
+    // schema-driven field controls bounded by editable_fields, and a bound
+    // layer is its allocation list.
+    const [variable, flag, catalog, cta, layer] = body.items;
     assert.equal(variable.kind, "variable");
     assert.equal(variable.control.control, "select");
     assert.deepEqual(
@@ -123,6 +123,9 @@ test("one surface renders at floor fidelity with its read side", async () => {
     assert.equal(flag.kind, "variable");
     assert.equal(flag.id, "premium_users");
     assert.equal(flag.control.control, "toggle");
+    // Rules travel with the variable so experiences can derive status
+    // through the contract instead of guessing from a count.
+    assert.equal(flag.rules.length, flag.ruleCount);
     assert.equal(catalog.kind, "catalog");
     assert.equal(catalog.entries.length, 3);
     assert.equal(catalog.canAdd, true);
@@ -130,6 +133,31 @@ test("one surface renders at floor fidelity with its read side", async () => {
         catalog.fields.map((field: any) => field.field),
         ["limits", "metadata"],
     );
+
+    // An allocation-backed variable carries its allocation joined with the
+    // layer: arms with the value each assigns, and the layer's bucket count
+    // as the traffic denominator.
+    assert.equal(cta.kind, "variable");
+    assert.equal(cta.id, "checkout_cta_copy");
+    assert.equal(cta.method, "allocation");
+    assert.equal(cta.allocation.layer, "checkout");
+    assert.equal(cta.allocation.id, "cta_copy_test");
+    assert.equal(cta.allocation.status, "running");
+    assert.equal(cta.allocation.totalBuckets, 1000);
+    const control = cta.allocation.arms.find(
+        (arm: any) => arm.name === "control",
+    );
+    assert.equal(control.buckets, "0-499");
+    assert.equal(control.value, "Place order");
+
+    // The bound layer renders as its allocation list; the dial's operations
+    // are set_arm_buckets and set_allocation_status, nothing else.
+    assert.equal(layer.kind, "layer");
+    assert.equal(layer.id, "checkout");
+    assert.equal(layer.buckets, 1000);
+    assert.equal(layer.allocations.length, 1);
+    assert.equal(layer.allocations[0].id, "cta_copy_test");
+    assert.deepEqual(layer.allocations[0].variables, ["checkout_cta_copy"]);
 
     // The read side: bound-file history reaches back to the seed commit;
     // nothing is pending yet.
