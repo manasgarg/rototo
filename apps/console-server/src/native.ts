@@ -123,6 +123,9 @@ export type NativeModule = {
     discoverPackages(root: string): Promise<string[]>;
     semanticModel(root: string): Promise<JsonValue>;
     lintPackage(root: string): Promise<PackageLintJson>;
+    // The composed view of a package (extends resolved and layered) copied
+    // into dest; ring-2 reads go through this.
+    stageComposed(source: string, dest: string): Promise<void>;
     inspectReport(root: string, request?: InspectRequest): Promise<JsonValue>;
     diffPackages(
         beforeRoot: string,

@@ -135,6 +135,41 @@ pub async fn semantic_model(root: String) -> Result<JsonValue> {
     to_json(&model)
 }
 
+/// Stages the composed view of a package — its `extends` chain resolved
+/// and layered, the same composition `Package::load` sees — into `dest`,
+/// which must not exist yet. The console hands tree-staged package roots
+/// here (ring 2 reads: fleet health, the cross-overlay matrix); remote
+/// extends sources resolve through the ordinary source machinery.
+#[napi(js_name = "stageComposed")]
+pub async fn stage_composed(source: String, dest: String) -> Result<()> {
+    let staged = rototo::stage_package_source(&source, &SourceOptions::default())
+        .await
+        .map_err(js_err)?;
+    let from = staged.path().to_path_buf();
+    let to = PathBuf::from(dest);
+    tokio::task::spawn_blocking(move || copy_dir(&from, &to))
+        .await
+        .map_err(|error| Error::from_reason(error.to_string()))?
+        .map_err(|error| Error::from_reason(error.to_string()))?;
+    // `staged` may own a tempdir; it lives until here, after the copy.
+    drop(staged);
+    Ok(())
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
 /// Full package lint: documents and diagnostics.
 #[napi(js_name = "lintPackage")]
 pub async fn lint_package(root: String) -> Result<JsonValue> {

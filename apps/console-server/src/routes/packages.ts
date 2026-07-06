@@ -321,6 +321,173 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
         return c.json({ ref, pin, nodes, edges });
     });
 
+    // Overlays of a base: every package in the tree whose extends chain
+    // reaches it. The composition tree already knows the edges; this walks
+    // them upward.
+    const overlaysOf = async (
+        treeRoot: string,
+        packages: string[],
+        basePath: string,
+    ): Promise<string[]> => {
+        const known = new Set(packages);
+        const bases = new Map<string, Set<string>>();
+        for (const packagePath of packages) {
+            const packageRoot = ctx.stager.packageRoot(treeRoot, packagePath);
+            const model = (await native
+                .semanticModel(packageRoot)
+                .catch(() => null)) as {
+                extends?: { source: string }[];
+            } | null;
+            const direct = new Set<string>();
+            for (const extend of model?.extends ?? []) {
+                const to = resolveExtend(packagePath, extend.source, known);
+                if (to !== null) {
+                    direct.add(to);
+                }
+            }
+            bases.set(packagePath, direct);
+        }
+        const reaches = (from: string, seen: Set<string>): boolean => {
+            if (seen.has(from)) {
+                return false;
+            }
+            seen.add(from);
+            for (const parent of bases.get(from) ?? []) {
+                if (parent === basePath || reaches(parent, seen)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return packages.filter(
+            (packagePath) =>
+                packagePath !== basePath &&
+                reaches(packagePath, new Set<string>()),
+        );
+    };
+
+    // Ring-2 validity: fleet health. Every overlay of the base, composed
+    // and linted, aggregated — "3 of 12 tenant overlays fail lint against
+    // this base" is what makes evolving a base under tenants safe. This is
+    // lint the console already runs, fanned out per overlay and summarized.
+    app.get("/source-trees/:tree/fleet", async (c) => {
+        const { tree, token } = await access(c);
+        const pin = stagedPin(c);
+        const basePath = packagePathOf(c);
+        const treeRoot = await ctx.stager.stageTree(tree, pin, token);
+        const packages = await native.discoverPackages(treeRoot);
+        if (!packages.includes(basePath)) {
+            throw new ApiError(404, `no such package: ${basePath}`);
+        }
+        const overlays = await overlaysOf(treeRoot, packages, basePath);
+        const health = [];
+        for (const overlayPath of overlays) {
+            try {
+                // The composed view: the overlay layered over everything it
+                // extends, exactly what a load of that package would see.
+                const overlayRoot = await ctx.stager.composedRoot(
+                    treeRoot,
+                    overlayPath,
+                );
+                const lint = await native.lintPackage(overlayRoot);
+                const diagnostics = lint.diagnostics as {
+                    severity?: string;
+                }[];
+                const errors = diagnostics.filter(
+                    (diagnostic) => diagnostic.severity === "error",
+                ).length;
+                const warnings = diagnostics.filter(
+                    (diagnostic) => diagnostic.severity === "warning",
+                ).length;
+                health.push({
+                    path: overlayPath,
+                    ok: errors === 0,
+                    errors,
+                    warnings,
+                });
+            } catch (error) {
+                health.push({
+                    path: overlayPath,
+                    ok: false,
+                    errors: 1,
+                    warnings: 0,
+                    failure: (error as Error).message,
+                });
+            }
+        }
+        return c.json({
+            pin,
+            path: basePath,
+            overlays: health,
+            failing: health.filter((entry) => !entry.ok).length,
+        });
+    });
+
+    // Ring-2 execution: the same context resolved across the base and its
+    // overlays, as a matrix — "log_level for this context: debug in dev,
+    // info in staging, warn in prod". Lenient per package: a member whose
+    // composition cannot resolve carries its error instead of a column of
+    // silence.
+    app.post("/source-trees/:tree/matrix", async (c) => {
+        const { tree, token } = await access(c);
+        const pin = stagedPin(c);
+        const basePath = packagePathOf(c);
+        const body = (await c.req.json().catch(() => null)) as {
+            context?: Record<string, unknown>;
+            variables?: string[];
+        } | null;
+        if (body === null || typeof body.context !== "object") {
+            throw new ApiError(400, "expected { context: <object> }");
+        }
+        const wanted =
+            Array.isArray(body.variables) && body.variables.length > 0
+                ? new Set(body.variables)
+                : null;
+        const treeRoot = await ctx.stager.stageTree(tree, pin, token);
+        const packages = await native.discoverPackages(treeRoot);
+        if (!packages.includes(basePath)) {
+            throw new ApiError(404, `no such package: ${basePath}`);
+        }
+        const overlays = await overlaysOf(treeRoot, packages, basePath);
+        const columns = [];
+        for (const memberPath of [basePath, ...overlays]) {
+            try {
+                const memberRoot = await ctx.stager.composedRoot(
+                    treeRoot,
+                    memberPath,
+                );
+                const outcomes = (await native.traceResolutionOutcomes(
+                    memberRoot,
+                    (body.context ?? {}) as Record<string, never>,
+                )) as {
+                    id: string;
+                    trace?: { resolution: { value: unknown } };
+                    error?: string;
+                }[];
+                columns.push({
+                    path: memberPath,
+                    outcomes: outcomes
+                        .filter(
+                            (outcome) =>
+                                wanted === null || wanted.has(outcome.id),
+                        )
+                        .map((outcome) => ({
+                            id: outcome.id,
+                            value: outcome.trace?.resolution.value ?? null,
+                            error: outcome.error ?? null,
+                        })),
+                });
+            } catch (error) {
+                columns.push({
+                    path: memberPath,
+                    failure: (error as Error).message,
+                    outcomes: [],
+                });
+            }
+        }
+        return c.json({ pin, path: basePath, columns });
+    });
+
     // The package's surfaces: console/surfaces catalog entries validated on
     // load, audience-filtered, with cold-start suggestions when there are
     // none. A surface is ordinary catalog data; this route just knows how to

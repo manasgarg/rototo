@@ -6,11 +6,17 @@ import { useEffect, useState } from "react";
 
 import {
     fetchComposition,
+    fetchContexts,
+    fetchFleet,
     fetchHistory,
     fetchUpcoming,
+    runMatrix,
     type CommitRecord,
     type CompositionEdge,
+    type FleetOverlayHealth,
     type LintDiagnostic,
+    type MatrixColumn,
+    type SampleContext,
     type UpcomingChange,
 } from "@/lib/api";
 
@@ -200,8 +206,8 @@ export function CompositionPanel({
             <div className="section-header-text">
                 <h2>Composition</h2>
                 <p className="hint">
-                    Inferred from each manifest's extends; nothing declares
-                    this tree separately.
+                    Inferred from each manifest's extends; nothing declares this
+                    tree separately.
                 </p>
             </div>
             <div className="row-list">
@@ -234,6 +240,220 @@ export function CompositionPanel({
             </div>
         </>
     );
+}
+
+// Ring 2, both remaining facets (tranche C6). Validity: every overlay of
+// this base composed and linted, aggregated — what makes evolving a base
+// under tenants safe. Execution: one context resolved across the base and
+// every overlay, as a matrix. Hidden entirely when the package has no
+// overlays.
+export function FleetPanel({
+    treeId,
+    packagePath,
+    pin,
+}: {
+    treeId: string;
+    packagePath: string;
+    pin: string;
+}) {
+    const [overlays, setOverlays] = useState<FleetOverlayHealth[] | null>(null);
+    const [samples, setSamples] = useState<SampleContext[]>([]);
+    const [picked, setPicked] = useState<number>(-1);
+    const [columns, setColumns] = useState<MatrixColumn[] | null>(null);
+
+    useEffect(() => {
+        let stale = false;
+        setOverlays(null);
+        setColumns(null);
+        setPicked(-1);
+        fetchFleet(treeId, packagePath, pin).then(
+            (response) => {
+                if (stale) {
+                    return;
+                }
+                setOverlays(response.overlays);
+                if (response.overlays.length > 0) {
+                    fetchContexts(treeId, packagePath, pin).then(
+                        (inventory) => {
+                            if (!stale) {
+                                setSamples(
+                                    inventory.samples.filter(
+                                        (sample) => sample.context !== null,
+                                    ),
+                                );
+                            }
+                        },
+                        () => undefined,
+                    );
+                }
+            },
+            () => {
+                if (!stale) {
+                    setOverlays([]);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, packagePath, pin]);
+
+    useEffect(() => {
+        const sample = samples[picked];
+        if (sample?.context == null) {
+            setColumns(null);
+            return;
+        }
+        let stale = false;
+        setColumns(null);
+        runMatrix(treeId, packagePath, pin, sample.context).then(
+            (response) => {
+                if (!stale) {
+                    setColumns(response.columns);
+                }
+            },
+            () => undefined,
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, packagePath, pin, samples, picked]);
+
+    if (overlays === null || overlays.length === 0) {
+        return null;
+    }
+    const failing = overlays.filter((overlay) => !overlay.ok).length;
+    const variableIds = [
+        ...new Set(
+            (columns ?? []).flatMap((column) =>
+                column.outcomes.map((outcome) => outcome.id),
+            ),
+        ),
+    ].sort();
+
+    return (
+        <>
+            <div className="section-header">
+                <div className="section-header-text">
+                    <h2>Fleet</h2>
+                    <p className="hint">
+                        {failing === 0
+                            ? `All ${overlays.length} overlay${overlays.length === 1 ? "" : "s"} of this base lint clean.`
+                            : `${failing} of ${overlays.length} overlay${overlays.length === 1 ? "" : "s"} fail lint against this base.`}
+                    </p>
+                </div>
+                {samples.length > 0 ? (
+                    <select
+                        className="input"
+                        value={picked}
+                        onChange={(event) =>
+                            setPicked(Number(event.target.value))
+                        }
+                    >
+                        <option value={-1}>compare a context…</option>
+                        {samples.map((sample, index) => (
+                            <option key={index} value={index}>
+                                {sample.evaluationContext}/{sample.key}
+                            </option>
+                        ))}
+                    </select>
+                ) : null}
+            </div>
+            <div className="row-list">
+                {overlays.map((overlay) => (
+                    <div className="row row-static" key={overlay.path}>
+                        <span className="row-text">
+                            <span className="row-title mono">
+                                {overlay.path}
+                            </span>
+                            {overlay.failure !== undefined ? (
+                                <span className="row-sub">
+                                    {overlay.failure}
+                                </span>
+                            ) : null}
+                        </span>
+                        <span className="row-side">
+                            {overlay.ok ? (
+                                <span className="pill pill-ok">clean</span>
+                            ) : (
+                                <span className="pill pill-err">
+                                    {overlay.errors} error
+                                    {overlay.errors === 1 ? "" : "s"}
+                                </span>
+                            )}
+                            {overlay.warnings > 0 ? (
+                                <span className="pill pill-warn">
+                                    {overlay.warnings} warning
+                                    {overlay.warnings === 1 ? "" : "s"}
+                                </span>
+                            ) : null}
+                        </span>
+                    </div>
+                ))}
+            </div>
+            {picked >= 0 ? (
+                columns === null ? (
+                    <p className="muted">Resolving across the fleet…</p>
+                ) : (
+                    <div className="table-scroll">
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th>variable</th>
+                                    {columns.map((column) => (
+                                        <th className="mono" key={column.path}>
+                                            {column.path}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {variableIds.map((id) => (
+                                    <tr key={id}>
+                                        <td className="mono">{id}</td>
+                                        {columns.map((column) => {
+                                            const outcome =
+                                                column.outcomes.find(
+                                                    (entry) => entry.id === id,
+                                                );
+                                            return (
+                                                <td
+                                                    className="mono"
+                                                    key={column.path}
+                                                    title={
+                                                        column.failure ??
+                                                        outcome?.error ??
+                                                        undefined
+                                                    }
+                                                >
+                                                    {column.failure !==
+                                                    undefined
+                                                        ? "✗"
+                                                        : outcome === undefined
+                                                          ? "—"
+                                                          : outcome.error !==
+                                                              null
+                                                            ? "!"
+                                                            : clip(
+                                                                  outcome.value,
+                                                              )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            ) : null}
+        </>
+    );
+}
+
+function clip(value: unknown): string {
+    const text = JSON.stringify(value);
+    return text.length > 40 ? `${text.slice(0, 37)}…` : text;
 }
 
 // Package history, and the compliance question: pick an instant, get the
@@ -373,7 +593,5 @@ export function HistoryPanel({
 
 // A date alone means "end of that day, UTC".
 function normalizeInstant(value: string): string {
-    return /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? `${value}T23:59:59Z`
-        : value;
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T23:59:59Z` : value;
 }

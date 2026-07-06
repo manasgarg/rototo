@@ -717,6 +717,50 @@ export function fetchHistory(
     );
 }
 
+// --- ring 2 (tranche C6): fleet health and the cross-overlay matrix ---
+
+export type FleetOverlayHealth = {
+    path: string;
+    ok: boolean;
+    errors: number;
+    warnings: number;
+    failure?: string;
+};
+
+export function fetchFleet(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+): Promise<{
+    pin: string;
+    path: string;
+    overlays: FleetOverlayHealth[];
+    failing: number;
+}> {
+    return apiGet(
+        `/api/source-trees/${treeId}/fleet?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+    );
+}
+
+export type MatrixColumn = {
+    path: string;
+    failure?: string;
+    outcomes: { id: string; value: unknown; error: string | null }[];
+};
+
+export function runMatrix(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+    context: Record<string, unknown>,
+    variables?: string[],
+): Promise<{ pin: string; path: string; columns: MatrixColumn[] }> {
+    return apiPost(
+        `/api/source-trees/${treeId}/matrix?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+        { context, ...(variables === undefined ? {} : { variables }) },
+    );
+}
+
 export function fetchComposition(
     treeId: string,
     ref?: string,

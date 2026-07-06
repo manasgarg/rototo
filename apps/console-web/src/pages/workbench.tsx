@@ -43,6 +43,7 @@ import {
 } from "@/components/context-picker";
 import {
     CompositionPanel,
+    FleetPanel,
     HistoryPanel,
     UpcomingPanel,
     ValidityPanel,
@@ -188,7 +189,11 @@ export function WorkbenchPage({
     // The chosen context resolves the whole package: one lenient batch
     // feeds every preview and the lit-up graph.
     useEffect(() => {
-        if (chosen.kind === "none" || pin === null || selectedPackage === null) {
+        if (
+            chosen.kind === "none" ||
+            pin === null ||
+            selectedPackage === null
+        ) {
             setOutcomes(null);
             return;
         }
@@ -650,6 +655,12 @@ function EntityLists({
                 treeId={treeId}
                 refName={refName}
                 onOpenPackage={onOpenPackage}
+            />
+
+            <FleetPanel
+                treeId={treeId}
+                packagePath={detail.path}
+                pin={detail.pin}
             />
 
             <FileList treeId={treeId} detail={detail} onOpenFile={onOpenFile} />
@@ -1164,28 +1175,31 @@ function FilePanel({
             return;
         }
         const interval = setInterval(() => {
-            lspNotifications(sessionId).then((response) => {
-                for (const message of response.notifications) {
-                    if (
-                        message.method ===
-                            "textDocument/publishDiagnostics" &&
-                        message.params?.uri === file
-                    ) {
-                        setLive(
-                            (message.params.diagnostics ?? []).map(
-                                (diagnostic) => ({
-                                    severity:
-                                        diagnostic.severity === 1
-                                            ? "error"
-                                            : "warning",
-                                    rule: diagnostic.code,
-                                    message: diagnostic.message,
-                                }),
-                            ),
-                        );
+            lspNotifications(sessionId).then(
+                (response) => {
+                    for (const message of response.notifications) {
+                        if (
+                            message.method ===
+                                "textDocument/publishDiagnostics" &&
+                            message.params?.uri === file
+                        ) {
+                            setLive(
+                                (message.params.diagnostics ?? []).map(
+                                    (diagnostic) => ({
+                                        severity:
+                                            diagnostic.severity === 1
+                                                ? "error"
+                                                : "warning",
+                                        rule: diagnostic.code,
+                                        message: diagnostic.message,
+                                    }),
+                                ),
+                            );
+                        }
                     }
-                }
-            }, () => {});
+                },
+                () => {},
+            );
         }, 500);
         return () => clearInterval(interval);
     }, [sessionId, file]);
@@ -1248,9 +1262,7 @@ function FilePanel({
                                 {diagnostic.severity}
                             </span>{" "}
                             {diagnostic.rule !== undefined ? (
-                                <span className="mono">
-                                    {diagnostic.rule}{" "}
-                                </span>
+                                <span className="mono">{diagnostic.rule} </span>
                             ) : null}
                             {diagnostic.message}
                         </p>
