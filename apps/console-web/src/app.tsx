@@ -1,27 +1,53 @@
-// The shared home, empty (tranche C1). One home for every persona; lenses
-// (domain, changes, history, model) arrive with the tranches that give them
-// content. What exists now: the shell, sign-in, and an honest capability
-// rendering of the source trees the server shows us.
+// The shared home plus the first two live lenses (tranche C2): Model is the
+// workbench, Changes is the change-set list. Domain and History arrive with
+// later tranches. What a user can do is decided server-side; everything
+// rendered here is explanation.
 
 import { useEffect, useState } from "react";
 
 import { RototoMark } from "@/components/rototo-mark";
 import { fetchMe, type MeResponse, type SourceTreeSummary } from "@/lib/api";
+import { navigate, useHashPath } from "@/lib/router";
+import { ChangeSetPage, ChangesPage } from "@/pages/changes";
+import { WorkbenchPage } from "@/pages/workbench";
 
-const LENSES = ["Domain", "Changes", "History", "Model"] as const;
+type Route =
+    | { page: "home" }
+    | { page: "workbench"; treeId: string }
+    | { page: "changes"; treeId: string }
+    | { page: "change-set"; id: string };
+
+function parseRoute(path: string): Route {
+    const segments = path.split("/").filter((segment) => segment !== "");
+    if (segments[0] === "trees" && segments[1] !== undefined) {
+        return segments[2] === "changes"
+            ? { page: "changes", treeId: segments[1] }
+            : { page: "workbench", treeId: segments[1] };
+    }
+    if (segments[0] === "change-sets" && segments[1] !== undefined) {
+        return { page: "change-set", id: segments[1] };
+    }
+    return { page: "home" };
+}
 
 export function App() {
     const [me, setMe] = useState<MeResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const route = parseRoute(useHashPath());
 
     useEffect(() => {
         fetchMe().then(setMe, (err: Error) => setError(err.message));
     }, []);
 
+    const treeId =
+        route.page === "workbench" || route.page === "changes"
+            ? route.treeId
+            : (me?.capabilities?.sourceTrees[0]?.id ?? null);
+
     return (
         <div className="shell">
             <aside className="sidebar">
-                <a className="brand" href="/">
+                <a className="brand" href="#/">
                     <span className="brand-mark">
                         <RototoMark />
                     </span>
@@ -29,36 +55,132 @@ export function App() {
                 </a>
                 <nav className="side-nav">
                     <div className="label nav-group-label">Lenses</div>
-                    {LENSES.map((lens) => (
-                        <span
-                            key={lens}
-                            className="nav-item"
-                            aria-disabled="true"
-                            title="Arrives with the next tranches"
-                        >
-                            <span className="nav-item-text">{lens}</span>
-                        </span>
-                    ))}
+                    <Lens
+                        label="Domain"
+                        disabled
+                        title="Arrives with the surfaces tranche"
+                    />
+                    <Lens
+                        label="Changes"
+                        active={
+                            route.page === "changes" ||
+                            route.page === "change-set"
+                        }
+                        disabled={treeId === null}
+                        onClick={() => navigate(`/trees/${treeId}/changes`)}
+                        title={
+                            treeId === null
+                                ? "Register a source tree first"
+                                : undefined
+                        }
+                    />
+                    <Lens
+                        label="History"
+                        disabled
+                        title="Arrives with the read-side tranche"
+                    />
+                    <Lens
+                        label="Model"
+                        active={route.page === "workbench"}
+                        disabled={treeId === null}
+                        onClick={() => navigate(`/trees/${treeId}`)}
+                        title={
+                            treeId === null
+                                ? "Register a source tree first"
+                                : undefined
+                        }
+                    />
                 </nav>
                 <SideUser me={me} />
             </aside>
             <div className="main">
                 <header className="topbar">
-                    <a className="topbar-brand" href="/" title="rototo console">
+                    <a
+                        className="topbar-brand"
+                        href="#/"
+                        title="rototo console"
+                    >
                         <RototoMark size={24} />
                     </a>
                     <div className="crumbs">
-                        <span className="label">Home</span>
+                        <a className="label" href="#/">
+                            Home
+                        </a>
+                        {route.page !== "home" ? (
+                            <>
+                                <span className="crumb-sep">/</span>
+                                <span className="label">
+                                    {route.page === "workbench"
+                                        ? "Model"
+                                        : route.page === "change-set"
+                                          ? "Change set"
+                                          : "Changes"}
+                                </span>
+                            </>
+                        ) : null}
                     </div>
                     <div className="topbar-actions" />
                 </header>
                 <main className="content">
                     <div className="content-inner">
-                        <Home me={me} error={error} />
+                        {error !== null ? (
+                            <div className="card">
+                                <h1>Console server unreachable</h1>
+                                <p className="hint">
+                                    {error}. Start it with{" "}
+                                    <span className="mono">
+                                        npm --prefix apps/console-server run dev
+                                    </span>
+                                    .
+                                </p>
+                            </div>
+                        ) : me === null ? (
+                            <p className="muted">Loading…</p>
+                        ) : route.page === "workbench" ? (
+                            <WorkbenchPage me={me} treeId={route.treeId} />
+                        ) : route.page === "changes" ? (
+                            <ChangesPage me={me} treeId={route.treeId} />
+                        ) : route.page === "change-set" ? (
+                            <ChangeSetPage id={route.id} />
+                        ) : (
+                            <Home me={me} />
+                        )}
                     </div>
                 </main>
             </div>
         </div>
+    );
+}
+
+function Lens({
+    label,
+    active,
+    disabled,
+    onClick,
+    title,
+}: {
+    label: string;
+    active?: boolean;
+    disabled?: boolean;
+    onClick?: () => void;
+    title?: string;
+}) {
+    if (disabled === true) {
+        return (
+            <span className="nav-item" aria-disabled="true" title={title}>
+                <span className="nav-item-text">{label}</span>
+            </span>
+        );
+    }
+    return (
+        <button
+            className="nav-item"
+            data-active={active === true ? "true" : undefined}
+            onClick={onClick}
+            title={title}
+        >
+            <span className="nav-item-text">{label}</span>
+        </button>
     );
 }
 
@@ -75,24 +197,7 @@ function SideUser({ me }: { me: MeResponse | null }) {
     );
 }
 
-function Home({ me, error }: { me: MeResponse | null; error: string | null }) {
-    if (error !== null) {
-        return (
-            <div className="card">
-                <h1>Console server unreachable</h1>
-                <p className="hint">
-                    {error}. Start it with{" "}
-                    <span className="mono">
-                        npm --prefix apps/console-server run dev
-                    </span>
-                    .
-                </p>
-            </div>
-        );
-    }
-    if (me === null) {
-        return <p className="muted">Loading…</p>;
-    }
+function Home({ me }: { me: MeResponse }) {
     if (me.principal === null) {
         return (
             <div className="card">
@@ -119,9 +224,9 @@ function Home({ me, error }: { me: MeResponse | null; error: string | null }) {
                 <h1>Nothing here yet</h1>
                 <p className="hint">
                     The shared home fills up as source trees are registered and
-                    packages are discovered. Registration and change sets land
-                    in the next tranche; this build carries the identity spine
-                    and the decision seam underneath them.
+                    packages are discovered. Register a GitHub repository
+                    through the API and it appears here with what you can do to
+                    it.
                 </p>
             </div>
         );
@@ -148,7 +253,23 @@ function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
     const verbs = ["view", "propose", "approve", "administer"] as const;
     return (
         <div className="card">
-            <span className="mono">{name}</span>
+            <div className="card-head">
+                <span className="mono">{name}</span>
+                <span className="card-actions">
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => navigate(`/trees/${tree.id}`)}
+                    >
+                        Workbench
+                    </button>
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => navigate(`/trees/${tree.id}/changes`)}
+                    >
+                        Change sets
+                    </button>
+                </span>
+            </div>
             <div>
                 {verbs.map((verb) => {
                     const decision = tree.capabilities[verb];
