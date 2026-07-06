@@ -310,6 +310,90 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
     assert_eq!(when_change["after"], r#"variables["enterprise_accounts"]"#);
 }
 
+#[tokio::test]
+async fn diff_with_contexts_reports_lenient_per_context_impacts() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let before = temp.path().join("before");
+    let after = temp.path().join("after");
+    copy_dir(Path::new("examples/basic"), &before);
+    copy_dir(Path::new("examples/basic"), &after);
+
+    let variable_path = after.join("variables/premium_message.toml");
+    let variable = fs::read_to_string(&variable_path).unwrap();
+    fs::write(
+        &variable_path,
+        variable.replace(
+            r#"value = "Welcome back, premium member.""#,
+            r#"value = "Welcome back, valued premium member.""#,
+        ),
+    )
+    .unwrap();
+
+    let sample: JsonValue = serde_json::from_str(
+        &fs::read_to_string("examples/basic/model/context/request-samples/premium_enterprise.json")
+            .unwrap(),
+    )
+    .unwrap();
+    let mut premium_with_lane = sample.clone();
+    premium_with_lane["lane"] = JsonValue::from("live");
+    let free_user = serde_json::json!({
+        "user": { "tier": "free", "region": "us", "language": "en-US" },
+        "lane": "live",
+    });
+
+    let contexts = vec![
+        rototo::model::LabeledContext {
+            label: "sample:premium_enterprise".to_owned(),
+            context: sample,
+        },
+        rototo::model::LabeledContext {
+            label: "premium_with_lane".to_owned(),
+            context: premium_with_lane,
+        },
+        rototo::model::LabeledContext {
+            label: "free_user".to_owned(),
+            context: free_user,
+        },
+    ];
+    let diff = rototo::diff_packages_with_contexts(&before, &after, &contexts)
+        .await
+        .unwrap();
+    assert!(diff.impact_error.is_none());
+    let json = serde_json::to_value(&diff).unwrap();
+    let impacts = json["context_impacts"].as_array().unwrap();
+    assert_eq!(impacts.len(), 3);
+
+    // The bare sample lacks `lane`, so lane-reading variables fail on both
+    // sides identically: not compared, not an impact. The premium change
+    // still surfaces.
+    let bare = &impacts[0];
+    assert_eq!(bare["context"], "sample:premium_enterprise");
+    let bare_impacts = bare["impacts"].as_array().unwrap();
+    assert_eq!(bare_impacts.len(), 1, "{bare_impacts:?}");
+    assert_eq!(bare_impacts[0]["variable"], "premium_message");
+    assert_eq!(
+        bare_impacts[0]["before"]["value"],
+        "Welcome back, premium member."
+    );
+    assert_eq!(
+        bare_impacts[0]["after"]["value"],
+        "Welcome back, valued premium member."
+    );
+    let full = &impacts[1];
+    let bare_compared = bare["compared"].as_u64().unwrap();
+    let full_compared = full["compared"].as_u64().unwrap();
+    assert!(
+        bare_compared < full_compared,
+        "the incomplete context must admit its smaller denominator \
+         ({bare_compared} vs {full_compared})"
+    );
+
+    // A context the changed rule never fires for reports no impact at all.
+    let free = &impacts[2];
+    assert_eq!(free["context"], "free_user");
+    assert_eq!(free["impacts"].as_array().unwrap().len(), 0);
+}
+
 fn diff_json(before: &Path, after: &Path, extra_args: &[&str]) -> JsonValue {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");

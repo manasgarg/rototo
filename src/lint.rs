@@ -79,6 +79,18 @@ pub async fn diff_packages(
     diff::diff_packages(before_root, after_root, context).await
 }
 
+/// The diff evaluated under several labeled contexts at once: one set of
+/// semantic changes plus lenient per-context resolution impacts. This is the
+/// review-panel shape; `diff_packages` with one merged context remains the
+/// CLI's.
+pub async fn diff_packages_with_contexts(
+    before_root: &Path,
+    after_root: &Path,
+    contexts: &[crate::model::LabeledContext],
+) -> Result<crate::model::PackageDiffWithContexts> {
+    diff::diff_packages_with_contexts(before_root, after_root, contexts).await
+}
+
 pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint> {
     let lint = lint_package(package_root).await?;
     let path = format!("variables/{id}.toml");

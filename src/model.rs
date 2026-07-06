@@ -206,6 +206,56 @@ pub struct ResolutionImpact {
     pub after: VariableResolution,
 }
 
+/// A context for multi-context diff impact, carrying the display label the
+/// caller knows it by (a sample key, a synthesized-case id).
+#[derive(Clone, Debug)]
+pub struct LabeledContext {
+    pub label: String,
+    pub context: serde_json::Value,
+}
+
+/// The two-package diff evaluated under several contexts at once: one set of
+/// semantic changes, plus per-context resolution impacts. Review panels use
+/// this shape so an approver sees the same edit through every context that
+/// matters, with the comparison's honest scale attached.
+#[derive(Debug, serde::Serialize)]
+pub struct PackageDiffWithContexts {
+    pub before: String,
+    pub after: String,
+    pub changes: Vec<SemanticChange>,
+    pub context_impacts: Vec<ContextImpact>,
+    /// Set when either side cannot compile; semantic changes still stand,
+    /// resolution impacts cannot be computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact_error: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ContextImpact {
+    /// The caller's label for this context.
+    pub context: String,
+    pub impacts: Vec<OutcomeImpact>,
+    /// How many variables were compared under this context (present on both
+    /// sides, whether or not they changed).
+    pub compared: usize,
+}
+
+/// One variable whose outcome differs between the two packages under one
+/// context. Each side is either a resolution or the error that stopped it;
+/// a side absent entirely means the variable does not exist there.
+#[derive(Debug, serde::Serialize)]
+pub struct OutcomeImpact {
+    pub variable: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<VariableResolution>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<VariableResolution>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_error: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct DiagnosticCatalog {
     pub scope: DiagnosticCatalogScope,

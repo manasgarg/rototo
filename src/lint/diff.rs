@@ -6,7 +6,10 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::{DiagnosticLocation, SemanticEntity, SemanticField, SemanticTarget};
 use crate::error::Result;
 use crate::expression::Expression;
-use crate::model::{PackageDiff, ResolutionImpact, SemanticChange, VariableResolution};
+use crate::model::{
+    ContextImpact, LabeledContext, OutcomeImpact, PackageDiff, PackageDiffWithContexts,
+    ResolutionImpact, SemanticChange, VariableResolution, VariableTraceOutcome,
+};
 
 use super::index::*;
 use super::{LintInput, PackageLintSnapshot, compile_runtime_package_from_snapshot};
@@ -37,6 +40,114 @@ pub(crate) async fn diff_packages(
         changes,
         resolution_impacts,
     })
+}
+
+/// The diff evaluated under several contexts at once. Both sides compile
+/// once; every context then gets a lenient per-variable comparison, so a
+/// context that cannot satisfy one variable's rules still reports honestly
+/// on every other variable instead of failing the whole panel.
+pub(crate) async fn diff_packages_with_contexts(
+    before_root: &Path,
+    after_root: &Path,
+    contexts: &[LabeledContext],
+) -> Result<PackageDiffWithContexts> {
+    let before = super::lint_package_snapshot(LintInput::new(before_root.to_path_buf())).await?;
+    let after = super::lint_package_snapshot(LintInput::new(after_root.to_path_buf())).await?;
+    let before_model = PackageSemanticModel::from_snapshot(&before);
+    let after_model = PackageSemanticModel::from_snapshot(&after);
+
+    let mut changes = Vec::new();
+    diff_variables(&before_model, &after_model, &mut changes);
+    diff_catalogs(&before_model, &after_model, &mut changes);
+    diff_layers(&before_model, &after_model, &mut changes);
+
+    let runtimes = compile_runtime_package_from_snapshot(&before)
+        .and_then(|before| Ok((before, compile_runtime_package_from_snapshot(&after)?)));
+    let (context_impacts, impact_error) = match runtimes {
+        Ok((before_runtime, after_runtime)) => (
+            contexts
+                .iter()
+                .map(|labeled| context_impact(&before_runtime, &after_runtime, labeled))
+                .collect(),
+            None,
+        ),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+
+    Ok(PackageDiffWithContexts {
+        before: before_root.display().to_string(),
+        after: after_root.display().to_string(),
+        changes,
+        context_impacts,
+        impact_error,
+    })
+}
+
+fn context_impact(
+    before_runtime: &super::RuntimePackage,
+    after_runtime: &super::RuntimePackage,
+    labeled: &LabeledContext,
+) -> ContextImpact {
+    let before_outcomes = outcome_map(
+        crate::resolve::trace_variable_resolution_outcomes_unchecked(
+            before_runtime,
+            &labeled.context,
+        ),
+    );
+    let after_outcomes = outcome_map(
+        crate::resolve::trace_variable_resolution_outcomes_unchecked(
+            after_runtime,
+            &labeled.context,
+        ),
+    );
+
+    let mut impacts = Vec::new();
+    let mut compared = 0;
+    for variable in sorted_keys(before_outcomes.keys(), after_outcomes.keys()) {
+        let before = before_outcomes.get(&variable);
+        let after = after_outcomes.get(&variable);
+        if let (Some(before), Some(after)) = (before, after) {
+            // A variable this context resolves on both sides was genuinely
+            // compared. One that fails identically on both sides was not:
+            // the context cannot answer for it, and saying otherwise would
+            // inflate the review's denominator.
+            if before.trace.is_some() && after.trace.is_some() {
+                compared += 1;
+            }
+            if outcome_eq(before, after) {
+                continue;
+            }
+        }
+        impacts.push(OutcomeImpact {
+            variable,
+            before: before
+                .and_then(|outcome| outcome.trace.as_ref().map(|trace| trace.resolution.clone())),
+            before_error: before.and_then(|outcome| outcome.error.clone()),
+            after: after
+                .and_then(|outcome| outcome.trace.as_ref().map(|trace| trace.resolution.clone())),
+            after_error: after.and_then(|outcome| outcome.error.clone()),
+        });
+    }
+    ContextImpact {
+        context: labeled.label.clone(),
+        impacts,
+        compared,
+    }
+}
+
+fn outcome_map(outcomes: Vec<VariableTraceOutcome>) -> BTreeMap<String, VariableTraceOutcome> {
+    outcomes
+        .into_iter()
+        .map(|outcome| (outcome.id.clone(), outcome))
+        .collect()
+}
+
+fn outcome_eq(left: &VariableTraceOutcome, right: &VariableTraceOutcome) -> bool {
+    match (&left.trace, &right.trace) {
+        (Some(left), Some(right)) => variable_resolution_eq(&left.resolution, &right.resolution),
+        (None, None) => left.error == right.error,
+        _ => false,
+    }
 }
 
 #[derive(Default)]

@@ -26,8 +26,8 @@ pub use diagnostics_catalog::{
 pub use error::{Result, RototoError};
 pub use inspect::inspect_package_report;
 pub use lint::{
-    UpcomingChange, UpcomingChangeSite, diff_packages, lint_catalog, lint_package, lint_variable,
-    upcoming_changes,
+    UpcomingChange, UpcomingChangeSite, diff_packages, diff_packages_with_contexts, lint_catalog,
+    lint_package, lint_variable, upcoming_changes,
 };
 pub use pack::{PackagedArchive, pack_package, project_package};
 pub use package::{
