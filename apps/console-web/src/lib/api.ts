@@ -375,6 +375,9 @@ export type SurfaceList = {
     surfaces: Surface[];
     diagnostics: SurfaceDiagnostic[];
     suggestions: SurfaceSuggestion[];
+    // The vendorable lint script; content rides along until the package
+    // carries it.
+    lintScript: { path: string; vendored: boolean; content?: string };
 };
 
 export type SurfaceDetail = {

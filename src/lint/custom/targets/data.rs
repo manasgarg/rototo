@@ -28,6 +28,9 @@ pub(crate) fn registered_lint_package(ctx: &LintContext) -> JsonValue {
         "catalogs": ctx.index.catalogs.iter()
             .map(|(id, catalog)| (id.clone(), catalog_data(ctx, catalog)))
             .collect::<BTreeMap<_, _>>(),
+        "layers": ctx.index.layers.iter()
+            .map(|(id, layer)| (id.clone(), layer_data(layer)))
+            .collect::<BTreeMap<_, _>>(),
         "evaluation_contexts": ctx.index.evaluation_contexts.iter()
             .map(|(id, evaluation_context)| (id.clone(), evaluation_context_data(ctx, evaluation_context)))
             .collect::<BTreeMap<_, _>>(),
@@ -262,6 +265,42 @@ fn catalog_data(ctx: &LintContext, catalog: &CatalogNode) -> JsonValue {
                 .collect::<BTreeMap<_, _>>())
             .unwrap_or_default(),
     })
+}
+
+fn layer_data(layer: &LayerNode) -> JsonValue {
+    serde_json::json!({
+        "kind": "layer",
+        "id": layer.id,
+        "path": layer.location.path.clone(),
+        "unit": project_expression_field(&layer.unit),
+        "buckets": project_json_number(&layer.buckets),
+        "allocations": layer.allocations.iter().map(|allocation| serde_json::json!({
+            "kind": "allocation",
+            "index": allocation.index,
+            "id": project_string(&allocation.id),
+            "status": optional_project_string(&allocation.status),
+            "arms": allocation.arms.iter().map(|arm| serde_json::json!({
+                "kind": "arm",
+                "index": arm.index,
+                "name": project_string(&arm.name),
+                "buckets": project_string(&arm.buckets),
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn project_expression_field(field: &ProjectField<crate::expression::Expression>) -> JsonValue {
+    match field {
+        ProjectField::Present(value) => JsonValue::String(value.value.source().to_owned()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => JsonValue::Null,
+    }
+}
+
+fn project_json_number(field: &ProjectField<i64>) -> JsonValue {
+    match field {
+        ProjectField::Present(value) => serde_json::json!(value.value),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => JsonValue::Null,
+    }
 }
 
 fn catalog_entry_data(entry: &CatalogEntryNode) -> JsonValue {

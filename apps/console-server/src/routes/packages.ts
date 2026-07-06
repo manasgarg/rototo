@@ -21,6 +21,9 @@ import {
     audienceAllows,
     bindingPaths,
     boundVariables,
+    CONSOLE_LINT_PATH,
+    CONSOLE_LINT_SCRIPT,
+    lintScriptVendored,
     readSurfaces,
     schemaFreshness,
     suggestSurfaces,
@@ -335,12 +338,21 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
             audienceAllows(surface, "internal"),
         );
         const freshness = schemaFreshness(model);
+        // The vendorable lint script: packages carrying it get the same
+        // surface failures in CI. The content rides along only while it is
+        // missing, so accepting the offer is one raw-file edit.
+        const vendored = lintScriptVendored(model);
         return c.json({
             pin,
             path: packagePath,
             surfaces,
             diagnostics: freshness === null ? [] : [freshness],
             suggestions: surfaces.length === 0 ? suggestSurfaces(model) : [],
+            lintScript: {
+                path: CONSOLE_LINT_PATH,
+                vendored,
+                ...(vendored ? {} : { content: CONSOLE_LINT_SCRIPT }),
+            },
         });
     });
 
@@ -405,9 +417,7 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
         }[] = [];
         const open = ctx.store
             .listChangeSets(tree.id)
-            .filter(
-                (row) => row.state === "draft" || row.state === "proposed",
-            );
+            .filter((row) => row.state === "draft" || row.state === "proposed");
         for (const row of open) {
             try {
                 const comparison = await ctx.git.compare(

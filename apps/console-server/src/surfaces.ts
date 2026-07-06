@@ -6,9 +6,21 @@
 // cold-start suggestions. Enforcement lives below all of it: a surface
 // bounds affordances, never authority.
 
+import { readFileSync } from "node:fs";
+
 import type { JsonObject, JsonValue } from "./native.ts";
 
 export const SURFACES_CATALOG = "console/surfaces";
+
+// The vendorable lint script (design/console-surfaces.md "Validation"):
+// packages that carry it get dangling-binding failures in CI, not just in
+// the console. This file is the source of truth; vendoring copies it into
+// the package through an ordinary change set.
+export const CONSOLE_LINT_PATH = "lint/console/surfaces.lua";
+export const CONSOLE_LINT_SCRIPT: string = readFileSync(
+    new URL("../assets/console-surfaces.lua", import.meta.url),
+    "utf8",
+);
 
 // The schema the console vendors into packages (as
 // model/catalogs/console/surfaces.schema.json) through a surface-creating
@@ -92,6 +104,9 @@ export type ModelView = {
     enums?: {
         id: string;
         members: { value?: JsonValue }[];
+    }[];
+    linters?: {
+        path: string;
     }[];
     layers?: {
         id: string;
@@ -237,11 +252,7 @@ export function readSurfaces(model: ModelView): Surface[] {
     return entries.map((entry) => parseSurface(entry.key, entry.value, model));
 }
 
-function parseSurface(
-    id: string,
-    value: JsonValue,
-    model: ModelView,
-): Surface {
+function parseSurface(id: string, value: JsonValue, model: ModelView): Surface {
     const diagnostics: SurfaceDiagnostic[] = [];
     const raw = (
         typeof value === "object" && value !== null && !Array.isArray(value)
@@ -451,9 +462,7 @@ export function schemaFreshness(model: ModelView): SurfaceDiagnostic | null {
     if (vendored === undefined || vendored.json === undefined) {
         return null;
     }
-    if (
-        canonical(vendored.json) === canonical(SURFACES_SCHEMA as JsonValue)
-    ) {
+    if (canonical(vendored.json) === canonical(SURFACES_SCHEMA as JsonValue)) {
         return null;
     }
     return {
@@ -485,10 +494,20 @@ export function audienceAllows(surface: Surface, audience: string): boolean {
     return surface.audience.includes(audience);
 }
 
+// Whether the package already carries the vendorable lint script.
+export function lintScriptVendored(model: ModelView): boolean {
+    return (model.linters ?? []).some(
+        (linter) => linter.path === CONSOLE_LINT_PATH,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The floor: every binding renders with a control inferred from its type
 
-export function surfaceItems(surface: Surface, model: ModelView): SurfaceItem[] {
+export function surfaceItems(
+    surface: Surface,
+    model: ModelView,
+): SurfaceItem[] {
     const items: SurfaceItem[] = [];
     for (const binding of surface.bindings) {
         const parsed = parseTarget(binding.target);
@@ -527,9 +546,7 @@ export function surfaceItems(surface: Surface, model: ModelView): SurfaceItem[] 
             continue;
         }
         if (parsed.kind === "layer") {
-            const layer = (model.layers ?? []).find(
-                (l) => l.id === parsed.id,
-            );
+            const layer = (model.layers ?? []).find((l) => l.id === parsed.id);
             if (layer === undefined) {
                 items.push({ kind: "missing", target: binding.target });
                 continue;
@@ -561,9 +578,7 @@ export function surfaceItems(surface: Surface, model: ModelView): SurfaceItem[] 
         }
         const catalogId =
             parsed.kind === "catalog" ? parsed.id : parsed.catalog;
-        const catalog = (model.catalogs ?? []).find(
-            (c) => c.id === catalogId,
-        );
+        const catalog = (model.catalogs ?? []).find((c) => c.id === catalogId);
         if (catalog === undefined) {
             items.push({ kind: "missing", target: binding.target });
             continue;
@@ -814,9 +829,7 @@ export function bindingPaths(surface: Surface, model: ModelView): string[] {
             continue;
         }
         if (parsed.kind === "layer") {
-            const layer = (model.layers ?? []).find(
-                (l) => l.id === parsed.id,
-            );
+            const layer = (model.layers ?? []).find((l) => l.id === parsed.id);
             if (layer !== undefined) {
                 paths.add(layer.location.path);
             }
@@ -831,9 +844,7 @@ export function bindingPaths(surface: Surface, model: ModelView): string[] {
             }
             continue;
         }
-        const catalog = (model.catalogs ?? []).find(
-            (c) => c.id === parsed.id,
-        );
+        const catalog = (model.catalogs ?? []).find((c) => c.id === parsed.id);
         if (catalog !== undefined) {
             paths.add(catalog.path);
             paths.add(`data/catalogs/${parsed.id}`);
@@ -872,8 +883,7 @@ export function surfaceCoverage(
         const touches = files.filter((file) =>
             paths.some(
                 (bindingPath) =>
-                    file === bindingPath ||
-                    file.startsWith(`${bindingPath}/`),
+                    file === bindingPath || file.startsWith(`${bindingPath}/`),
             ),
         );
         if (touches.length === 0) {

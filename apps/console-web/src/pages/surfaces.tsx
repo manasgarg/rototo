@@ -184,6 +184,33 @@ export function SurfacesPage({
         );
     };
 
+    // Vendoring the lint script is one raw-file change set: the same
+    // dangling-binding failures the console shows land in the package's CI.
+    const acceptLintScript = () => {
+        if (
+            selectedPackage === null ||
+            listing === null ||
+            surfaces === null ||
+            surfaces.lintScript.content === undefined
+        ) {
+            return;
+        }
+        const { path, content } = surfaces.lintScript;
+        createChangeSet(treeId, "Vendor the console surfaces lint").then(
+            (changeSet) => {
+                setChangeSets((current) => [changeSet, ...current]);
+                setActiveId(changeSet.id);
+                saveEdit(changeSet.id, {
+                    packagePath: selectedPackage,
+                    expectedPin: changeSet.baseShaAtCreation ?? listing.pin,
+                    files: [{ path, content }],
+                    summary: "Vendor the console surfaces lint",
+                }).then(afterSave, saveFailed);
+            },
+            saveFailed,
+        );
+    };
+
     if (tree === undefined) {
         return (
             <div className="card">
@@ -282,6 +309,7 @@ export function SurfacesPage({
                     surfaces={surfaces}
                     onOpen={setOpenSurface}
                     onAccept={acceptSuggestion}
+                    onVendorLint={acceptLintScript}
                     canPropose={tree.capabilities.propose.allow}
                 />
             )}
@@ -293,11 +321,13 @@ function SurfaceCatalog({
     surfaces,
     onOpen,
     onAccept,
+    onVendorLint,
     canPropose,
 }: {
     surfaces: SurfaceList;
     onOpen: (id: string) => void;
     onAccept: (suggestion: SurfaceSuggestion) => void;
+    onVendorLint: () => void;
     canPropose: boolean;
 }) {
     if (surfaces.surfaces.length === 0) {
@@ -353,6 +383,25 @@ function SurfaceCatalog({
                     {diagnostic.message}
                 </div>
             ))}
+            {!surfaces.lintScript.vendored && canPropose ? (
+                <div className="card">
+                    <h3>Surface checks in CI</h3>
+                    <p className="hint">
+                        This package's surfaces are validated only when the
+                        console looks at them. Vendor{" "}
+                        <span className="mono">{surfaces.lintScript.path}</span>{" "}
+                        and dangling bindings fail CI too.
+                    </p>
+                    <div className="action-row">
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={onVendorLint}
+                        >
+                            Draft change set
+                        </button>
+                    </div>
+                </div>
+            ) : null}
             <div className="row-list">
                 {surfaces.surfaces.map((surface) => {
                     const errors = surface.diagnostics.filter(

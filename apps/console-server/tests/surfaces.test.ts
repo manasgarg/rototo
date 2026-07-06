@@ -116,10 +116,11 @@ test("one surface renders at floor fidelity with its read side", async () => {
     const [variable, flag, catalog, cta, layer] = body.items;
     assert.equal(variable.kind, "variable");
     assert.equal(variable.control.control, "select");
-    assert.deepEqual(
-        [...variable.control.options].sort(),
-        ["enterprise", "growth", "starter"],
-    );
+    assert.deepEqual([...variable.control.options].sort(), [
+        "enterprise",
+        "growth",
+        "starter",
+    ]);
     assert.equal(flag.kind, "variable");
     assert.equal(flag.id, "premium_users");
     assert.equal(flag.control.control, "toggle");
@@ -162,9 +163,7 @@ test("one surface renders at floor fidelity with its read side", async () => {
     // The read side: bound-file history reaches back to the seed commit;
     // nothing is pending yet.
     assert.ok(body.history.length >= 1);
-    assert.ok(
-        body.history.some((commit: any) => /seed/.test(commit.message)),
-    );
+    assert.ok(body.history.some((commit: any) => /seed/.test(commit.message)));
     assert.deepEqual(body.pending, []);
     assert.deepEqual(body.upcoming, []);
 });
@@ -217,7 +216,9 @@ test("a change set touching bound entities shows up as pending on the surface", 
 
     // Structure delta: the entry field change, addressed semantically.
     assert.ok(
-        pkg.changes.some((change: any) => change.kind === "catalog_entry_changed"),
+        pkg.changes.some(
+            (change: any) => change.kind === "catalog_entry_changed",
+        ),
         JSON.stringify(pkg.changes.map((c: any) => c.kind)),
     );
 
@@ -268,6 +269,87 @@ test("a change set touching bound entities shows up as pending on the surface", 
     assert.equal(touched.approval, "role:plan_admins");
 
     // Clean up: abandon so later tests see no pending change sets.
+    await harness.post(
+        `/api/change-sets/${created.id}/abandon`,
+        {},
+        dev.headers,
+    );
+});
+
+test("the vendored lint script fails CI on the dangling binding, console or no console", async () => {
+    // The surface listing offers the script while the package lacks it.
+    const listing = await json(
+        await harness.get(
+            `/api/source-trees/${harness.tree.id}/surfaces?${packageQuery(surfacePin)}`,
+            dev.headers,
+        ),
+    );
+    assert.equal(listing.lintScript.vendored, false);
+    assert.equal(listing.lintScript.path, "lint/console/surfaces.lua");
+    assert.ok(listing.lintScript.content.includes("register(lint)"));
+
+    // Vendoring is one raw-file edit; the post-edit lint is exactly what
+    // the package's CI would run, and the seeded "broken" surface fails it.
+    const created = await json(
+        await harness.post(
+            `/api/source-trees/${harness.tree.id}/change-sets`,
+            { title: "Vendor the console surfaces lint" },
+            dev.headers,
+        ),
+    );
+    const edited = await json(
+        await harness.post(
+            `/api/change-sets/${created.id}/edits`,
+            {
+                packagePath: harness.packagePath,
+                expectedPin: created.baseShaAtCreation,
+                files: [
+                    {
+                        path: listing.lintScript.path,
+                        content: listing.lintScript.content,
+                    },
+                ],
+                summary: "Vendor the console surfaces lint",
+            },
+            dev.headers,
+        ),
+    );
+    const dangling = edited.lint.diagnostics.filter(
+        (diagnostic: any) =>
+            diagnostic.rule === "console/surface-dangling-binding",
+    );
+    assert.equal(dangling.length, 1, JSON.stringify(edited.lint.diagnostics));
+    assert.equal(dangling[0].severity, "error");
+    assert.match(dangling[0].message, /does_not_exist/);
+    // The healthy surface (variables, a catalog, a layer) passes the same
+    // rules, and no handler crashed along the way.
+    assert.ok(
+        !edited.lint.diagnostics.some(
+            (diagnostic: any) =>
+                String(diagnostic.rule).startsWith("console/") &&
+                /tenant_limits/.test(diagnostic.message ?? ""),
+        ),
+    );
+    assert.ok(
+        !edited.lint.diagnostics.some(
+            (diagnostic: any) =>
+                diagnostic.rule === "rototo/custom-lint-failed",
+        ),
+        JSON.stringify(edited.lint.diagnostics),
+    );
+
+    // The listing on the edited pin knows the script is vendored now.
+    const after = await json(
+        await harness.get(
+            `/api/source-trees/${harness.tree.id}/surfaces?path=${encodeURIComponent(
+                harness.packagePath,
+            )}&pin=${edited.pin}`,
+            dev.headers,
+        ),
+    );
+    assert.equal(after.lintScript.vendored, true);
+    assert.equal(after.lintScript.content, undefined);
+
     await harness.post(
         `/api/change-sets/${created.id}/abandon`,
         {},
