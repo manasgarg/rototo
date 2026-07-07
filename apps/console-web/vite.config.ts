@@ -17,6 +17,9 @@ export default defineConfig({
         host: "127.0.0.1",
         port: 5174,
         strictPort: true,
+        // Caddy terminates TLS for dev.rototo.dev and reverse-proxies here with
+        // that Host header; Vite's host check would otherwise 403 it.
+        allowedHosts: ["dev.rototo.dev"],
         proxy: {
             "/api": {
                 target:
