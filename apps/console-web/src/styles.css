@@ -1036,6 +1036,46 @@ a.stat-card:hover {
     line-height: 1;
 }
 
+/* the per-tree access line: server decisions rendered as facts, not actions */
+.access-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 12.5px;
+}
+
+.access-label {
+    color: var(--ink-3);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.access-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    cursor: default;
+}
+
+.access-mark {
+    font-size: 11px;
+}
+
+.access-yes {
+    color: var(--ink-1);
+}
+
+.access-yes .access-mark {
+    color: var(--ok-500);
+}
+
+.access-no {
+    color: var(--ink-3);
+}
+
 /* key/value strips */
 .kv {
     display: flex;

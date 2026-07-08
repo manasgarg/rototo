@@ -604,8 +604,8 @@ function Home({ me }: { me: MeResponse }) {
             <div className="section-header-text">
                 <h1>Source trees</h1>
                 <p className="hint">
-                    What you can do here is decided server-side; these pills
-                    only explain it.
+                    Each tree lists your access. The server decides it per
+                    person; the marks only explain those decisions.
                 </p>
             </div>
             {trees.map((tree) => (
@@ -652,31 +652,35 @@ function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
                     >
                         Change sets
                     </button>
+                    {repoUrl !== null ? (
+                        <a
+                            className="btn btn-ghost btn-sm"
+                            href={repoUrl}
+                            rel="noreferrer"
+                            target="_blank"
+                        >
+                            GitHub ↗
+                        </a>
+                    ) : null}
                 </span>
             </div>
-            <div className="action-row">
+            <div className="access-row">
+                <span className="access-label">access</span>
                 {verbs.map((verb) => {
                     const decision = tree.capabilities[verb];
                     return (
                         <span
                             key={verb}
-                            className={`pill ${decision.allow ? "pill-ok" : "pill-neutral"}`}
-                            title={decision.reason}
+                            className={`access-item ${decision.allow ? "access-yes" : "access-no"}`}
+                            title={`${decision.allow ? "Allowed" : "Not allowed"}: ${decision.reason}`}
                         >
+                            <span aria-hidden="true" className="access-mark">
+                                {decision.allow ? "✓" : "✕"}
+                            </span>
                             {verb}
                         </span>
                     );
                 })}
-                {repoUrl !== null ? (
-                    <a
-                        className="pill-link"
-                        href={repoUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                    >
-                        <span className="pill pill-neutral">GitHub ↗</span>
-                    </a>
-                ) : null}
             </div>
         </div>
     );
