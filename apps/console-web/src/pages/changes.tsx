@@ -10,14 +10,17 @@ import { useCallback, useEffect, useState } from "react";
 import {
     abandonChangeSet,
     approveChangeSet,
+    changeSetCollaborator,
     fetchReview,
     listChangeSets,
     mergeChangeSet,
     readChangeSet,
     readPackage,
     reconcileChangeSet,
+    retitleChangeSet,
     saveEdit,
     submitChangeSet,
+    withdrawApproval,
     type ApprovalPolicyStatus,
     type ApprovalRecord,
     type ChangeSet,
@@ -127,6 +130,8 @@ export function ChangeSetPage({
     const [detail, setDetail] = useState<ChangeSetDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [titleDraft, setTitleDraft] = useState<string | null>(null);
+    const [collaboratorDraft, setCollaboratorDraft] = useState("");
 
     const refresh = useCallback(() => {
         readChangeSet(id).then(setDetail, (failure: Error) =>
@@ -149,6 +154,7 @@ export function ChangeSetPage({
         return <p className="muted">Loading…</p>;
     }
     const changeSet = detail.changeSet;
+    const open = changeSet.state === "draft" || changeSet.state === "proposed";
     const act = (action: Promise<unknown>) => {
         setBusy(true);
         action
@@ -166,7 +172,37 @@ export function ChangeSetPage({
         <div className="section">
             <div className="section-header">
                 <div className="section-header-text">
-                    <h1>{changeSet.title}</h1>
+                    {titleDraft !== null ? (
+                        <span className="inline-form">
+                            <input
+                                autoFocus
+                                className="input"
+                                value={titleDraft}
+                                onChange={(event) =>
+                                    setTitleDraft(event.target.value)
+                                }
+                            />
+                            <button
+                                className="btn btn-primary btn-sm"
+                                disabled={busy || titleDraft.trim() === ""}
+                                onClick={() => {
+                                    const title = titleDraft.trim();
+                                    setTitleDraft(null);
+                                    act(retitleChangeSet(changeSet.id, title));
+                                }}
+                            >
+                                Save
+                            </button>
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => setTitleDraft(null)}
+                            >
+                                Cancel
+                            </button>
+                        </span>
+                    ) : (
+                        <h1>{changeSet.title}</h1>
+                    )}
                     <p className="hint mono">
                         {changeSet.branch}
                         {changeSet.headSha !== null
@@ -225,8 +261,16 @@ export function ChangeSetPage({
                             Submit (open PR)
                         </button>
                     ) : null}
-                    {changeSet.state === "draft" ||
-                    changeSet.state === "proposed" ? (
+                    {open ? (
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={busy || titleDraft !== null}
+                            onClick={() => setTitleDraft(changeSet.title)}
+                        >
+                            Rename
+                        </button>
+                    ) : null}
+                    {open ? (
                         <button
                             className="btn btn-danger btn-sm"
                             disabled={busy}
@@ -253,7 +297,83 @@ export function ChangeSetPage({
                 </div>
             </div>
 
-            {changeSet.state === "draft" || changeSet.state === "proposed" ? (
+            {open ? (
+                <div className="card">
+                    <h2>Collaborators</h2>
+                    <p className="hint">
+                        Collaborators edit, retitle, and share alongside the
+                        author; removing one keeps the edits they already made.
+                    </p>
+                    {detail.collaborators.length === 0 ? (
+                        <p className="hint">No collaborators yet.</p>
+                    ) : (
+                        <div className="row-list">
+                            {detail.collaborators.map((collaborator) => (
+                                <div
+                                    className="row row-static"
+                                    key={collaborator.principalId}
+                                >
+                                    <span className="row-text">
+                                        <span className="row-title mono">
+                                            {collaborator.principalId}
+                                        </span>
+                                        <span className="row-sub">
+                                            added by {collaborator.addedBy}
+                                        </span>
+                                    </span>
+                                    <span className="row-side">
+                                        <button
+                                            className="btn btn-icon btn-sm btn-remove"
+                                            disabled={busy}
+                                            title="Remove collaborator"
+                                            onClick={() =>
+                                                act(
+                                                    changeSetCollaborator(
+                                                        changeSet.id,
+                                                        collaborator.principalId,
+                                                        true,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div className="action-row">
+                        <input
+                            className="input mono"
+                            placeholder="principal id"
+                            value={collaboratorDraft}
+                            onChange={(event) =>
+                                setCollaboratorDraft(event.target.value)
+                            }
+                        />
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            disabled={busy || collaboratorDraft.trim() === ""}
+                            onClick={() => {
+                                const principal = collaboratorDraft.trim();
+                                setCollaboratorDraft("");
+                                act(
+                                    changeSetCollaborator(
+                                        changeSet.id,
+                                        principal,
+                                        false,
+                                    ),
+                                );
+                            }}
+                        >
+                            Add collaborator
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {open ? (
                 <ReviewPanel
                     changeSet={changeSet}
                     me={me}
@@ -347,8 +467,12 @@ function ReviewPanel({
             )
             .finally(() => setActing(false));
     };
-    const isContributor =
-        me?.principal != null && contributors.includes(me.principal.id);
+    const myId =
+        me?.principal?.id ?? (me?.authMode === "local" ? "local" : null);
+    const isContributor = myId !== null && contributors.includes(myId);
+    const hasApproved =
+        myId !== null &&
+        approvals.some((approval) => approval.principalId === myId);
 
     return (
         <>
@@ -389,6 +513,17 @@ function ReviewPanel({
                                 You contributed to this change, so you cannot
                                 approve it.
                             </span>
+                        ) : hasApproved ? (
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                disabled={acting}
+                                title="Changed your mind? Approvals withdraw while the change set is still proposed."
+                                onClick={() =>
+                                    act(withdrawApproval(changeSet.id))
+                                }
+                            >
+                                Withdraw approval
+                            </button>
                         ) : (
                             <button
                                 className="btn btn-primary btn-sm"

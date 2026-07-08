@@ -334,8 +334,8 @@ export class ChangeSets {
         );
     }
 
-    // Sharing adds collaborators; collaborators edit (the author alone
-    // shares, submits, and abandons).
+    // Sharing adds collaborators; collaborators edit, retitle, and share
+    // further (the author alone submits and abandons).
     share(input: {
         changeSet: ChangeSetRow;
         principalId: string;

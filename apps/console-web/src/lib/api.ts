@@ -837,6 +837,32 @@ export function mergeChangeSet(
     return apiPost(`/api/change-sets/${id}/merge`, {});
 }
 
+export function retitleChangeSet(
+    id: string,
+    title: string,
+): Promise<{ changeSet: ChangeSet }> {
+    return apiPost(`/api/change-sets/${id}/title`, { title });
+}
+
+export function changeSetCollaborator(
+    id: string,
+    principalId: string,
+    remove: boolean,
+): Promise<{
+    collaborators: { principalId: string; addedBy: string; addedAt: string }[];
+}> {
+    return apiPost(`/api/change-sets/${id}/collaborators`, {
+        principalId,
+        ...(remove ? { remove: true } : {}),
+    });
+}
+
+export function withdrawApproval(
+    id: string,
+): Promise<{ approvals: ApprovalRecord[] }> {
+    return apiPost(`/api/change-sets/${id}/approvals/withdraw`, {});
+}
+
 // --- the admin surface ---
 
 export function adminPrincipals(): Promise<{ principals: AdminPrincipal[] }> {

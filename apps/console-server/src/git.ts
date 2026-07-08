@@ -114,6 +114,13 @@ export interface GitOps {
         branch: string,
     ): Promise<PullRecord | null>;
     closePull(token: string, repo: RepoId, number: number): Promise<void>;
+    // Keeps the PR title honest when the change set is retitled.
+    retitlePull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        title: string,
+    ): Promise<void>;
     // Console-initiated merge: GitHub's merge API, squash by default, the
     // branch deleted after. The caller has already enforced approval policy
     // when the acting token is the App's.
@@ -353,6 +360,21 @@ export class GitHubGit implements GitOps {
             { state: "closed" },
         );
         await ensureOk(response, "close pull request");
+    }
+
+    async retitlePull(
+        token: string,
+        repo: RepoId,
+        number: number,
+        title: string,
+    ): Promise<void> {
+        const response = await this.request(
+            token,
+            "PATCH",
+            `/repos/${repo.owner}/${repo.name}/pulls/${number}`,
+            { title },
+        );
+        await ensureOk(response, "retitle pull request");
     }
 
     async mergePull(

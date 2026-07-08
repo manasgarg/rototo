@@ -329,6 +329,18 @@ export class FakeGit implements GitOps {
         pull.state = "closed";
     }
 
+    async retitlePull(
+        _token: string,
+        _repo: RepoId,
+        number: number,
+        title: string,
+    ): Promise<void> {
+        const pull = this.pulls.find((entry) => entry.number === number);
+        if (pull !== undefined) {
+            pull.title = title;
+        }
+    }
+
     async mergePull(
         _token: string,
         _repo: RepoId,

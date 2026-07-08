@@ -346,6 +346,27 @@ test("the full Priya walkthrough, end to end and timed", async (t) => {
     assert.equal(selfApprove.status, 403);
     assert.match((await json(selfApprove)).error.message, /second person/);
 
+    // --- A recorded approval withdraws while the change set is still
+    // proposed: the admin approves (not a pricing admin, so the policy
+    // stays unsatisfied and nothing merges), thinks better of it, and
+    // takes it back.
+    const recorded = await json(
+        await harness.post(
+            `/api/change-sets/${changeSet.id}/approve`,
+            {},
+            admin.headers,
+        ),
+    );
+    assert.equal(recorded.recorded, true);
+    assert.equal(recorded.merged, false);
+    const withdrawn = await harness.post(
+        `/api/change-sets/${changeSet.id}/approvals/withdraw`,
+        {},
+        admin.headers,
+    );
+    assert.equal(withdrawn.status, 200, await withdrawn.clone().text());
+    assert.deepEqual((await json(withdrawn)).approvals, []);
+
     // --- The approver approves; policy is satisfied; the merge lands.
     const approved = await timed("approve + merge", async () => {
         const response = await harness.post(

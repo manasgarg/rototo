@@ -301,6 +301,51 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         return c.json({ changeSet: payload(fresh), pull });
     });
 
+    // The title is intent: the author or a collaborator edits it while the
+    // change set is open, and the PR title follows immediately.
+    app.post("/change-sets/:id/title", async (c) => {
+        const subject = subjectOf(c);
+        const changeSet = changeSetOf(c);
+        const tree = treeOf(changeSet.sourceTreeId);
+        await decide(subject, "propose", tree);
+        const actor = ctx.subjectId(subject);
+        requireOpen(changeSet, "retitle");
+        if (!ctx.changeSets.canEdit(changeSet, actor)) {
+            throw new ApiError(
+                403,
+                "only the author or a collaborator edits a change set",
+            );
+        }
+        const input = await body(c);
+        if (typeof input.title !== "string" || input.title.trim() === "") {
+            throw new ApiError(400, "title is required");
+        }
+        const title = input.title.trim();
+        ctx.store.setChangeSetTitle(changeSet.id, title);
+        ctx.store.appendChangeSetEvent(
+            changeSet.id,
+            actor,
+            "retitled",
+            JSON.stringify({ title }),
+        );
+        if (changeSet.prNumber !== null) {
+            const credential = await credentialOf(subject, tree);
+            await ctx.git
+                .retitlePull(
+                    credential.token,
+                    repoId(tree),
+                    changeSet.prNumber,
+                    title,
+                )
+                .catch(() => {});
+        }
+        return c.json({
+            changeSet: payload(
+                ctx.store.getChangeSet(changeSet.id) as ChangeSetRow,
+            ),
+        });
+    });
+
     app.post("/change-sets/:id/abandon", async (c) => {
         const subject = subjectOf(c);
         const changeSet = changeSetOf(c);
@@ -321,30 +366,102 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         });
     });
 
+    // Sharing bookkeeping: the author or an existing collaborator adds or
+    // removes collaborators while the change set is open. Removing one
+    // does not touch edits they already made; those are history.
     app.post("/change-sets/:id/collaborators", async (c) => {
         const subject = subjectOf(c);
         const changeSet = changeSetOf(c);
         const tree = treeOf(changeSet.sourceTreeId);
         await decide(subject, "view", tree);
         const actor = ctx.subjectId(subject);
-        requireAuthor(changeSet, actor, "share");
+        requireOpen(changeSet, "share");
+        if (!ctx.changeSets.canEdit(changeSet, actor)) {
+            throw new ApiError(
+                403,
+                "only the author or a collaborator shares a change set",
+            );
+        }
         const input = await body(c);
         if (typeof input.principalId !== "string") {
             throw new ApiError(400, "principalId is required");
         }
-        if (
-            ctx.config.authMode === "team" &&
-            ctx.store.getPrincipal(input.principalId) === null
-        ) {
-            throw new ApiError(404, "no such principal");
+        if (input.remove === true) {
+            if (input.principalId === changeSet.authorPrincipal) {
+                throw new ApiError(
+                    400,
+                    "the author is not a collaborator; abandon the change set instead",
+                );
+            }
+            ctx.store.removeChangeSetCollaborator(
+                changeSet.id,
+                input.principalId,
+            );
+            ctx.store.appendChangeSetEvent(
+                changeSet.id,
+                actor,
+                "unshared",
+                JSON.stringify({ with: input.principalId }),
+            );
+        } else {
+            if (
+                ctx.config.authMode === "team" &&
+                ctx.store.getPrincipal(input.principalId) === null
+            ) {
+                throw new ApiError(404, "no such principal");
+            }
+            ctx.changeSets.share({
+                changeSet,
+                principalId: input.principalId,
+                actor,
+            });
         }
-        ctx.changeSets.share({
-            changeSet,
-            principalId: input.principalId,
-            actor,
-        });
         return c.json({
             collaborators: ctx.store.listChangeSetCollaborators(changeSet.id),
+        });
+    });
+
+    // Withdrawing an approval is the approver changing their mind while the
+    // change set is still proposed; merged and abandoned approvals are
+    // frozen history.
+    app.post("/change-sets/:id/approvals/withdraw", async (c) => {
+        const subject = subjectOf(c);
+        const changeSet = changeSetOf(c);
+        const tree = treeOf(changeSet.sourceTreeId);
+        await decide(subject, "view", tree);
+        if (changeSet.state !== "proposed") {
+            throw new ApiError(
+                409,
+                `change set ${changeSet.id} is ${changeSet.state}; approvals are frozen`,
+            );
+        }
+        const actor = ctx.subjectId(subject);
+        const approved = ctx.store
+            .listApprovals(changeSet.id)
+            .some((approval) => approval.principalId === actor);
+        if (!approved) {
+            throw new ApiError(409, "you have not approved this change set");
+        }
+        ctx.store.removeApproval(changeSet.id, actor);
+        ctx.store.appendChangeSetEvent(
+            changeSet.id,
+            actor,
+            "approval-withdrawn",
+            null,
+        );
+        if (changeSet.prNumber !== null) {
+            const credential = await credentialOf(subject, tree);
+            await ctx.git
+                .commentOnPull(
+                    credential.token,
+                    repoId(tree),
+                    changeSet.prNumber,
+                    `Approval withdrawn by ${displayOf(subject)} via the rototo console.`,
+                )
+                .catch(() => {});
+        }
+        return c.json({
+            approvals: ctx.store.listApprovals(changeSet.id),
         });
     });
 
@@ -491,6 +608,17 @@ function requireAuthor(
 ): void {
     if (changeSet.authorPrincipal !== actor) {
         throw new ApiError(403, `only the author may ${verb} a change set`);
+    }
+}
+
+// Merged and abandoned are terminal: reconcile is the only thing that still
+// touches the row (design/console-lifecycle.md).
+function requireOpen(changeSet: ChangeSetRow, verb: string): void {
+    if (changeSet.state !== "draft" && changeSet.state !== "proposed") {
+        throw new ApiError(
+            409,
+            `change set ${changeSet.id} is ${changeSet.state}; cannot ${verb} it`,
+        );
     }
 }
 

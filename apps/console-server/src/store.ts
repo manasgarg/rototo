@@ -831,6 +831,16 @@ export class Store {
             .run(changeSetId, principalId, isoNow());
     }
 
+    // Withdrawing is the approver changing their mind while the change set
+    // is still open; the route guards the state.
+    removeApproval(changeSetId: string, principalId: string): void {
+        this.db
+            .prepare(
+                "DELETE FROM change_set_approvals WHERE change_set_id = ? AND principal_id = ?",
+            )
+            .run(changeSetId, principalId);
+    }
+
     listApprovals(changeSetId: string): ChangeSetApprovalRow[] {
         const rows = this.db
             .prepare(
@@ -907,6 +917,16 @@ export class Store {
         return rows.map(changeSetFromRow);
     }
 
+    // The title is intent, editable while the change set is open; the PR
+    // title follows through the route that writes this.
+    setChangeSetTitle(id: string, title: string): void {
+        this.db
+            .prepare(
+                "UPDATE change_sets SET title = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(title, isoNow(), id);
+    }
+
     // Handler-side transitions: submit (draft -> proposed) and abandon.
     setChangeSetState(id: string, state: ChangeSetState): void {
         this.db
@@ -960,6 +980,19 @@ export class Store {
                  VALUES (?, ?, ?, ?)`,
             )
             .run(changeSetId, principalId, addedBy, isoNow());
+    }
+
+    // Removing a collaborator does not touch edits they already made;
+    // those are history.
+    removeChangeSetCollaborator(
+        changeSetId: string,
+        principalId: string,
+    ): void {
+        this.db
+            .prepare(
+                "DELETE FROM change_set_collaborators WHERE change_set_id = ? AND principal_id = ?",
+            )
+            .run(changeSetId, principalId);
     }
 
     listChangeSetCollaborators(

@@ -299,6 +299,125 @@ test("submit opens the marked PR; abandon closes it and deletes the branch", asy
     assert.equal(closed?.merged, false);
 });
 
+test("the title edits while open and the PR follows", async () => {
+    const changeSet = await createChangeSet("Working title");
+    const renamed = await harness.post(
+        `/api/change-sets/${changeSet.id}/title`,
+        { title: "Better title" },
+        dev.headers,
+    );
+    assert.equal(renamed.status, 200, await renamed.clone().text());
+    assert.equal((await json(renamed)).changeSet.title, "Better title");
+
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/edits`,
+        {
+            packagePath: harness.packagePath,
+            expectedPin: harness.basePin,
+            operations: [
+                { op: "set_default", variable: "premium_users", value: true },
+            ],
+        },
+        dev.headers,
+    );
+    const submitted = await json(
+        await harness.post(
+            `/api/change-sets/${changeSet.id}/submit`,
+            {},
+            dev.headers,
+        ),
+    );
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/title`,
+        { title: "Final title" },
+        dev.headers,
+    );
+    const pull = await harness.fakeGit.getPull("", REPO, submitted.pull.number);
+    assert.equal(pull?.title, "Final title");
+
+    // Terminal states freeze the title with everything else.
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/abandon`,
+        {},
+        dev.headers,
+    );
+    const frozen = await harness.post(
+        `/api/change-sets/${changeSet.id}/title`,
+        { title: "Too late" },
+        dev.headers,
+    );
+    assert.equal(frozen.status, 409);
+});
+
+test("collaborators remove as well as add, and lose editing", async () => {
+    const changeSet = await createChangeSet("Rotating crew");
+    const helper = harness.signIn({ login: "helper", token: "helper-token" });
+    harness.github.grantRepo("helper-token", "acme/config", {
+        pull: true,
+        push: true,
+    });
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/collaborators`,
+        { principalId: helper.principalId },
+        dev.headers,
+    );
+    const removed = await harness.post(
+        `/api/change-sets/${changeSet.id}/collaborators`,
+        { principalId: helper.principalId, remove: true },
+        dev.headers,
+    );
+    assert.equal(removed.status, 200, await removed.clone().text());
+    assert.deepEqual((await json(removed)).collaborators, []);
+
+    const refused = await harness.post(
+        `/api/change-sets/${changeSet.id}/edits`,
+        {
+            packagePath: harness.packagePath,
+            expectedPin: harness.basePin,
+            operations: [
+                { op: "set_default", variable: "premium_users", value: true },
+            ],
+        },
+        helper.headers,
+    );
+    assert.equal(refused.status, 403);
+});
+
+test("withdrawing needs a recorded approval on a proposed change set", async () => {
+    const changeSet = await createChangeSet("Nothing to withdraw");
+    // Still a draft: approvals do not exist yet.
+    const draft = await harness.post(
+        `/api/change-sets/${changeSet.id}/approvals/withdraw`,
+        {},
+        dev.headers,
+    );
+    assert.equal(draft.status, 409);
+
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/edits`,
+        {
+            packagePath: harness.packagePath,
+            expectedPin: harness.basePin,
+            operations: [
+                { op: "set_default", variable: "premium_users", value: true },
+            ],
+        },
+        dev.headers,
+    );
+    await harness.post(
+        `/api/change-sets/${changeSet.id}/submit`,
+        {},
+        dev.headers,
+    );
+    const nothing = await harness.post(
+        `/api/change-sets/${changeSet.id}/approvals/withdraw`,
+        {},
+        dev.headers,
+    );
+    assert.equal(nothing.status, 409);
+    assert.match((await json(nothing)).error.message, /have not approved/);
+});
+
 test("creating a change set needs propose on the tree", async () => {
     const reader = harness.signIn({ login: "reader", token: "reader-token" });
     harness.github.grantRepo("reader-token", "acme/config", { pull: true });
