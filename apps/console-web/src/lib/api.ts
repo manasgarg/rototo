@@ -91,7 +91,7 @@ export type SemanticModel = {
     variables: VariableModel[];
     catalogs: { id: string; path: string }[];
     catalogEntries: { catalog: string; key: string }[];
-    enums: { id: string }[];
+    lists: { id: string }[];
     evaluationContexts: { id: string; path: string }[];
     layers: { id: string }[];
     references: ReferenceModel[];

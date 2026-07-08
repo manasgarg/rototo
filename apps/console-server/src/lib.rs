@@ -126,7 +126,7 @@ pub async fn discover_packages(root: String) -> Result<Vec<String>> {
 
 /// The package semantic model: entities, references (bidirectional via
 /// `references_to`/`references_from` on the server side), extends edges,
-/// enums, locations.
+/// lists, locations.
 #[napi(js_name = "semanticModel")]
 pub async fn semantic_model(root: String) -> Result<JsonValue> {
     let model = rototo::lint::package_semantic_model(Path::new(&root))

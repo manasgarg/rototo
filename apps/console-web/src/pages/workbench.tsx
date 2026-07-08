@@ -641,8 +641,8 @@ function EntityLists({
                 )}
             />
             <Inventory
-                title="Enums"
-                items={model.enums.map((entry) => entry.id)}
+                title="Lists"
+                items={model.lists.map((entry) => entry.id)}
             />
             <Inventory
                 title="Evaluation contexts"

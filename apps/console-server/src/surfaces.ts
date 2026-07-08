@@ -101,7 +101,7 @@ export type ModelView = {
         value: JsonValue;
         location: { path: string };
     }[];
-    enums?: {
+    lists?: {
         id: string;
         members: { value?: JsonValue }[];
     }[];
@@ -679,9 +679,9 @@ function variableControl(
     if (declarationKind !== "primitive" || declared === null) {
         return { control: "json" };
     }
-    const enumId = declared.startsWith("enum=") ? declared.slice(5) : null;
-    if (enumId !== null) {
-        return { control: "select", options: enumMembers(enumId, model) };
+    const listId = declared.startsWith("list=") ? declared.slice(5) : null;
+    if (listId !== null) {
+        return { control: "select", options: listMembers(listId, model) };
     }
     switch (declared) {
         case "bool":
@@ -730,13 +730,13 @@ function propertyControl(property: JsonObject, model: ModelView): Control {
               ? ref.filter((r): r is string => typeof r === "string")
               : [];
     if (refTargets.length > 0) {
-        // A pinned field renders as a reference picker: enum members or the
+        // A pinned field renders as a reference picker: list members or the
         // target catalogs' entry ids as options. (`x-rototo-ref: true`, the
         // dynamic form, stays a json control: its target is data.)
         const options: JsonValue[] = [];
         for (const target of refTargets) {
-            if (target.startsWith("enum=")) {
-                options.push(...enumMembers(target.slice(5), model));
+            if (target.startsWith("list=")) {
+                options.push(...listMembers(target.slice(5), model));
                 continue;
             }
             const parsed = parseTarget(target);
@@ -766,8 +766,8 @@ function propertyControl(property: JsonObject, model: ModelView): Control {
     }
 }
 
-function enumMembers(enumId: string, model: ModelView): JsonValue[] {
-    const declared = (model.enums ?? []).find((e) => e.id === enumId);
+function listMembers(listId: string, model: ModelView): JsonValue[] {
+    const declared = (model.lists ?? []).find((e) => e.id === listId);
     return (declared?.members ?? [])
         .map((member) => member.value)
         .filter((value): value is JsonValue => value !== undefined);
