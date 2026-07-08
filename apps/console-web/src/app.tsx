@@ -705,7 +705,9 @@ function SourceTreeCard({
     // Read by SearchableList off the element; never reaches the DOM.
     "data-search"?: string;
 }) {
-    const verbs = ["view", "propose", "approve", "administer"] as const;
+    // No "view" mark: the server only lists trees the caller can view
+    // (app.ts filters on view.allow), so it would always read allowed.
+    const verbs = ["propose", "approve", "administer"] as const;
     const repoUrl = githubRepoUrl(tree);
     return (
         <div className="card">
