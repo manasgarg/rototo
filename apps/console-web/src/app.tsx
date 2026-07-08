@@ -6,7 +6,13 @@
 // level rather than naming one. What a user can do is decided server-side;
 // everything rendered here is explanation.
 
-import { useCallback, useEffect, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 
 import { RototoMark } from "@/components/rototo-mark";
 import {
@@ -109,6 +115,135 @@ export function App() {
     const addressClass =
         view?.kind === "address" ? (view.steps[0]?.class ?? null) : null;
 
+    // The nav renders twice: in the sidebar, and on narrow screens in a
+    // collapsed disclosure under the topbar (CSS shows one at a time).
+    const navContent = (
+        <>
+            {trees.length > 0 && treeId !== null ? (
+                <div className="nav-scope">
+                    <select
+                        className="input"
+                        title="Source tree"
+                        value={treeId}
+                        onChange={(event) =>
+                            navigate(treeUrl(event.target.value))
+                        }
+                    >
+                        {trees.map((tree) => (
+                            <option key={tree.id} value={tree.id}>
+                                {treeLabel(tree)}
+                            </option>
+                        ))}
+                    </select>
+                    {packages !== null &&
+                    packages.length > 1 &&
+                    packagePath !== null ? (
+                        <select
+                            className="input"
+                            title="Package"
+                            value={packagePath}
+                            onChange={(event) =>
+                                navigate(
+                                    packageUrl(
+                                        treeId,
+                                        event.target.value,
+                                        { kind: "overview" },
+                                        // The change set and pin are
+                                        // tree-scoped and survive the
+                                        // move; the chosen context is
+                                        // package-scoped and does not.
+                                        route.page === "package"
+                                            ? {
+                                                  ...state,
+                                                  context: null,
+                                              }
+                                            : undefined,
+                                    ),
+                                )
+                            }
+                        >
+                            {packages.map((path) => (
+                                <option key={path} value={path}>
+                                    {path === "." ? "(root)" : path}
+                                </option>
+                            ))}
+                        </select>
+                    ) : null}
+                </div>
+            ) : null}
+            {packagePath !== null ? (
+                <>
+                    <div className="label nav-group-label">Package</div>
+                    <NavItem
+                        label="Overview"
+                        on={view?.kind === "overview"}
+                        to={packageHref({ kind: "overview" })}
+                    />
+                    <NavItem
+                        label="Surfaces"
+                        on={view?.kind === "surfaces"}
+                        to={packageHref({
+                            kind: "surfaces",
+                            surfaceId: null,
+                        })}
+                    />
+                    <NavItem
+                        label="Variables"
+                        on={addressClass === "variable"}
+                        to={packageHref(collection("variable"))}
+                    />
+                    <NavItem
+                        label="Catalogs"
+                        on={addressClass === "catalog"}
+                        to={packageHref(collection("catalog"))}
+                    />
+                    <NavItem
+                        label="Lists"
+                        on={addressClass === "list"}
+                        to={packageHref(collection("list"))}
+                    />
+                    <NavItem
+                        label="Contexts"
+                        on={addressClass === "evaluation-context"}
+                        to={packageHref(collection("evaluation-context"))}
+                    />
+                    <NavItem
+                        label="Files"
+                        on={view?.kind === "files"}
+                        to={packageHref({ kind: "files", file: null })}
+                    />
+                    <NavItem
+                        label="History"
+                        on={view?.kind === "history"}
+                        to={packageHref({ kind: "history" })}
+                    />
+                </>
+            ) : null}
+            {treeId !== null ? (
+                <>
+                    <div className="label nav-group-label">Tree</div>
+                    <NavItem
+                        label="Change sets"
+                        on={changesActive(route)}
+                        to={changesUrl(treeId)}
+                    />
+                </>
+            ) : null}
+            {me?.capabilities?.deployment.administer.allow === true ? (
+                <>
+                    <div className="label nav-group-label">Console</div>
+                    <NavItem
+                        label="Admin"
+                        on={route.page === "admin"}
+                        to={adminUrl()}
+                    />
+                </>
+            ) : null}
+        </>
+    );
+    const crumbParts = crumbsFor(route, state, trees);
+    const screenTitle = crumbParts[crumbParts.length - 1]?.label ?? "Home";
+
     return (
         <div className="shell">
             <aside className="sidebar">
@@ -118,130 +253,7 @@ export function App() {
                     </span>
                     <span className="brand-name">rototo</span>
                 </a>
-                <nav className="side-nav">
-                    {trees.length > 0 && treeId !== null ? (
-                        <div className="nav-scope">
-                            <select
-                                className="input"
-                                title="Source tree"
-                                value={treeId}
-                                onChange={(event) =>
-                                    navigate(treeUrl(event.target.value))
-                                }
-                            >
-                                {trees.map((tree) => (
-                                    <option key={tree.id} value={tree.id}>
-                                        {treeLabel(tree)}
-                                    </option>
-                                ))}
-                            </select>
-                            {packages !== null &&
-                            packages.length > 1 &&
-                            packagePath !== null ? (
-                                <select
-                                    className="input"
-                                    title="Package"
-                                    value={packagePath}
-                                    onChange={(event) =>
-                                        navigate(
-                                            packageUrl(
-                                                treeId,
-                                                event.target.value,
-                                                { kind: "overview" },
-                                                // The change set and pin are
-                                                // tree-scoped and survive the
-                                                // move; the chosen context is
-                                                // package-scoped and does not.
-                                                route.page === "package"
-                                                    ? {
-                                                          ...state,
-                                                          context: null,
-                                                      }
-                                                    : undefined,
-                                            ),
-                                        )
-                                    }
-                                >
-                                    {packages.map((path) => (
-                                        <option key={path} value={path}>
-                                            {path === "." ? "(root)" : path}
-                                        </option>
-                                    ))}
-                                </select>
-                            ) : null}
-                        </div>
-                    ) : null}
-                    {packagePath !== null ? (
-                        <>
-                            <div className="label nav-group-label">Package</div>
-                            <NavItem
-                                label="Overview"
-                                on={view?.kind === "overview"}
-                                to={packageHref({ kind: "overview" })}
-                            />
-                            <NavItem
-                                label="Surfaces"
-                                on={view?.kind === "surfaces"}
-                                to={packageHref({
-                                    kind: "surfaces",
-                                    surfaceId: null,
-                                })}
-                            />
-                            <NavItem
-                                label="Variables"
-                                on={addressClass === "variable"}
-                                to={packageHref(collection("variable"))}
-                            />
-                            <NavItem
-                                label="Catalogs"
-                                on={addressClass === "catalog"}
-                                to={packageHref(collection("catalog"))}
-                            />
-                            <NavItem
-                                label="Lists"
-                                on={addressClass === "list"}
-                                to={packageHref(collection("list"))}
-                            />
-                            <NavItem
-                                label="Contexts"
-                                on={addressClass === "evaluation-context"}
-                                to={packageHref(
-                                    collection("evaluation-context"),
-                                )}
-                            />
-                            <NavItem
-                                label="Files"
-                                on={view?.kind === "files"}
-                                to={packageHref({ kind: "files", file: null })}
-                            />
-                            <NavItem
-                                label="History"
-                                on={view?.kind === "history"}
-                                to={packageHref({ kind: "history" })}
-                            />
-                        </>
-                    ) : null}
-                    {treeId !== null ? (
-                        <>
-                            <div className="label nav-group-label">Tree</div>
-                            <NavItem
-                                label="Change sets"
-                                on={changesActive(route)}
-                                to={changesUrl(treeId)}
-                            />
-                        </>
-                    ) : null}
-                    {me?.capabilities?.deployment.administer.allow === true ? (
-                        <>
-                            <div className="label nav-group-label">Console</div>
-                            <NavItem
-                                label="Admin"
-                                on={route.page === "admin"}
-                                to={adminUrl()}
-                            />
-                        </>
-                    ) : null}
-                </nav>
+                <nav className="side-nav">{navContent}</nav>
                 <SideUser me={me} />
             </aside>
             <div className="main">
@@ -305,6 +317,7 @@ export function App() {
                         ) : null}
                     </div>
                 </header>
+                <MobileNav title={screenTitle}>{navContent}</MobileNav>
                 <main className="content">
                     <div className="content-inner">
                         {error !== null ? (
@@ -402,6 +415,41 @@ function NavItem({
         >
             <span className="nav-item-text">{label}</span>
         </button>
+    );
+}
+
+// On narrow screens the sidebar is hidden and this disclosure carries the
+// same nav: a summary row naming the current screen, the nav links inside.
+// Picking a destination closes it.
+function MobileNav({
+    children,
+    title,
+}: {
+    children: ReactNode;
+    title: string;
+}) {
+    const ref = useRef<HTMLDetailsElement>(null);
+    return (
+        <details className="mobile-nav" ref={ref}>
+            <summary>
+                <span className="label">navigate</span>
+                <strong>{title}</strong>
+            </summary>
+            <div
+                className="mobile-nav-panel"
+                onClick={(event) => {
+                    if (
+                        ref.current !== null &&
+                        (event.target as HTMLElement).closest("a, button") !==
+                            null
+                    ) {
+                        ref.current.open = false;
+                    }
+                }}
+            >
+                <nav className="side-nav">{children}</nav>
+            </div>
+        </details>
     );
 }
 

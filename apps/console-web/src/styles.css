@@ -2907,6 +2907,16 @@ select.input {
         display: none;
     }
 
+    /* card heads hold a title plus actions; let them stack when narrow */
+    .card-head {
+        flex-wrap: wrap;
+    }
+
+    .card-actions {
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+    }
+
     .topbar-brand {
         display: inline-flex;
     }
