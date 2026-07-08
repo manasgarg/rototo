@@ -65,6 +65,7 @@ import {
 } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
 import { TracePreview } from "@/components/trace-preview";
+import { SearchableList } from "@/lib/ui-kit";
 import {
     changeSetUrl,
     CLASS_LABELS,
@@ -792,7 +793,12 @@ function VariableRows({
     hrefFor: (id: string) => string;
 }) {
     return (
-        <div className="row-list">
+        <SearchableList
+            label="Search variables"
+            placeholder="Search variables"
+            emptyLabel="No variable matches that search."
+            className="row-list"
+        >
             {variables.map((variable) => {
                 const outcome = outcomes?.get(variable.id);
                 return (
@@ -800,6 +806,7 @@ function VariableRows({
                         className="row"
                         key={variable.id}
                         href={hrefFor(variable.id)}
+                        data-search={`${variable.id} ${variable.declaration.value ?? ""} ${variable.description ?? ""}`}
                     >
                         <span className="row-text">
                             <span className="row-title mono">
@@ -831,7 +838,7 @@ function VariableRows({
                     </a>
                 );
             })}
-        </div>
+        </SearchableList>
     );
 }
 
@@ -969,7 +976,12 @@ function AddressView({
                         ) : null
                     }
                 >
-                    <div className="row-list">
+                    <SearchableList
+                        label="Search catalogs"
+                        placeholder="Search catalogs"
+                        emptyLabel="No catalog matches that search."
+                        className="row-list"
+                    >
                         {catalogs.map((catalog) => {
                             const entries = model.catalogEntries.filter(
                                 (entry) => entry.catalog === catalog.id,
@@ -981,6 +993,7 @@ function AddressView({
                                     href={hrefEntity([
                                         { class: "catalog", id: catalog.id },
                                     ])}
+                                    data-search={`${catalog.id} ${catalog.path}`}
                                 >
                                     <span className="row-text">
                                         <span className="row-title mono">
@@ -995,7 +1008,7 @@ function AddressView({
                                 </a>
                             );
                         })}
-                    </div>
+                    </SearchableList>
                 </CollectionPage>
             );
         }
@@ -1049,7 +1062,12 @@ function AddressView({
                         ) : null
                     }
                 >
-                    <div className="row-list">
+                    <SearchableList
+                        label="Search lists"
+                        placeholder="Search lists"
+                        emptyLabel="No list matches that search."
+                        className="row-list"
+                    >
                         {lists.map((list) => (
                             <a
                                 className="row"
@@ -1057,6 +1075,7 @@ function AddressView({
                                 href={hrefEntity([
                                     { class: "list", id: list.id },
                                 ])}
+                                data-search={`${list.id} ${list.memberType.value ?? "string"} ${list.description ?? ""}`}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
@@ -1073,7 +1092,7 @@ function AddressView({
                                 </span>
                             </a>
                         ))}
-                    </div>
+                    </SearchableList>
                 </CollectionPage>
             );
         }
@@ -1115,7 +1134,12 @@ function AddressView({
                         ) : null
                     }
                 >
-                    <div className="row-list">
+                    <SearchableList
+                        label="Search evaluation contexts"
+                        placeholder="Search evaluation contexts"
+                        emptyLabel="No evaluation context matches that search."
+                        className="row-list"
+                    >
                         {contexts.map((context) => (
                             <a
                                 className="row"
@@ -1126,6 +1150,7 @@ function AddressView({
                                         id: context.id,
                                     },
                                 ])}
+                                data-search={`${context.id} ${context.path}`}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
@@ -1137,7 +1162,7 @@ function AddressView({
                                 </span>
                             </a>
                         ))}
-                    </div>
+                    </SearchableList>
                 </CollectionPage>
             );
         }
@@ -1381,7 +1406,12 @@ function CatalogPanel({
                     yet.
                 </p>
             ) : (
-                <div className="row-list">
+                <SearchableList
+                    label="Search entries"
+                    placeholder="Search entries"
+                    emptyLabel="No entry matches that search."
+                    className="row-list"
+                >
                     {entries.map((entry) => (
                         <a
                             className="row"
@@ -1390,6 +1420,7 @@ function CatalogPanel({
                                 { class: "catalog", id: catalogId },
                                 { class: "entry", id: entry.key },
                             ])}
+                            data-search={entry.key}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
@@ -1398,7 +1429,7 @@ function CatalogPanel({
                             </span>
                         </a>
                     ))}
-                </div>
+                </SearchableList>
             )}
             <ReferencePills
                 title="Referenced by"
@@ -1523,9 +1554,18 @@ function ListPanel({
                     </button>
                 </span>
             </div>
-            <div className="row-list">
+            <SearchableList
+                label="Search members"
+                placeholder="Search members"
+                emptyLabel="No member matches that search."
+                className="row-list"
+            >
                 {list.members.map((member, index) => (
-                    <div className="row" key={index}>
+                    <div
+                        className="row"
+                        key={index}
+                        data-search={String(member.value)}
+                    >
                         <span className="row-text">
                             <span className="row-title mono">
                                 {memberType === "string"
@@ -1556,7 +1596,7 @@ function ListPanel({
                         ) : null}
                     </div>
                 ))}
-            </div>
+            </SearchableList>
             {canEdit ? (
                 <form
                     className="action-row"
@@ -1737,7 +1777,12 @@ function ContextDetailPanel({
             ) : samples.length === 0 ? (
                 <p className="hint">No samples for this context yet.</p>
             ) : (
-                <div className="row-list">
+                <SearchableList
+                    label="Search samples"
+                    placeholder="Search samples"
+                    emptyLabel="No sample matches that search."
+                    className="row-list"
+                >
                     {samples.map((sample) => (
                         <a
                             className="row"
@@ -1749,6 +1794,7 @@ function ContextDetailPanel({
                                 },
                                 { class: "sample", id: sample.key },
                             ])}
+                            data-search={sample.key}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
@@ -1757,7 +1803,7 @@ function ContextDetailPanel({
                             </span>
                         </a>
                     ))}
-                </div>
+                </SearchableList>
             )}
         </div>
     );
@@ -1829,15 +1875,25 @@ function FileList({
                     }
                 />
             ) : null}
-            <div className="row-list">
+            <SearchableList
+                label="Search files"
+                placeholder="Search files"
+                emptyLabel="No file matches that search."
+                className="row-list"
+            >
                 {(files ?? []).map((file) => (
-                    <a className="row" key={file} href={hrefFile(file)}>
+                    <a
+                        className="row"
+                        key={file}
+                        href={hrefFile(file)}
+                        data-search={file}
+                    >
                         <span className="row-text">
                             <span className="row-title mono">{file}</span>
                         </span>
                     </a>
                 ))}
-            </div>
+            </SearchableList>
         </>
     );
 }

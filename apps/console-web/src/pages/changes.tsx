@@ -36,6 +36,7 @@ import {
 } from "@/lib/api";
 import { entityLabel, entitySteps } from "@/components/entity-link";
 import { formatInstant } from "@/lib/format";
+import { SearchableList } from "@/lib/ui-kit";
 import { githubBranchUrl, githubCommitUrl } from "@/lib/github";
 import {
     changeSetUrl,
@@ -102,12 +103,18 @@ export function ChangesPage({
                     </p>
                 </div>
             ) : (
-                <div className="row-list">
+                <SearchableList
+                    label="Search change sets"
+                    placeholder="Search change sets"
+                    emptyLabel="No change set matches that search."
+                    className="row-list"
+                >
                     {changeSets.map((changeSet) => (
                         <a
                             className="row"
                             key={changeSet.id}
                             href={`#${changeSetUrl(treeId, changeSet.id)}`}
+                            data-search={`${changeSet.title} ${changeSet.branch} ${changeSet.prNumber ?? ""} ${changeSet.authorPrincipal} ${changeSet.state}`}
                         >
                             <span className="row-text">
                                 <span className="row-title">
@@ -126,7 +133,7 @@ export function ChangesPage({
                             </span>
                         </a>
                     ))}
-                </div>
+                </SearchableList>
             )}
         </div>
     );

@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { formatInstant } from "@/lib/format";
 import { githubCommitUrl } from "@/lib/github";
+import { SearchableList } from "@/lib/ui-kit";
 import type { AddressStep } from "@/lib/router";
 
 // Behavior that changes with no commit and no deploy: env.now boundaries
@@ -598,7 +599,12 @@ export function HistoryPanel({
                     No commits touched this package before that instant.
                 </p>
             ) : (
-                <div className="row-list">
+                <SearchableList
+                    label="Search commits"
+                    placeholder="Search commits"
+                    emptyLabel="No commit matches that search."
+                    className="row-list"
+                >
                     {commits.map((commit, index) => {
                         const current = viewingPin === commit.sha;
                         const inForce = bound !== undefined && index === 0;
@@ -611,6 +617,7 @@ export function HistoryPanel({
                                 className="row row-static"
                                 data-active={current ? "true" : undefined}
                                 key={commit.sha}
+                                data-search={`${commit.message.split("\n")[0]} ${commit.sha} ${commit.authorName ?? ""} ${formatInstant(commit.date)}`}
                             >
                                 <span className="row-text">
                                     <button
@@ -662,7 +669,7 @@ export function HistoryPanel({
                             </div>
                         );
                     })}
-                </div>
+                </SearchableList>
             )}
         </div>
     );

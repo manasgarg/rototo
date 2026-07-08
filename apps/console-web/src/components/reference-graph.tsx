@@ -884,9 +884,7 @@ function ColumnsGraph({
                             d={path}
                             fill="none"
                             key={index}
-                            stroke={
-                                bright ? "var(--sea-500)" : "var(--line-2)"
-                            }
+                            stroke={bright ? "var(--sea-500)" : "var(--line-2)"}
                             strokeWidth={bright ? 1.8 : 1}
                             opacity={
                                 (active !== null && !lit) || offSearch
@@ -1038,9 +1036,7 @@ function GraphNodeBox({
                   maxLabelChars,
               );
     const open = () => {
-        navigate(
-            node.href.startsWith("#") ? node.href.slice(1) : node.href,
-        );
+        navigate(node.href.startsWith("#") ? node.href.slice(1) : node.href);
     };
     return (
         <g

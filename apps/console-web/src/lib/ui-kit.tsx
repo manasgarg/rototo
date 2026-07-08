@@ -4,7 +4,13 @@
 // console while staying propose-only. The floor uses the same components,
 // which is what keeps the two indistinguishable to the eye.
 
-import { useState, type ReactNode } from "react";
+import {
+    Children,
+    isValidElement,
+    useMemo,
+    useState,
+    type ReactNode,
+} from "react";
 
 import type { Control } from "@/lib/api";
 import type { UiKit } from "@/extension-api.ts";
@@ -86,6 +92,109 @@ export function Toggle({
             <span className="toggle-knob" />
         </button>
     );
+}
+
+function SearchGlyph({ size }: { size: number }) {
+    return (
+        <svg
+            aria-hidden="true"
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+        >
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.2" y2="16.2" />
+        </svg>
+    );
+}
+
+// The search input SearchableList renders; exported alone for lists whose
+// markup the wrapper can't host (tables), so the affordance stays uniform.
+export function SearchControl({
+    label,
+    placeholder,
+    query,
+    onChange,
+}: {
+    label: string;
+    placeholder: string;
+    query: string;
+    onChange: (query: string) => void;
+}) {
+    return (
+        <label className="search-control">
+            <span className="search-icon">
+                <SearchGlyph size={15} />
+            </span>
+            <input
+                aria-label={label}
+                className="input"
+                onChange={(event) => onChange(event.target.value)}
+                placeholder={placeholder}
+                type="search"
+                value={query}
+            />
+        </label>
+    );
+}
+
+// A client-side searchable list: children carry a `data-search` string and
+// the query filters on it. Filtering is presentation only — nothing is
+// re-fetched, so it works the same on every screen that lists things.
+export function SearchableList({
+    label,
+    placeholder,
+    children,
+    className,
+    emptyLabel,
+}: {
+    label: string;
+    placeholder: string;
+    children: ReactNode;
+    className?: string;
+    emptyLabel: string;
+}) {
+    const [query, setQuery] = useState("");
+    const items = useMemo(() => Children.toArray(children), [children]);
+    const needle = query.trim().toLowerCase();
+    const visibleItems =
+        needle === ""
+            ? items
+            : items.filter((item) => searchableText(item).includes(needle));
+
+    return (
+        <div className="searchable-list">
+            <SearchControl
+                label={label}
+                placeholder={placeholder}
+                query={query}
+                onChange={setQuery}
+            />
+            {visibleItems.length === 0 ? (
+                <div className="empty-state">
+                    <span className="empty-puck">
+                        <SearchGlyph size={18} />
+                    </span>
+                    <p>{emptyLabel}</p>
+                </div>
+            ) : className !== undefined ? (
+                <div className={className}>{visibleItems}</div>
+            ) : (
+                visibleItems
+            )}
+        </div>
+    );
+}
+
+function searchableText(item: ReactNode): string {
+    if (!isValidElement<{ "data-search"?: unknown }>(item)) {
+        return "";
+    }
+    return String(item.props["data-search"] ?? "").toLowerCase();
 }
 
 export function Table({

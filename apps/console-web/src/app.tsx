@@ -38,6 +38,7 @@ import {
     type Route,
     type ViewState,
 } from "@/lib/router";
+import { SearchableList } from "@/lib/ui-kit";
 import { AdminPage } from "@/pages/admin";
 import { ChangeSetPage, ChangesPage } from "@/pages/changes";
 import { SurfacesPage } from "@/pages/surfaces";
@@ -658,9 +659,19 @@ function Home({ me }: { me: MeResponse }) {
                     person; the marks only explain those decisions.
                 </p>
             </div>
-            {trees.map((tree) => (
-                <SourceTreeCard key={tree.id} tree={tree} />
-            ))}
+            <SearchableList
+                label="Search source trees"
+                placeholder="Search source trees"
+                emptyLabel="No source tree matches that search."
+            >
+                {trees.map((tree) => (
+                    <SourceTreeCard
+                        key={tree.id}
+                        tree={tree}
+                        data-search={`${treeLabel(tree)} ${tree.id}`}
+                    />
+                ))}
+            </SearchableList>
             {!hasGithubCredential && me.signIn?.github ? (
                 <div className="card">
                     <p className="hint">
@@ -680,7 +691,13 @@ function Home({ me }: { me: MeResponse }) {
     );
 }
 
-function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
+function SourceTreeCard({
+    tree,
+}: {
+    tree: SourceTreeSummary;
+    // Read by SearchableList off the element; never reaches the DOM.
+    "data-search"?: string;
+}) {
     const verbs = ["view", "propose", "approve", "administer"] as const;
     const repoUrl = githubRepoUrl(tree);
     return (

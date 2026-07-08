@@ -6,6 +6,7 @@ import { useEffect } from "react";
 
 import type { MeResponse } from "@/lib/api";
 import { githubRepoUrl } from "@/lib/github";
+import { SearchableList } from "@/lib/ui-kit";
 import {
     changesUrl,
     navigate,
@@ -98,12 +99,18 @@ export function TreeHomePage({
                     </p>
                 </div>
             ) : (
-                <div className="row-list">
+                <SearchableList
+                    label="Search packages"
+                    placeholder="Search packages"
+                    emptyLabel="No package matches that search."
+                    className="row-list"
+                >
                     {packages.map((path) => (
                         <a
                             className="row"
                             key={path}
                             href={`#${packageUrl(treeId, path, { kind: "overview" }, state)}`}
+                            data-search={path}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
@@ -112,7 +119,7 @@ export function TreeHomePage({
                             </span>
                         </a>
                     ))}
-                </div>
+                </SearchableList>
             )}
         </div>
     );

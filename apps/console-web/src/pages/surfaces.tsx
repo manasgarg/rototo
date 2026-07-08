@@ -38,7 +38,12 @@ import {
 import { experienceFor } from "@/lib/experiences";
 import { formatInstant } from "@/lib/format";
 import { githubCommitUrl } from "@/lib/github";
-import { ControlInput, UI_KIT } from "@/lib/ui-kit";
+import {
+    ControlInput,
+    SearchableList,
+    SearchControl,
+    UI_KIT,
+} from "@/lib/ui-kit";
 import {
     changeSetUrl,
     navigate,
@@ -406,7 +411,12 @@ function SurfaceCatalog({
                     </div>
                 </div>
             ) : null}
-            <div className="row-list">
+            <SearchableList
+                label="Search surfaces"
+                placeholder="Search surfaces"
+                emptyLabel="No surface matches that search."
+                className="row-list"
+            >
                 {surfaces.surfaces.map((surface) => {
                     const errors = surface.diagnostics.filter(
                         (diagnostic) => diagnostic.severity === "error",
@@ -416,6 +426,7 @@ function SurfaceCatalog({
                             className="row"
                             key={surface.id}
                             href={hrefFor(surface.id)}
+                            data-search={`${surface.title} ${surface.description ?? ""} ${surface.bindings.map((binding) => binding.target).join(" ")} ${surface.kind ?? ""}`}
                         >
                             <span className="row-text">
                                 <span className="row-title">
@@ -457,7 +468,7 @@ function SurfaceCatalog({
                         </a>
                     );
                 })}
-            </div>
+            </SearchableList>
         </>
     );
 }
@@ -1052,74 +1063,102 @@ function EntryTable({
     editable: boolean;
     onPropose: (operations: EditOperation[], summary: string) => void;
 }) {
+    // A table can't host the SearchableList wrapper, so the same search
+    // affordance filters the rows directly, matching keys and field values.
+    const [query, setQuery] = useState("");
+    const needle = query.trim().toLowerCase();
+    const visible =
+        needle === ""
+            ? entries
+            : entries.filter((entry) =>
+                  `${entry.key} ${fields
+                      .map((field) =>
+                          String(fieldValue(entry.value, field.field) ?? ""),
+                      )
+                      .join(" ")}`
+                      .toLowerCase()
+                      .includes(needle),
+              );
     return (
-        <div className="table-scroll">
-            <table className="data-table">
-                <thead>
-                    <tr>
-                        <th>entry</th>
-                        {fields.map((field) => (
-                            <th key={field.field} className="mono">
-                                {field.field}
-                            </th>
-                        ))}
-                        {canDelete ? <th /> : null}
-                    </tr>
-                </thead>
-                <tbody>
-                    {entries.map((entry) => (
-                        <tr key={entry.key}>
-                            <td className="mono">{entry.key}</td>
-                            {fields.map((field) => (
-                                <td key={field.field}>
-                                    <ControlInput
-                                        control={field as Control}
-                                        value={fieldValue(
-                                            entry.value,
-                                            field.field,
-                                        )}
-                                        disabled={!editable}
-                                        onCommit={(value) =>
-                                            onPropose(
-                                                [
-                                                    {
-                                                        op: "set_field",
-                                                        target: `catalog=${catalog}:entry=${entry.key}#/${field.field}`,
-                                                        value,
-                                                    },
-                                                ],
-                                                `Set ${catalog}/${entry.key} ${field.field}`,
-                                            )
-                                        }
-                                    />
-                                </td>
+        <div className="searchable-list">
+            <SearchControl
+                label="Search entries"
+                placeholder="Search entries"
+                query={query}
+                onChange={setQuery}
+            />
+            {visible.length === 0 ? (
+                <p className="hint">No entry matches that search.</p>
+            ) : (
+                <div className="table-scroll">
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th>entry</th>
+                                {fields.map((field) => (
+                                    <th key={field.field} className="mono">
+                                        {field.field}
+                                    </th>
+                                ))}
+                                {canDelete ? <th /> : null}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visible.map((entry) => (
+                                <tr key={entry.key}>
+                                    <td className="mono">{entry.key}</td>
+                                    {fields.map((field) => (
+                                        <td key={field.field}>
+                                            <ControlInput
+                                                control={field as Control}
+                                                value={fieldValue(
+                                                    entry.value,
+                                                    field.field,
+                                                )}
+                                                disabled={!editable}
+                                                onCommit={(value) =>
+                                                    onPropose(
+                                                        [
+                                                            {
+                                                                op: "set_field",
+                                                                target: `catalog=${catalog}:entry=${entry.key}#/${field.field}`,
+                                                                value,
+                                                            },
+                                                        ],
+                                                        `Set ${catalog}/${entry.key} ${field.field}`,
+                                                    )
+                                                }
+                                            />
+                                        </td>
+                                    ))}
+                                    {canDelete ? (
+                                        <td>
+                                            <button
+                                                className="btn btn-icon btn-sm btn-remove"
+                                                disabled={!editable}
+                                                title="Delete entry"
+                                                onClick={() =>
+                                                    onPropose(
+                                                        [
+                                                            {
+                                                                op: "delete",
+                                                                target: `catalog=${catalog}:entry=${entry.key}`,
+                                                            },
+                                                        ],
+                                                        `Delete ${catalog}/${entry.key}`,
+                                                    )
+                                                }
+                                            >
+                                                ×
+                                            </button>
+                                        </td>
+                                    ) : null}
+                                </tr>
                             ))}
-                            {canDelete ? (
-                                <td>
-                                    <button
-                                        className="btn btn-icon btn-sm btn-remove"
-                                        disabled={!editable}
-                                        title="Delete entry"
-                                        onClick={() =>
-                                            onPropose(
-                                                [
-                                                    {
-                                                        op: "delete",
-                                                        target: `catalog=${catalog}:entry=${entry.key}`,
-                                                    },
-                                                ],
-                                                `Delete ${catalog}/${entry.key}`,
-                                            )
-                                        }
-                                    >
-                                        ×
-                                    </button>
-                                </td>
-                            ) : null}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }

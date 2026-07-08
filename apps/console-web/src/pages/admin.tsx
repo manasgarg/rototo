@@ -34,6 +34,7 @@ import {
 } from "@/lib/api";
 import { githubRepoUrl } from "@/lib/github";
 import { treeUrl } from "@/lib/router";
+import { SearchableList } from "@/lib/ui-kit";
 
 export function AdminPage({
     me,
@@ -155,11 +156,20 @@ export function AdminPage({
                     merged history stays, and registering the same repository
                     again reactivates it.
                 </p>
-                <div className="row-list">
+                <SearchableList
+                    label="Search source trees"
+                    placeholder="Search source trees"
+                    emptyLabel="No source tree matches that search."
+                    className="row-list"
+                >
                     {trees.map((tree) => {
                         const repoUrl = githubRepoUrl(tree);
                         return (
-                            <div className="row row-static" key={tree.id}>
+                            <div
+                                className="row row-static"
+                                key={tree.id}
+                                data-search={`${tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id} ${tree.defaultBranch ?? ""} ${tree.status}`}
+                            >
                                 <span className="row-text">
                                     {tree.status === "deregistered" ? (
                                         <span className="row-title mono">
@@ -231,7 +241,7 @@ export function AdminPage({
                             </div>
                         );
                     })}
-                </div>
+                </SearchableList>
                 <RegisterTreeForm
                     onRegister={(input) => act(registerSourceTree(input))}
                 />
@@ -239,9 +249,23 @@ export function AdminPage({
 
             <div className="card">
                 <h2>People</h2>
-                <div className="row-list">
+                <SearchableList
+                    label="Search people"
+                    placeholder="Search people"
+                    emptyLabel="No person matches that search."
+                    className="row-list"
+                >
                     {principals.map((principal) => (
-                        <div className="row row-static" key={principal.id}>
+                        <div
+                            className="row row-static"
+                            key={principal.id}
+                            data-search={`${principal.displayName} ${principal.identities
+                                .map(
+                                    (identity) =>
+                                        `${identity.provider}:${identity.login ?? identity.email ?? ""}`,
+                                )
+                                .join(" ")} ${principal.groups.join(" ")}`}
+                        >
                             <span className="row-text">
                                 <span className="row-title">
                                     {principal.displayName}
@@ -305,7 +329,7 @@ export function AdminPage({
                             </span>
                         </div>
                     ))}
-                </div>
+                </SearchableList>
             </div>
 
             <div className="card">
@@ -314,46 +338,65 @@ export function AdminPage({
                     Surface approval roles (role:&lt;name&gt;) name these
                     groups.
                 </p>
-                {groups.map((group) => (
-                    <div className="row row-static" key={group.id}>
-                        <span className="row-text">
-                            <span className="row-title mono">{group.name}</span>
-                            <span className="row-sub">
-                                {group.members.length === 0
-                                    ? "no members"
-                                    : group.members.map(nameOf).join(", ")}
+                <SearchableList
+                    label="Search groups"
+                    placeholder="Search groups"
+                    emptyLabel="No group matches that search."
+                    className="row-list"
+                >
+                    {groups.map((group) => (
+                        <div
+                            className="row row-static"
+                            key={group.id}
+                            data-search={`${group.name} ${group.members.map(nameOf).join(" ")}`}
+                        >
+                            <span className="row-text">
+                                <span className="row-title mono">
+                                    {group.name}
+                                </span>
+                                <span className="row-sub">
+                                    {group.members.length === 0
+                                        ? "no members"
+                                        : group.members.map(nameOf).join(", ")}
+                                </span>
                             </span>
-                        </span>
-                        <span className="row-side">
-                            <MemberEditor
-                                group={group}
-                                principals={principals}
-                                onChange={(principalId, remove) =>
-                                    act(
-                                        adminGroupMember(
-                                            group.id,
-                                            principalId,
-                                            remove,
-                                        ),
-                                    )
-                                }
-                            />
-                            <GroupNameEditor
-                                group={group}
-                                onSave={(name) =>
-                                    act(adminUpdateGroup(group.id, { name }))
-                                }
-                            />
-                            <button
-                                className="btn btn-ghost btn-sm"
-                                title="Refused while grants reference the group"
-                                onClick={() => act(adminDeleteGroup(group.id))}
-                            >
-                                Delete
-                            </button>
-                        </span>
-                    </div>
-                ))}
+                            <span className="row-side">
+                                <MemberEditor
+                                    group={group}
+                                    principals={principals}
+                                    onChange={(principalId, remove) =>
+                                        act(
+                                            adminGroupMember(
+                                                group.id,
+                                                principalId,
+                                                remove,
+                                            ),
+                                        )
+                                    }
+                                />
+                                <GroupNameEditor
+                                    group={group}
+                                    onSave={(name) =>
+                                        act(
+                                            adminUpdateGroup(group.id, {
+                                                name,
+                                            }),
+                                        )
+                                    }
+                                />
+                                <button
+                                    className="btn btn-ghost btn-sm"
+                                    title="Refused while grants reference the group"
+                                    onClick={() =>
+                                        act(adminDeleteGroup(group.id))
+                                    }
+                                >
+                                    Delete
+                                </button>
+                            </span>
+                        </div>
+                    ))}
+                </SearchableList>
                 <NewGroupForm
                     onCreate={(name) => act(adminCreateGroup(name))}
                 />
@@ -361,9 +404,22 @@ export function AdminPage({
 
             <div className="card">
                 <h2>Grants</h2>
-                <div className="row-list">
+                <SearchableList
+                    label="Search grants"
+                    placeholder="Search grants"
+                    emptyLabel="No grant matches that search."
+                    className="row-list"
+                >
                     {grants.map((grant) => (
-                        <div className="row row-static" key={grant.id}>
+                        <div
+                            className="row row-static"
+                            key={grant.id}
+                            data-search={`${grant.action} ${resourceView(grant.resource).label} ${
+                                grant.granteeKind === "group"
+                                    ? `group ${groups.find((g) => g.id === grant.granteeId)?.name ?? grant.granteeId}`
+                                    : nameOf(grant.granteeId)
+                            }`}
+                        >
                             <span className="row-text">
                                 <span className="row-title mono">
                                     {grant.action} on{" "}
@@ -401,7 +457,7 @@ export function AdminPage({
                             </span>
                         </div>
                     ))}
-                </div>
+                </SearchableList>
                 <NewGrantForm
                     principals={principals}
                     groups={groups}
@@ -420,9 +476,18 @@ export function AdminPage({
                         <span className="mono">{inviteLink}</span>
                     </div>
                 ) : null}
-                <div className="row-list">
+                <SearchableList
+                    label="Search invitations"
+                    placeholder="Search invitations"
+                    emptyLabel="No invitation matches that search."
+                    className="row-list"
+                >
                     {invitations.map((invitation) => (
-                        <div className="row row-static" key={invitation.id}>
+                        <div
+                            className="row row-static"
+                            key={invitation.id}
+                            data-search={`${invitation.email} ${invitation.redeemedBy !== null ? nameOf(invitation.redeemedBy) : "open"}`}
+                        >
                             <span className="row-text">
                                 <span className="row-title">
                                     {invitation.email}
@@ -451,7 +516,7 @@ export function AdminPage({
                             ) : null}
                         </div>
                     ))}
-                </div>
+                </SearchableList>
                 <NewInvitationForm
                     groups={groups}
                     trees={(me.capabilities?.sourceTrees ?? []).map(
