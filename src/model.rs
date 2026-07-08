@@ -166,7 +166,7 @@ pub enum VariableResolutionSource {
         catalog: String,
         value: String,
     },
-    CatalogList {
+    CatalogArray {
         catalog: String,
         values: Vec<String>,
     },

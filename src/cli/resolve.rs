@@ -496,7 +496,7 @@ fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> 
         rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
             format!("{catalog}:{value}")
         }
-        rototo::model::VariableResolutionSource::CatalogList { catalog, values } => {
+        rototo::model::VariableResolutionSource::CatalogArray { catalog, values } => {
             format!("{catalog}:[{}]", values.join(","))
         }
     }

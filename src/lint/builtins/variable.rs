@@ -485,7 +485,7 @@ fn lint_query_shape(
     let catalog_type =
         variable_type_kind(&variable.type_source).and_then(|kind| match &kind.value {
             VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
-            VariableTypeKind::List(item) => match item.as_ref() {
+            VariableTypeKind::Array(item) => match item.as_ref() {
                 VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
                 _ => None,
             },
@@ -497,7 +497,7 @@ fn lint_query_shape(
             RototoRuleId::VariableQueryShape,
             variable.field_target(SemanticField::VariableType),
             variable.type_source.location(),
-            "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
+            "method = \"query\" requires a catalog=<id> or array<catalog=<id>> type",
         );
     }
 
@@ -784,7 +784,7 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
             VariableTypeKind::Enum(id) => {
                 lint_enum_resolve_values(&mut diagnostics, ctx, variable, &type_kind.location, id);
             }
-            VariableTypeKind::List(item) => {
+            VariableTypeKind::Array(item) => {
                 lint_list_resolve_values(
                     &mut diagnostics,
                     ctx,
@@ -852,7 +852,7 @@ fn lint_list_resolve_values(
         VariableTypeKind::Enum(id) => {
             lint_enum_list_resolve_values(diagnostics, ctx, variable, location, id);
         }
-        VariableTypeKind::List(_) => push_value_diagnostic(
+        VariableTypeKind::Array(_) => push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownType,
             variable.field_target(SemanticField::VariableType),
@@ -939,7 +939,7 @@ fn lint_enum_list_resolve_values(
                 RototoRuleId::VariableValueTypeMismatch,
                 target,
                 value_location.clone(),
-                format!("{label} for list<enum> variable must be a list"),
+                format!("{label} for array<enum> variable must be an array"),
             );
             return;
         };
@@ -1049,7 +1049,7 @@ fn lint_primitive_list_value(
             RototoRuleId::VariableValueTypeMismatch,
             target,
             location.clone(),
-            format!("{label} does not match list<{}>", primitive.as_str()),
+            format!("{label} does not match array<{}>", primitive.as_str()),
         );
         return;
     };
@@ -1141,7 +1141,7 @@ fn lint_catalog_selector_list(
             RototoRuleId::VariableValueTypeMismatch,
             target,
             location.clone(),
-            format!("{label} for list<catalog> variable must be a list"),
+            format!("{label} for array<catalog> variable must be an array"),
         );
         return;
     };
@@ -1153,7 +1153,7 @@ fn lint_catalog_selector_list(
         RototoRuleId::VariableValueTypeMismatch,
         target,
         location.clone(),
-        format!("{label} for list<catalog> variable must contain only strings"),
+        format!("{label} for array<catalog> variable must contain only strings"),
     );
 }
 
@@ -1175,7 +1175,7 @@ enum PrimitiveType {
     Int,
     Number,
     String,
-    List,
+    Array,
 }
 
 impl PrimitiveType {
@@ -1185,7 +1185,7 @@ impl PrimitiveType {
             "int" => Some(Self::Int),
             "number" => Some(Self::Number),
             "string" => Some(Self::String),
-            "list" => Some(Self::List),
+            "array" => Some(Self::Array),
             _ => None,
         }
     }
@@ -1196,7 +1196,7 @@ impl PrimitiveType {
             Self::Int => "int",
             Self::Number => "number",
             Self::String => "string",
-            Self::List => "list",
+            Self::Array => "array",
         }
     }
 
@@ -1206,7 +1206,7 @@ impl PrimitiveType {
             Self::Int => value.as_i64().is_some() || value.as_u64().is_some(),
             Self::Number => value.is_number(),
             Self::String => value.is_string(),
-            Self::List => value.is_array(),
+            Self::Array => value.is_array(),
         }
     }
 }

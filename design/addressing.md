@@ -288,7 +288,7 @@ policy: no compatibility shims, loud rejections with the new spelling.
 5. **Resolved: the `=` binder reaches everywhere.** Both colon-bound
    surfaces migrate: `x-rototo-ref` pins become `"catalog=banner"` and
    variable type declarations become `type = "catalog=banner"` /
-   `list<enum=banner>` spellings. One binding character everywhere; the
+   `array<enum=banner>` spellings. One binding character everywhere; the
    one-time churn across packages, examples, and docs is accepted under
    the clean-break policy. Old spellings are rejected with the new
    spelling in the error message.

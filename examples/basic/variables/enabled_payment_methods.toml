@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Payment methods enabled at checkout"
-type = "list"
+type = "array"
 
 [resolve]
 default = ["card", "paypal"]

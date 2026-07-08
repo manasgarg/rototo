@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Configuration value for message."
-type = "list<catalog=message>"
+type = "array<catalog=message>"
 
 [resolve]
 method = "query"

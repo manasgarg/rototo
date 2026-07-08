@@ -308,7 +308,7 @@ fn assign(
 fn parse_index(segment: &str, count: usize, target: &str) -> Result<usize> {
     let index: usize = segment.parse().map_err(|_| {
         RototoError::new(format!(
-            "`{target}` indexes a list with `{segment}`, which is not a number"
+            "`{target}` indexes an array with `{segment}`, which is not a number"
         ))
     })?;
     if index >= count {

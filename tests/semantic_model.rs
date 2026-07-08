@@ -260,7 +260,7 @@ body = "Email body"
         "variables/templates.toml",
         r#"schema_version = 1
 
-type = "list<catalog=message_template>"
+type = "array<catalog=message_template>"
 
 [resolve]
 method = "query"
@@ -281,7 +281,7 @@ filter = 'entry.channel == context.channel && entry.active == true && variables[
     assert_eq!(variable.declaration.kind, "primitive");
     assert_eq!(
         variable.declaration.value.as_deref(),
-        Some("list<catalog=message_template>")
+        Some("array<catalog=message_template>")
     );
     let resolve = variable.resolve.as_ref().expect("resolve section");
     assert!(resolve.rules.is_empty());

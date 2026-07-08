@@ -320,7 +320,7 @@ rototo_rules! {
         id: "variable-query-shape",
         entity: Variable,
         title: "Variable query resolution is invalid",
-        help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog=<id> or list<catalog=<id>> type and no [[resolve.rule]] tables.",
+        help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog=<id> or array<catalog=<id>> type and no [[resolve.rule]] tables.",
     },
     VariableAllocationShape => {
         id: "variable-allocation-shape",

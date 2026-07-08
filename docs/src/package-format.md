@@ -577,23 +577,23 @@ The `type` field decides what shape a value can take. The built-in types are:
 | `int` | a whole number |
 | `number` | a number with a fractional part |
 | `string` | text |
-| `list` | a plain list of values |
+| `array` | a plain array of values |
 | `catalog=<id>` | one entry from a catalog (see below) |
 | `enum=<id>` | one member of a named enum (see below) |
-| `list<...>` | a list of a specific item type |
+| `array<...>` | an array of a specific item type |
 
-The `list<...>` form lets you say what's *in* the list. The item can be a
-primitive, a catalog reference, or an enum - `list<string>`, `list<int>`,
-`list<catalog=payment_methods>`, `list<enum=plan_tiers>`. What you can't do is
-nest lists inside lists: `list<list<string>>` is rejected. One level deep is
+The `array<...>` form lets you say what's *in* the array. The item can be a
+primitive, a catalog reference, or an enum - `array<string>`, `array<int>`,
+`array<catalog=payment_methods>`, `array<enum=plan_tiers>`. What you can't do is
+nest arrays inside arrays: `array<array<string>>` is rejected. One level deep is
 the limit.
 
-Here's a plain list variable, `payment_methods.toml`:
+Here's a plain array variable, `payment_methods.toml`:
 
 ```toml
 schema_version = 1
 description = "Payment methods enabled at checkout"
-type = "list"
+type = "array"
 
 [resolve]
 default = ["card", "paypal"]
@@ -680,7 +680,7 @@ catalog's entries instead:
 
 ```toml
 schema_version = 1
-type = "list<catalog=llm_parameters>"
+type = "array<catalog=llm_parameters>"
 
 [resolve]
 method = "query"
@@ -708,7 +708,7 @@ The query keys sit flat on `[resolve]`:
 
 What the query produces depends on the variable's type:
 
-- `type = "list<catalog=<id>>"` - the value is every matching entry, after
+- `type = "array<catalog=<id>>"` - the value is every matching entry, after
   `sort` and `limit`. No matches means the `default` if you declared one,
   otherwise an empty list.
 - `type = "catalog=<id>"` - the value is one entry. With a `sort`, the top

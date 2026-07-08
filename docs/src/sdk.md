@@ -104,7 +104,7 @@ A variable resolution carries three things:
 - the **source** - where the value came from, so you can see *why* you got it.
   `source.kind` is `literal` for a plain value, `catalog` for a single
   [catalog](./package-format.md) entry (with the catalog and entry ids), or
-  `catalog_list` for a `list<catalog:...>` value.
+  `catalog_list` for a `array<catalog:...>` value.
 
 For a catalog-backed variable, `value` is the full structured entry - heading,
 image, body, whatever the catalog defines - not just the entry's name.

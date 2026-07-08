@@ -170,7 +170,7 @@ pub(crate) struct RuntimeArm {
 pub(crate) struct RuntimeQuery {
     pub(crate) catalog: String,
     /// Whether the variable's type is `catalog=<id>` (the top entry wins)
-    /// rather than `list<catalog=<id>>` (every match is the value).
+    /// rather than `array<catalog=<id>>` (every match is the value).
     pub(crate) single: bool,
     pub(crate) filter: Option<Expression>,
     pub(crate) sort: Option<Expression>,
@@ -190,7 +190,7 @@ pub(crate) enum RuntimeSelectedValue {
         name: String,
         value: JsonValue,
     },
-    CatalogList {
+    CatalogArray {
         catalog: String,
         names: Vec<String>,
         value: JsonValue,
@@ -202,7 +202,7 @@ impl RuntimeSelectedValue {
         match self {
             Self::Literal(value) => value,
             Self::Catalog { value, .. } => value,
-            Self::CatalogList { value, .. } => value,
+            Self::CatalogArray { value, .. } => value,
         }
     }
 }
@@ -417,7 +417,7 @@ fn validate_variable_type_kind(index: &SemanticIndex, type_kind: &VariableTypeKi
         VariableTypeKind::Enum(id) => Err(RototoError::new(format!(
             "variable references unknown enum: {id}"
         ))),
-        VariableTypeKind::List(item) => validate_variable_type_kind(index, item),
+        VariableTypeKind::Array(item) => validate_variable_type_kind(index, item),
     }
 }
 
@@ -653,17 +653,17 @@ impl<'a> RuntimeCompiler<'a> {
         }
         let (catalog, single) = match type_kind {
             VariableTypeKind::Catalog(catalog) => (catalog.as_str(), true),
-            VariableTypeKind::List(item) => match item.as_ref() {
+            VariableTypeKind::Array(item) => match item.as_ref() {
                 VariableTypeKind::Catalog(catalog) => (catalog.as_str(), false),
                 _ => {
                     return Err(RototoError::new(
-                        "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
+                        "method = \"query\" requires a catalog=<id> or array<catalog=<id>> type",
                     ));
                 }
             },
             _ => {
                 return Err(RototoError::new(
-                    "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
+                    "method = \"query\" requires a catalog=<id> or array<catalog=<id>> type",
                 ));
             }
         };
@@ -794,11 +794,11 @@ impl<'a> RuntimeCompiler<'a> {
                     value: entry.clone(),
                 })
             }
-            VariableTypeKind::List(item) => {
+            VariableTypeKind::Array(item) => {
                 if let VariableTypeKind::Catalog(catalog) = item.as_ref() {
                     let values = value.as_array().ok_or_else(|| {
                         RototoError::new(format!(
-                            "list<catalog> variable value must be a list: {}",
+                            "array<catalog> variable value must be an array: {}",
                             variable.id
                         ))
                     })?;
@@ -807,14 +807,14 @@ impl<'a> RuntimeCompiler<'a> {
                     for value in values {
                         let name = value.as_str().ok_or_else(|| {
                             RototoError::new(format!(
-                                "list<catalog> variable entries must be strings: {}",
+                                "array<catalog> variable entries must be strings: {}",
                                 variable.id
                             ))
                         })?;
                         names.push(name.to_owned());
                         entries.push(catalog_entry_value(index, catalog, name)?.clone());
                     }
-                    return Ok(RuntimeSelectedValue::CatalogList {
+                    return Ok(RuntimeSelectedValue::CatalogArray {
                         catalog: catalog.clone(),
                         names,
                         value: JsonValue::Array(entries),
@@ -859,5 +859,5 @@ fn present_json<'a>(
 }
 
 fn is_known_primitive(value: &str) -> bool {
-    matches!(value, "bool" | "int" | "number" | "string" | "list")
+    matches!(value, "bool" | "int" | "number" | "string" | "array")
 }

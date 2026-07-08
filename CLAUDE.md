@@ -203,8 +203,8 @@ package structure and files:
   retired `qualifier[...]` / `env.qualifier[...]` spellings, whose lint error
   points at `variables["<id>"]`. Expression, bucket, and operator shapes are
   validated.
-- Variable types support `bool`, `int`, `number`, `string`, `list`,
-  `catalog=<id>`, `enum=<id>`, and `list<...>` where the list item is a
+- Variable types support `bool`, `int`, `number`, `string`, `array`,
+  `catalog=<id>`, `enum=<id>`, and `array<...>` where the array item is a
   primitive, catalog, or enum type. Resolve defaults and rule values must match
   the declared type; for enum-typed variables every default and rule value must
   be a member of the enum (`rototo/variable-unknown-enum` for an unknown enum

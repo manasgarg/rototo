@@ -229,7 +229,7 @@ debugging - the default and every rule that was considered:
 ```
 
 The `source.kind` is `literal` for a plain value, `catalog` for a single catalog
-entry, or `catalog_list` for a `list<catalog:...>` value.
+entry, or `catalog_list` for a `array<catalog:...>` value.
 
 ## diff - what changed, behaviorally
 

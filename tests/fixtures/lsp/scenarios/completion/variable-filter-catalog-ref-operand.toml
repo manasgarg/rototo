@@ -5,7 +5,7 @@ file = "variables/message.toml"
 
 overlay = '''
 schema_version = 1
-type = "list<catalog=message>"
+type = "array<catalog=message>"
 
 [resolve]
 method = "query"

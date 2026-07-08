@@ -40,7 +40,7 @@ fn assert_catalog_source(source: &VariableResolutionSource, catalog: &str, value
             assert_eq!(actual_value, value);
         }
         VariableResolutionSource::Literal => panic!("expected catalog-backed resolution source"),
-        VariableResolutionSource::CatalogList { .. } => {
+        VariableResolutionSource::CatalogArray { .. } => {
             panic!("expected scalar catalog-backed resolution source")
         }
     }

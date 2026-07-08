@@ -62,7 +62,7 @@ A variable is the named value your application code asks for at runtime. The app
 
 A quick word on the names themselves: every id Rototo recognizes (variables, enums, catalogs, catalog entries, evaluation contexts, samples) is lowercase snake_case, with `/` allowed for namespacing. That's not just taste. Ids appear in expressions, where a hyphen is the minus operator, so `checkout-timeout` would parse as a subtraction while `variables.checkout_timeout` just works. Lint enforces the convention as an error (`rototo/id-not-snake-case`).
 
-A variable can be backed by a plain type - `bool`, `int`, `number`, `string`, or `list`. It can also pull a value from a catalog when the configuration is a structured object you want to reuse and validate as a named entry.
+A variable can be backed by a plain type - `bool`, `int`, `number`, `string`, or `array`. It can also pull a value from a catalog when the configuration is a structured object you want to reuse and validate as a named entry.
 
 Here's a variable for the checkout timeout:
 
@@ -250,7 +250,7 @@ This keeps structured configuration from getting scattered across a bunch of unr
 
 Sometimes the application doesn't want one catalog entry - it wants a filtered list of them. A dropdown is the classic case: the package might define every supported LLM parameter set, but the app should only show the ones that are currently enabled.
 
-Catalog queries handle that. A variable can resolve to `list<catalog:...>` and declare `method = "query"` in its resolve block to pick the matching entries from the catalog's own data.
+Catalog queries handle that. A variable can resolve to `array<catalog:...>` and declare `method = "query"` in its resolve block to pick the matching entries from the catalog's own data.
 
 First, add an `enabled` field to the `llm_parameters` catalog schema:
 
@@ -285,7 +285,7 @@ Now define a variable that returns the enabled entries:
 
 ```toml
 schema_version = 1
-type = "list<catalog=llm_parameters>"
+type = "array<catalog=llm_parameters>"
 
 [resolve]
 method = "query"
@@ -378,7 +378,7 @@ type = "string"
 members = ["free", "team", "business"]
 ```
 
-A variable uses it with `type = "enum=plan_tiers"` (or `list<enum=plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
+A variable uses it with `type = "enum=plan_tiers"` (or `array<enum=plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
 
 Enums also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to an enum with `"x-rototo-ref": "enum=plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
 

@@ -19,7 +19,7 @@ pub(super) struct VariableListJson<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct CatalogListJson<'a> {
+pub(super) struct CatalogArrayJson<'a> {
     package: String,
     catalogs: Vec<PackageFileJson<'a>>,
 }
@@ -465,7 +465,7 @@ pub(crate) async fn print_catalog_list(inspection: &PackageInspection, json: boo
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&CatalogListJson {
+            serde_json::to_string_pretty(&CatalogArrayJson {
                 package: inspection.root.display().to_string(),
                 catalogs: inspection
                     .catalogs

@@ -108,7 +108,7 @@ pub(in crate::lint) enum VariableTypeKind {
     Primitive(String),
     Catalog(String),
     Enum(String),
-    List(Box<VariableTypeKind>),
+    Array(Box<VariableTypeKind>),
 }
 
 impl VariableTypeKind {
@@ -116,7 +116,7 @@ impl VariableTypeKind {
         match self {
             Self::Primitive(_) | Self::Enum(_) => Vec::new(),
             Self::Catalog(catalog) => vec![catalog.as_str()],
-            Self::List(item) => item.catalog_ids(),
+            Self::Array(item) => item.catalog_ids(),
         }
     }
 
@@ -125,13 +125,13 @@ impl VariableTypeKind {
         match self {
             Self::Primitive(_) | Self::Catalog(_) => Vec::new(),
             Self::Enum(id) => vec![id.as_str()],
-            Self::List(item) => item.enum_ids(),
+            Self::Array(item) => item.enum_ids(),
         }
     }
 
-    pub(in crate::lint) fn list_catalog(&self) -> Option<&str> {
+    pub(in crate::lint) fn array_catalog(&self) -> Option<&str> {
         match self {
-            Self::List(item) => match item.as_ref() {
+            Self::Array(item) => match item.as_ref() {
                 Self::Catalog(catalog) => Some(catalog.as_str()),
                 _ => None,
             },
@@ -164,10 +164,10 @@ pub(in crate::lint) fn variable_type_kind(
 fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
     let value = value.trim();
     if let Some(inner) = value
-        .strip_prefix("list<")
+        .strip_prefix("array<")
         .and_then(|value| value.strip_suffix('>'))
     {
-        return parse_variable_type(inner).map(|item| VariableTypeKind::List(Box::new(item)));
+        return parse_variable_type(inner).map(|item| VariableTypeKind::Array(Box::new(item)));
     }
     if let Some((class, id)) = value.split_once('=') {
         return match crate::address::EntityClass::parse_name(class) {

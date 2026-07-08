@@ -370,8 +370,8 @@ fn selected_value_source(value: &RuntimeSelectedValue) -> VariableResolutionSour
             catalog: catalog.clone(),
             value: name.clone(),
         },
-        RuntimeSelectedValue::CatalogList { catalog, names, .. } => {
-            VariableResolutionSource::CatalogList {
+        RuntimeSelectedValue::CatalogArray { catalog, names, .. } => {
+            VariableResolutionSource::CatalogArray {
                 catalog: catalog.clone(),
                 values: names.clone(),
             }
@@ -478,7 +478,7 @@ fn resolve_catalog_query(
         .iter()
         .map(|name| raw_entry_with_id(entries, name))
         .collect();
-    Ok(RuntimeSelectedValue::CatalogList {
+    Ok(RuntimeSelectedValue::CatalogArray {
         catalog: query.catalog.clone(),
         names,
         value: JsonValue::Array(values),
@@ -1187,7 +1187,7 @@ value = true
         std::fs::write(
             package.path().join("variables/supported_plans.toml"),
             r#"schema_version = 1
-type = "list<catalog=plan>"
+type = "array<catalog=plan>"
 
 [resolve]
 method = "query"
@@ -1268,7 +1268,7 @@ body = "SMS body"
         std::fs::write(
             package.path().join("variables/templates.toml"),
             r#"schema_version = 1
-type = "list<catalog=message_template>"
+type = "array<catalog=message_template>"
 
 [resolve]
 method = "query"
@@ -1323,7 +1323,7 @@ title = "Home"
         std::fs::write(
             package.path().join("variables/pages.toml"),
             r#"schema_version = 1
-type = "list<catalog=page>"
+type = "array<catalog=page>"
 
 [resolve]
 method = "query"
@@ -1493,7 +1493,7 @@ filter = "entry.price > 1000"
     async fn query_list_sorts_and_limits_matches() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog=plan>"
+type = "array<catalog=plan>"
 
 [resolve]
 method = "query"
@@ -1520,7 +1520,7 @@ limit = 2
     async fn query_list_with_no_match_is_empty_without_default() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog=plan>"
+type = "array<catalog=plan>"
 
 [resolve]
 method = "query"
@@ -1538,7 +1538,7 @@ filter = "entry.price > 1000"
     async fn query_sort_keys_must_be_comparable() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog=plan>"
+type = "array<catalog=plan>"
 
 [resolve]
 method = "query"

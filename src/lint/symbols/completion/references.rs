@@ -207,7 +207,7 @@ pub(super) fn current_variable_query_catalog_id(
     let type_kind = variable_type_kind(&variable.type_source)?;
     match &type_kind.value {
         VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
-        kind => kind.list_catalog().map(ToOwned::to_owned),
+        kind => kind.array_catalog().map(ToOwned::to_owned),
     }
 }
 
@@ -238,7 +238,7 @@ pub(super) fn current_variable_value_completion_items(
     let type_kind = variable_type_kind(&variable.type_source).map(|kind| kind.value);
     let catalog_id = match &type_kind {
         Some(VariableTypeKind::Catalog(catalog)) => Some(catalog.clone()),
-        Some(kind) => kind.list_catalog().map(ToOwned::to_owned),
+        Some(kind) => kind.array_catalog().map(ToOwned::to_owned),
         None => None,
     };
     if let Some(catalog) = catalog_id {
@@ -258,7 +258,7 @@ pub(super) fn current_variable_value_completion_items(
     }
     let enum_id = match &type_kind {
         Some(VariableTypeKind::Enum(id)) => Some(id.clone()),
-        Some(VariableTypeKind::List(item)) => match item.as_ref() {
+        Some(VariableTypeKind::Array(item)) => match item.as_ref() {
             VariableTypeKind::Enum(id) => Some(id.clone()),
             _ => None,
         },

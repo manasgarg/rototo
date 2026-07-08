@@ -464,7 +464,7 @@ fn json_shape_label(value: &JsonValue) -> &'static str {
         JsonValue::Number(number) if number.is_i64() || number.is_u64() => "int",
         JsonValue::Number(_) => "number",
         JsonValue::String(_) => "string",
-        JsonValue::Array(_) => "list",
+        JsonValue::Array(_) => "array",
         JsonValue::Object(_) => "object",
     }
 }

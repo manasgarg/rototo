@@ -539,7 +539,7 @@ value = true
         .await
         .unwrap();
         let disk_variable = r#"schema_version = 1
-type = "list<catalog=message>"
+type = "array<catalog=message>"
 
 [resolve]
 default = []
@@ -557,7 +557,7 @@ default = []
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 8,
                     "text": r#"schema_version = 1
-type = "list<catalog=message>"
+type = "array<catalog=message>"
 
 [resolve]
 method = "query"
