@@ -8,6 +8,7 @@ import {
     adminCreateGrant,
     adminCreateGroup,
     adminCreateInvitation,
+    adminDeleteGroup,
     adminDiagnostics,
     adminGrants,
     adminGroupMember,
@@ -15,8 +16,11 @@ import {
     adminInvitations,
     adminPrincipals,
     adminRevokeGrant,
+    adminRevokeInvitation,
     adminSetPrincipalStatus,
     adminSourceTrees,
+    adminUnlinkIdentity,
+    adminUpdateGroup,
     deregisterSourceTree,
     registerSourceTree,
     setSourceTreeBranch,
@@ -181,12 +185,33 @@ export function AdminPage({ me }: { me: MeResponse }) {
                                     {principal.displayName}
                                 </span>
                                 <span className="row-sub">
-                                    {principal.identities
-                                        .map(
-                                            (identity) =>
-                                                `${identity.provider}:${identity.login ?? identity.email ?? "?"}`,
-                                        )
-                                        .join(", ")}
+                                    {principal.identities.map(
+                                        (identity, index) => (
+                                            <span key={identity.id}>
+                                                {index > 0 ? ", " : ""}
+                                                {identity.provider}:
+                                                {identity.login ??
+                                                    identity.email ??
+                                                    "?"}
+                                                {principal.identities.length >
+                                                1 ? (
+                                                    <button
+                                                        className="btn btn-icon btn-sm btn-remove"
+                                                        title="Unlink this identity; the principal keeps signing in with the others"
+                                                        onClick={() =>
+                                                            act(
+                                                                adminUnlinkIdentity(
+                                                                    identity.id,
+                                                                ),
+                                                            )
+                                                        }
+                                                    >
+                                                        ×
+                                                    </button>
+                                                ) : null}
+                                            </span>
+                                        ),
+                                    )}
                                     {principal.groups.length > 0
                                         ? ` · ${principal.groups.join(", ")}`
                                         : ""}
@@ -251,6 +276,19 @@ export function AdminPage({ me }: { me: MeResponse }) {
                                     )
                                 }
                             />
+                            <GroupNameEditor
+                                group={group}
+                                onSave={(name) =>
+                                    act(adminUpdateGroup(group.id, { name }))
+                                }
+                            />
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                title="Refused while grants reference the group"
+                                onClick={() => act(adminDeleteGroup(group.id))}
+                            >
+                                Delete
+                            </button>
                         </span>
                     </div>
                 ))}
@@ -318,6 +356,22 @@ export function AdminPage({ me }: { me: MeResponse }) {
                                         : `open until ${invitation.expiresAt.slice(0, 10)}`}
                                 </span>
                             </span>
+                            {invitation.redeemedBy === null ? (
+                                <span className="row-side">
+                                    <button
+                                        className="btn btn-ghost btn-sm"
+                                        onClick={() =>
+                                            act(
+                                                adminRevokeInvitation(
+                                                    invitation.id,
+                                                ),
+                                            )
+                                        }
+                                    >
+                                        Revoke
+                                    </button>
+                                </span>
+                            ) : null}
                         </div>
                     ))}
                 </div>
@@ -445,6 +499,58 @@ function RegisterTreeForm({
                 Register
             </button>
         </div>
+    );
+}
+
+// Group names are labels, not addresses, so rename is safe; surface
+// approval roles reference the name, which is why it stays snake_case.
+function GroupNameEditor({
+    group,
+    onSave,
+}: {
+    group: AdminGroup;
+    onSave: (name: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [name, setName] = useState(group.name);
+    if (!editing) {
+        return (
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                    setName(group.name);
+                    setEditing(true);
+                }}
+            >
+                Rename
+            </button>
+        );
+    }
+    return (
+        <span className="inline-form">
+            <input
+                autoFocus
+                className="input mono"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={name.trim() === ""}
+                onClick={() => {
+                    setEditing(false);
+                    onSave(name.trim());
+                }}
+            >
+                Save
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setEditing(false)}
+            >
+                Cancel
+            </button>
+        </span>
     );
 }
 

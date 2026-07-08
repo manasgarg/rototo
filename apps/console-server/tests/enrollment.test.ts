@@ -99,6 +99,93 @@ function cookieHeader(jar: Record<string, string>): string {
         .join("; ");
 }
 
+test("groups rename and delete, invitations revoke, identities unlink", async () => {
+    const harness = teamHarness();
+    const admin = harness.signIn({ login: "admin", token: "admin-token" });
+    harness.store.insertGrant({
+        granteeKind: "principal",
+        granteeId: admin.principalId,
+        action: "administer",
+        resource: "deployment",
+        createdBy: null,
+    });
+    const post = (path: string, payload: unknown): Promise<Response> =>
+        Promise.resolve(
+            harness.app.fetch(
+                new Request(`http://console.test/api${path}`, {
+                    method: "POST",
+                    headers: mutationHeaders(admin.headers),
+                    body: JSON.stringify(payload),
+                }),
+            ),
+        );
+
+    // Groups: rename in place (names are labels, not addresses); delete
+    // refuses while a grant references the group, and works after revoke.
+    const group = (await json(await post("/admin/groups", { name: "ops" })))
+        .group;
+    const renamed = await json(
+        await post(`/admin/groups/${group.id}/update`, {
+            name: "platform_ops",
+            description: "who runs prod",
+        }),
+    );
+    assert.equal(renamed.group.name, "platform_ops");
+    assert.equal(renamed.group.description, "who runs prod");
+    const granted = await json(
+        await post("/admin/grants", {
+            granteeKind: "group",
+            granteeId: group.id,
+            action: "view",
+            resource: "deployment",
+        }),
+    );
+    const blocked = await post(`/admin/groups/${group.id}/delete`, {});
+    assert.equal(blocked.status, 409);
+    assert.match((await json(blocked)).error.message, /revoke them first/);
+    await post(`/admin/grants/${granted.grant.id}/revoke`, {});
+    const deleted = await post(`/admin/groups/${group.id}/delete`, {});
+    assert.equal(deleted.status, 200, await deleted.clone().text());
+    assert.equal(harness.store.getGroup(group.id), null);
+
+    // Invitations: a pending one hard-deletes; nothing else references it.
+    const invited = await json(
+        await post("/admin/invitations", { email: "sam@acme.com" }),
+    );
+    const revoked = await post(
+        `/admin/invitations/${invited.invitation.id}/revoke`,
+        {},
+    );
+    assert.equal(revoked.status, 200, await revoked.clone().text());
+    assert.equal(harness.store.listInvitations().length, 0);
+
+    // Identities: the last one refuses (that would be a disable wearing a
+    // disguise); a second identity unlinks cleanly.
+    const solo = harness.store.identitiesForPrincipal(admin.principalId);
+    const refused = await post(`/admin/identities/${solo[0]?.id}/unlink`, {});
+    assert.equal(refused.status, 409);
+    assert.match((await json(refused)).error.message, /last identity/);
+    const second = harness.store.attachIdentity(
+        admin.principalId,
+        {
+            provider: "oidc",
+            subject: "admin-okta-sub",
+            login: null,
+            email: "admin@acme.com",
+            emailVerified: true,
+            name: "Admin",
+            avatarUrl: null,
+        },
+        null,
+    );
+    const unlinked = await post(`/admin/identities/${second.id}/unlink`, {});
+    assert.equal(unlinked.status, 200, await unlinked.clone().text());
+    assert.equal(
+        harness.store.identitiesForPrincipal(admin.principalId).length,
+        1,
+    );
+});
+
 test("invite-only: completing SSO authentication grants nothing", async () => {
     const claims = new Map([["code-1", claimsFor("u-1", "sam@acme.com")]]);
     const harness = oidcHarness({}, claims);

@@ -386,6 +386,19 @@ export class Store {
         return row === undefined ? null : identityFromRow(row);
     }
 
+    getIdentityById(id: string): IdentityRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM identities WHERE id = ?")
+            .get(id) as Record<string, unknown> | undefined;
+        return row === undefined ? null : identityFromRow(row);
+    }
+
+    // Unlinking removes the identity and its stored credential; the route
+    // guards against removing a principal's last identity.
+    deleteIdentity(id: string): void {
+        this.db.prepare("DELETE FROM identities WHERE id = ?").run(id);
+    }
+
     identitiesForPrincipal(principalId: string): IdentityRow[] {
         const rows = this.db
             .prepare(
@@ -745,6 +758,21 @@ export class Store {
         return rows.map((row) => row.principal_id as string);
     }
 
+    // Group names are labels, not addresses: nothing references a group by
+    // name, so rename is safe here in a way it is not for package ids.
+    updateGroup(id: string, name: string, description: string | null): void {
+        this.db
+            .prepare("UPDATE groups SET name = ?, description = ? WHERE id = ?")
+            .run(name, description, id);
+    }
+
+    // The route refuses while grants reference the group; membership rows
+    // go with the group itself.
+    deleteGroup(id: string): void {
+        this.db.prepare("DELETE FROM group_members WHERE group_id = ?").run(id);
+        this.db.prepare("DELETE FROM groups WHERE id = ?").run(id);
+    }
+
     groupsForPrincipal(principalId: string): GroupRow[] {
         const rows = this.db
             .prepare(
@@ -800,6 +828,19 @@ export class Store {
                 row.createdAt,
             );
         return row;
+    }
+
+    getInvitation(id: string): InvitationRow | null {
+        const row = this.db
+            .prepare("SELECT * FROM invitations WHERE id = ?")
+            .get(id) as Record<string, unknown> | undefined;
+        return row === undefined ? null : invitationFromRow(row);
+    }
+
+    // Revoking a pending invitation is a hard delete: nothing else
+    // references it, so there is nothing to audit beyond the authz log.
+    deleteInvitation(id: string): void {
+        this.db.prepare("DELETE FROM invitations WHERE id = ?").run(id);
     }
 
     listInvitations(): InvitationRow[] {

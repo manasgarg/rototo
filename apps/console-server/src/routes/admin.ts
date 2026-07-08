@@ -96,6 +96,7 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
                 identities: ctx.store
                     .identitiesForPrincipal(principal.id)
                     .map((identity) => ({
+                        id: identity.id,
                         provider: identity.provider,
                         login: identity.login,
                         email: identity.email,
@@ -168,6 +169,84 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
             JSON.stringify({ group: group.id, name }),
         );
         return c.json({ group }, 201);
+    });
+
+    // Group names are labels, not addresses, so rename is safe here in a
+    // way it is not for package ids.
+    app.post("/admin/groups/:id/update", async (c) => {
+        const subject = subjectOf(c);
+        await requireAdminister(subject, { kind: "deployment" });
+        const group = ctx.store.getGroup(c.req.param("id"));
+        if (group === null) {
+            throw new ApiError(404, "no such group");
+        }
+        const input = await body(c);
+        const name =
+            typeof input.name === "string" && input.name.trim() !== ""
+                ? input.name.trim()
+                : group.name;
+        if (!/^[a-z0-9_]+$/.test(name)) {
+            throw new ApiError(
+                400,
+                "group names are lowercase snake_case; surface approval roles reference them",
+            );
+        }
+        const holder = ctx.store.getGroupByName(name);
+        if (holder !== null && holder.id !== group.id) {
+            throw new ApiError(409, `group ${name} already exists`);
+        }
+        const description =
+            input.description === undefined
+                ? group.description
+                : typeof input.description === "string" &&
+                    input.description.trim() !== ""
+                  ? input.description
+                  : null;
+        ctx.store.updateGroup(group.id, name, description);
+        ctx.store.appendAudit(
+            ctx.subjectId(subject),
+            "group.update",
+            JSON.stringify({ group: group.id, from: group.name, to: name }),
+        );
+        return c.json({
+            group: {
+                ...(ctx.store.getGroup(group.id) as object),
+                members: ctx.store.listGroupMembers(group.id),
+            },
+        });
+    });
+
+    // Deleting a group a grant references would silently widen or narrow
+    // access; access changes only happen through explicit grant operations.
+    app.post("/admin/groups/:id/delete", async (c) => {
+        const subject = subjectOf(c);
+        await requireAdminister(subject, { kind: "deployment" });
+        const group = ctx.store.getGroup(c.req.param("id"));
+        if (group === null) {
+            throw new ApiError(404, "no such group");
+        }
+        const referencing = ctx.store
+            .listGrants()
+            .filter(
+                (grant) =>
+                    grant.granteeKind === "group" &&
+                    grant.granteeId === group.id,
+            );
+        if (referencing.length > 0) {
+            throw new ApiError(
+                409,
+                `${referencing.length} grant${referencing.length === 1 ? "" : "s"} ` +
+                    `(${referencing.map((grant) => `${grant.action} on ${grant.resource}`).join(", ")}) ` +
+                    "reference this group; revoke them first",
+            );
+        }
+        ctx.store.deleteGroup(group.id);
+        ctx.store.appendAudit(
+            ctx.subjectId(subject),
+            "group.delete",
+            JSON.stringify({ group: group.id, name: group.name }),
+        );
+        return c.json({ ok: true });
     });
 
     app.post("/admin/groups/:id/members", async (c) => {
@@ -390,6 +469,61 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
 
     // Grant configuration validated like a package: incoherence reported,
     // nothing failed.
+    // Revoking a pending invitation hard-deletes it: nothing else
+    // references it. A redeemed one already became a principal, and the
+    // lever for that is disabling the principal.
+    app.post("/admin/invitations/:id/revoke", async (c) => {
+        const subject = subjectOf(c);
+        await requireAdminister(subject, { kind: "deployment" });
+        const invitation = ctx.store.getInvitation(c.req.param("id"));
+        if (invitation === null) {
+            throw new ApiError(404, "no such invitation");
+        }
+        if (invitation.redeemedBy !== null) {
+            throw new ApiError(
+                409,
+                "this invitation was redeemed; disable the principal instead",
+            );
+        }
+        ctx.store.deleteInvitation(invitation.id);
+        ctx.store.appendAudit(
+            ctx.subjectId(subject),
+            "invitation.revoke",
+            JSON.stringify({ invitation: invitation.id }),
+        );
+        return c.json({ ok: true });
+    });
+
+    // Unlinking removes one sign-in route and its stored credential. A
+    // principal's last identity stays: removing it would be a disable
+    // wearing a disguise, and disable is the explicit lever.
+    app.post("/admin/identities/:id/unlink", async (c) => {
+        const subject = subjectOf(c);
+        await requireAdminister(subject, { kind: "deployment" });
+        const identity = ctx.store.getIdentityById(c.req.param("id"));
+        if (identity === null) {
+            throw new ApiError(404, "no such identity");
+        }
+        const siblings = ctx.store.identitiesForPrincipal(identity.principalId);
+        if (siblings.length <= 1) {
+            throw new ApiError(
+                409,
+                "this is the principal's last identity; disable the principal instead",
+            );
+        }
+        ctx.store.deleteIdentity(identity.id);
+        ctx.store.appendAudit(
+            ctx.subjectId(subject),
+            "identity.unlink",
+            JSON.stringify({
+                identity: identity.id,
+                principal: identity.principalId,
+                provider: identity.provider,
+            }),
+        );
+        return c.json({ ok: true });
+    });
+
     app.get("/admin/diagnostics", async (c) => {
         const subject = subjectOf(c);
         await requireAdminister(subject, { kind: "deployment" });

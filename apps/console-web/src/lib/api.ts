@@ -506,6 +506,7 @@ export type AdminPrincipal = {
     displayName: string;
     status: "active" | "disabled";
     identities: {
+        id: string;
         provider: string;
         login: string | null;
         email: string | null;
@@ -933,6 +934,25 @@ export function adminGroupMember(
         principalId,
         remove,
     });
+}
+
+export function adminUpdateGroup(
+    groupId: string,
+    input: { name?: string; description?: string },
+): Promise<{ group: AdminGroup }> {
+    return apiPost(`/api/admin/groups/${groupId}/update`, input);
+}
+
+export function adminDeleteGroup(groupId: string): Promise<{ ok: boolean }> {
+    return apiPost(`/api/admin/groups/${groupId}/delete`, {});
+}
+
+export function adminRevokeInvitation(id: string): Promise<{ ok: boolean }> {
+    return apiPost(`/api/admin/invitations/${id}/revoke`, {});
+}
+
+export function adminUnlinkIdentity(id: string): Promise<{ ok: boolean }> {
+    return apiPost(`/api/admin/identities/${id}/unlink`, {});
 }
 
 export function adminGrants(): Promise<{ grants: AdminGrant[] }> {
