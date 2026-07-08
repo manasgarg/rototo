@@ -281,6 +281,19 @@ h3 {
     margin: 14px 8px 6px;
 }
 
+/* the scope pickers: which tree, which package the sections apply to */
+.nav-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 8px;
+}
+
+.nav-scope .input {
+    width: 100%;
+    font-size: 12.5px;
+}
+
 .side-nav > .nav-group-label:first-child {
     margin-top: 4px;
 }
@@ -474,6 +487,18 @@ h3 {
 
 .crumbs .label {
     font-size: 11px;
+}
+
+.crumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.crumb .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .crumbs a.label:hover {

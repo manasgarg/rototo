@@ -2,10 +2,21 @@
 // views from the semantic model, the form-submits-operations editor for
 // variables, the raw-text escape hatch with live LSP diagnostics, and the
 // execution facet — one chosen context carried across the trace previews
-// and the lit-up reference graph. Edits land on a change set's branch;
-// without an active change set the workbench is read-only and says why.
+// and the lit-up reference graph. The URL owns what is being looked at
+// (the package view is an address in the addressing grammar, lib/router.ts)
+// and how (change set, pin, context ride the query); this page renders and
+// navigates, it keeps no private route state. Edits land on a change set's
+// branch; without an active change set the workbench is read-only and says
+// why.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 
 import {
     ApiError,
@@ -31,7 +42,7 @@ import {
     type PackageDetail,
     type PackageListing,
     type RuleModel,
-    type SourceTreeSummary,
+    type SemanticModel,
     type SynthesizedContext,
     type TraceOutcome,
     type VariableModel,
@@ -39,6 +50,7 @@ import {
 import {
     ContextPicker,
     contextLabel,
+    syntheticLabel,
     type ChosenContext,
 } from "@/components/context-picker";
 import {
@@ -50,52 +62,68 @@ import {
 } from "@/components/insight";
 import { LitGraph } from "@/components/lit-graph";
 import { TracePreview } from "@/components/trace-preview";
-import { navigate } from "@/lib/router";
+import {
+    CLASS_LABELS,
+    formatAddress,
+    isCollective,
+    navigate,
+    packageUrl,
+    type AddressStep,
+    type PackageView,
+    type ViewState,
+} from "@/lib/router";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
-
-type View =
-    | { kind: "entities" }
-    | { kind: "variable"; id: string }
-    | { kind: "file"; path: string }
-    | { kind: "history" };
 
 export function WorkbenchPage({
     me,
     treeId,
-    initialView,
+    packagePath,
+    view,
+    state,
 }: {
     me: MeResponse;
     treeId: string;
-    initialView?: "entities" | "history";
+    packagePath: string;
+    view: PackageView;
+    state: ViewState;
 }) {
     const tree = me.capabilities?.sourceTrees.find(
         (candidate) => candidate.id === treeId,
     );
     const [changeSets, setChangeSets] = useState<ChangeSet[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(null);
     const [listing, setListing] = useState<PackageListing | null>(null);
-    const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
     const [detail, setDetail] = useState<PackageDetail | null>(null);
-    const [view, setView] = useState<View>({
-        kind: initialView ?? "entities",
-    });
     const [banner, setBanner] = useState<Banner | null>(null);
-    // The read side's execution facet: one chosen context, carried across
-    // the previews and the graph; and an optional historical pin, which
-    // makes the whole workbench a read-only view of that instant.
-    const [chosen, setChosen] = useState<ChosenContext>({ kind: "none" });
+    // The read side's execution facet: the chosen context rides the URL as
+    // `ctx` so it survives navigation and sharing; only an ad-hoc JSON
+    // context stays session-local, because it has no name to link to.
+    const [adhoc, setAdhoc] = useState<Record<string, unknown> | null>(null);
     const [inventory, setInventory] = useState<ContextInventory | null>(null);
     const [outcomes, setOutcomes] = useState<Map<string, TraceOutcome> | null>(
         null,
     );
-    const [historicalPin, setHistoricalPin] = useState<string | null>(null);
 
-    const active = changeSets.find((entry) => entry.id === activeId) ?? null;
+    const active =
+        changeSets.find((entry) => entry.id === state.changeSetId) ?? null;
     const editable =
-        historicalPin === null &&
+        state.pin === null &&
         active !== null &&
         (active.state === "draft" || active.state === "proposed");
+
+    // Stay on the current view, or move to another one, without losing the
+    // query state the URL carries.
+    const go = useCallback(
+        (next: PackageView, patch?: Partial<ViewState>) => {
+            navigate(
+                packageUrl(treeId, packagePath, next, {
+                    ...state,
+                    ...patch,
+                }),
+            );
+        },
+        [treeId, packagePath, state],
+    );
 
     const refreshChangeSets = useCallback(() => {
         listChangeSets(treeId).then(
@@ -117,16 +145,9 @@ export function WorkbenchPage({
         setDetail(null);
         listPackages(treeId, ref).then(
             (response) => {
-                if (stale) {
-                    return;
+                if (!stale) {
+                    setListing(response);
                 }
-                setListing(response);
-                setSelectedPackage((current) =>
-                    current !== null &&
-                    response.packages.some((entry) => entry.path === current)
-                        ? current
-                        : (response.packages[0]?.path ?? null),
-                );
             },
             (error: Error) => {
                 if (!stale) {
@@ -139,13 +160,13 @@ export function WorkbenchPage({
         };
     }, [treeId, ref]);
 
-    const pin = historicalPin ?? listing?.pin ?? null;
+    const pin = state.pin ?? listing?.pin ?? null;
     useEffect(() => {
-        if (pin === null || selectedPackage === null) {
+        if (pin === null) {
             return;
         }
         let stale = false;
-        readPackage(treeId, selectedPackage, pin).then(
+        readPackage(treeId, packagePath, pin).then(
             (response) => {
                 if (!stale) {
                     setDetail(response);
@@ -160,16 +181,16 @@ export function WorkbenchPage({
         return () => {
             stale = true;
         };
-    }, [treeId, selectedPackage, pin]);
+    }, [treeId, packagePath, pin]);
 
     // The context inventory follows the pin: samples change with the
     // package, synthesized cases change with the rules.
     useEffect(() => {
-        if (pin === null || selectedPackage === null) {
+        if (pin === null) {
             return;
         }
         let stale = false;
-        fetchContexts(treeId, selectedPackage, pin).then(
+        fetchContexts(treeId, packagePath, pin).then(
             (response) => {
                 if (!stale) {
                     setInventory(response);
@@ -184,21 +205,66 @@ export function WorkbenchPage({
         return () => {
             stale = true;
         };
-    }, [treeId, selectedPackage, pin]);
+    }, [treeId, packagePath, pin]);
+
+    // The chosen context, rehydrated from the URL against the inventory.
+    const chosen = useMemo<ChosenContext>(() => {
+        if (adhoc !== null) {
+            return { kind: "adhoc", context: adhoc };
+        }
+        const param = state.context;
+        if (param === null || inventory === null) {
+            return { kind: "none" };
+        }
+        if (param.startsWith("sample:")) {
+            const key = param.slice("sample:".length);
+            const sample = inventory.samples.find(
+                (candidate) => candidate.key === key,
+            );
+            return sample?.context != null
+                ? { kind: "sample", key, context: sample.context }
+                : { kind: "none" };
+        }
+        if (param.startsWith("synthetic:")) {
+            const label = param.slice("synthetic:".length);
+            const entry = inventory.synthesized.find(
+                (candidate) => syntheticLabel(candidate) === label,
+            );
+            return entry !== undefined
+                ? { kind: "synthetic", label, context: entry.context }
+                : { kind: "none" };
+        }
+        return { kind: "none" };
+    }, [adhoc, state.context, inventory]);
+
+    const chooseContext = useCallback(
+        (next: ChosenContext) => {
+            if (next.kind === "adhoc") {
+                setAdhoc(next.context);
+                return;
+            }
+            setAdhoc(null);
+            go(view, {
+                context:
+                    next.kind === "sample"
+                        ? `sample:${next.key}`
+                        : next.kind === "synthetic"
+                          ? `synthetic:${next.label}`
+                          : null,
+            });
+        },
+        [go, view],
+    );
 
     // The chosen context resolves the whole package: one lenient batch
     // feeds every preview and the lit-up graph.
     useEffect(() => {
-        if (
-            chosen.kind === "none" ||
-            pin === null ||
-            selectedPackage === null
-        ) {
+        if (chosen.kind === "none" || pin === null) {
             setOutcomes(null);
             return;
         }
         let stale = false;
-        runPreview(treeId, selectedPackage, pin, chosen.context).then(
+        runPreview(treeId, packagePath, pin, chosen.context).then(
             (response) => {
                 if (!stale) {
                     setOutcomes(
@@ -224,7 +290,7 @@ export function WorkbenchPage({
         return () => {
             stale = true;
         };
-    }, [treeId, selectedPackage, pin, chosen]);
+    }, [treeId, packagePath, pin, chosen]);
 
     const afterSave = useCallback(
         (result: EditResponse) => {
@@ -274,40 +340,25 @@ export function WorkbenchPage({
 
     const treeName =
         tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id;
+    const knownPackage =
+        listing === null ||
+        listing.packages.some((entry) => entry.path === packagePath);
 
     return (
         <div className="section">
             <div className="section-header">
                 <div className="section-header-text">
-                    <h1>{treeName}</h1>
+                    <h1 className={packagePath === "." ? undefined : "mono"}>
+                        {packagePath === "." ? treeName : packagePath}
+                    </h1>
                     <p className="hint">
-                        {historicalPin !== null
-                            ? `viewing ${historicalPin.slice(0, 10)} (historical)`
+                        {state.pin !== null
+                            ? `viewing ${state.pin.slice(0, 10)} (historical)`
                             : listing === null
                               ? "Resolving…"
                               : `${listing.ref} @ ${listing.pin.slice(0, 10)}`}
                     </p>
                 </div>
-                <span className="action-row">
-                    <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() =>
-                            setView(
-                                view.kind === "history"
-                                    ? { kind: "entities" }
-                                    : { kind: "history" },
-                            )
-                        }
-                    >
-                        {view.kind === "history" ? "Model" : "History"}
-                    </button>
-                    <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => navigate(`/trees/${treeId}/changes`)}
-                    >
-                        Change sets
-                    </button>
-                </span>
             </div>
 
             <EditingStrip
@@ -316,14 +367,13 @@ export function WorkbenchPage({
                 changeSets={changeSets}
                 active={active}
                 onSelect={(id) => {
-                    setActiveId(id);
-                    setView({ kind: "entities" });
                     setBanner(null);
+                    go(view, { changeSetId: id });
                 }}
                 onCreated={(changeSet) => {
                     setChangeSets((current) => [changeSet, ...current]);
-                    setActiveId(changeSet.id);
                     setBanner(null);
+                    go(view, { changeSetId: changeSet.id });
                 }}
                 onError={saveFailed}
             />
@@ -331,17 +381,17 @@ export function WorkbenchPage({
             <ContextPicker
                 inventory={inventory}
                 chosen={chosen}
-                onChange={setChosen}
+                onChange={chooseContext}
             />
 
-            {historicalPin !== null ? (
+            {state.pin !== null ? (
                 <div className="banner banner-info">
                     Viewing the package as it was at{" "}
-                    <span className="mono">{historicalPin.slice(0, 10)}</span>;
+                    <span className="mono">{state.pin.slice(0, 10)}</span>;
                     editing is off.{" "}
                     <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => setHistoricalPin(null)}
+                        onClick={() => go(view, { pin: null })}
                     >
                         Back to now
                     </button>
@@ -356,66 +406,58 @@ export function WorkbenchPage({
                 </div>
             ) : null}
 
-            {listing !== null && listing.packages.length > 1 ? (
-                <div className="field-row">
-                    <span className="label">Package</span>
-                    <select
-                        className="input"
-                        value={selectedPackage ?? ""}
-                        onChange={(event) => {
-                            setSelectedPackage(event.target.value);
-                            setView({ kind: "entities" });
-                        }}
-                    >
-                        {listing.packages.map((entry) => (
-                            <option key={entry.path} value={entry.path}>
-                                {entry.path}
-                            </option>
-                        ))}
-                    </select>
+            {!knownPackage ? (
+                <div className="card">
+                    <h2>No such package</h2>
+                    <p className="hint">
+                        Nothing at <span className="mono">{packagePath}</span>{" "}
+                        on this ref; pick a package from the sidebar.
+                    </p>
                 </div>
-            ) : null}
-
-            {view.kind === "history" ? (
-                selectedPackage !== null ? (
-                    <HistoryPanel
-                        treeId={treeId}
-                        packagePath={selectedPackage}
-                        viewingPin={historicalPin}
-                        onViewPin={(candidate) => {
-                            setHistoricalPin(candidate);
-                            setBanner(null);
-                        }}
-                    />
-                ) : (
-                    <p className="muted">Loading…</p>
-                )
+            ) : view.kind === "history" ? (
+                <HistoryPanel
+                    treeId={treeId}
+                    packagePath={packagePath}
+                    viewingPin={state.pin}
+                    onViewPin={(candidate) => {
+                        setBanner(null);
+                        go(view, { pin: candidate });
+                    }}
+                />
             ) : detail === null ? (
                 <p className="muted">Loading package…</p>
-            ) : view.kind === "variable" ? (
-                <VariablePanel
-                    key={`${view.id}@${detail.pin}`}
+            ) : view.kind === "files" ? (
+                view.file === null ? (
+                    <FileList
+                        treeId={treeId}
+                        detail={detail}
+                        onOpenFile={(path) => go({ kind: "files", file: path })}
+                    />
+                ) : (
+                    <FilePanel
+                        key={`${view.file}@${detail.pin}`}
+                        treeId={treeId}
+                        detail={detail}
+                        file={view.file}
+                        editable={editable}
+                        changeSet={active}
+                        onBack={() => go({ kind: "files", file: null })}
+                        onSaved={afterSave}
+                        onError={saveFailed}
+                    />
+                )
+            ) : view.kind === "address" ? (
+                <AddressView
+                    treeId={treeId}
                     detail={detail}
-                    variableId={view.id}
+                    steps={view.steps}
+                    go={go}
                     editable={editable}
                     changeSet={active}
                     chosen={chosen}
-                    outcome={outcomes?.get(view.id) ?? null}
-                    synthesized={inventory?.synthesized ?? []}
-                    onUseContext={setChosen}
-                    onBack={() => setView({ kind: "entities" })}
-                    onSaved={afterSave}
-                    onError={saveFailed}
-                />
-            ) : view.kind === "file" ? (
-                <FilePanel
-                    key={`${view.path}@${detail.pin}`}
-                    treeId={treeId}
-                    detail={detail}
-                    file={view.path}
-                    editable={editable}
-                    changeSet={active}
-                    onBack={() => setView({ kind: "entities" })}
+                    outcomes={outcomes}
+                    inventory={inventory}
+                    onUseContext={chooseContext}
                     onSaved={afterSave}
                     onError={saveFailed}
                 />
@@ -425,12 +467,26 @@ export function WorkbenchPage({
                     detail={detail}
                     refName={ref}
                     outcomes={outcomes}
-                    onOpenVariable={(id) => setView({ kind: "variable", id })}
-                    onOpenFile={(path) => setView({ kind: "file", path })}
-                    onOpenPackage={(path) => {
-                        setSelectedPackage(path);
-                        setView({ kind: "entities" });
-                    }}
+                    hrefView={(next) =>
+                        `#${packageUrl(treeId, packagePath, next, state)}`
+                    }
+                    onOpenVariable={(id) =>
+                        go({
+                            kind: "address",
+                            steps: [{ class: "variable", id }],
+                        })
+                    }
+                    onOpenFile={(path) => go({ kind: "files", file: path })}
+                    onOpenPackage={(path) =>
+                        navigate(
+                            packageUrl(
+                                treeId,
+                                path,
+                                { kind: "overview" },
+                                { ...state, context: null },
+                            ),
+                        )
+                    }
                 />
             )}
         </div>
@@ -540,6 +596,7 @@ function EntityLists({
     detail,
     refName,
     outcomes,
+    hrefView,
     onOpenVariable,
     onOpenFile,
     onOpenPackage,
@@ -548,11 +605,14 @@ function EntityLists({
     detail: PackageDetail;
     refName: string | undefined;
     outcomes: Map<string, TraceOutcome> | null;
+    hrefView: (view: PackageView) => string;
     onOpenVariable: (id: string) => void;
     onOpenFile: (path: string) => void;
     onOpenPackage: (path: string) => void;
 }) {
     const model = detail.model;
+    const entityHref = (className: string, id: string): string =>
+        hrefView({ kind: "address", steps: [{ class: className, id }] });
     return (
         <>
             {model.variables.length > 1 ? (
@@ -586,67 +646,36 @@ function EntityLists({
             <div className="section-header-text">
                 <h2>Variables</h2>
             </div>
-            <div className="row-list">
-                {model.variables.map((variable) => {
-                    const outcome = outcomes?.get(variable.id);
-                    return (
-                        <button
-                            className="row"
-                            key={variable.id}
-                            onClick={() => onOpenVariable(variable.id)}
-                        >
-                            <span className="row-text">
-                                <span className="row-title mono">
-                                    {variable.id}
-                                </span>
-                                <span className="row-sub">
-                                    {variable.declaration.value ?? "?"}
-                                    {variable.description !== undefined
-                                        ? ` — ${variable.description}`
-                                        : ""}
-                                </span>
-                            </span>
-                            <span className="row-side mono">
-                                {outcome === undefined ? (
-                                    summarizeDefault(variable)
-                                ) : outcome.error !== undefined ? (
-                                    <span
-                                        className="pill pill-warn"
-                                        title={outcome.error}
-                                    >
-                                        cannot resolve
-                                    </span>
-                                ) : (
-                                    <span className="pill pill-sea">
-                                        {clipValue(
-                                            outcome.trace?.resolution.value,
-                                        )}
-                                    </span>
-                                )}
-                            </span>
-                        </button>
-                    );
-                })}
-            </div>
+            <VariableRows
+                variables={model.variables}
+                outcomes={outcomes}
+                onOpen={onOpenVariable}
+            />
 
             <Inventory
                 title="Catalogs"
-                items={model.catalogs.map(
-                    (catalog) =>
-                        `${catalog.id} (${
-                            model.catalogEntries.filter(
-                                (entry) => entry.catalog === catalog.id,
-                            ).length
-                        } entries)`,
-                )}
+                items={model.catalogs.map((catalog) => ({
+                    label: `${catalog.id} (${
+                        model.catalogEntries.filter(
+                            (entry) => entry.catalog === catalog.id,
+                        ).length
+                    } entries)`,
+                    href: entityHref("catalog", catalog.id),
+                }))}
             />
             <Inventory
                 title="Lists"
-                items={model.lists.map((entry) => entry.id)}
+                items={model.lists.map((entry) => ({
+                    label: entry.id,
+                    href: entityHref("list", entry.id),
+                }))}
             />
             <Inventory
                 title="Evaluation contexts"
-                items={model.evaluationContexts.map((entry) => entry.id)}
+                items={model.evaluationContexts.map((entry) => ({
+                    label: entry.id,
+                    href: entityHref("evaluation-context", entry.id),
+                }))}
             />
 
             <ValidityPanel diagnostics={detail.lint.diagnostics} />
@@ -673,7 +702,13 @@ function clipValue(value: unknown): string {
     return text.length > 20 ? `${text.slice(0, 20)}…` : text;
 }
 
-function Inventory({ title, items }: { title: string; items: string[] }) {
+function Inventory({
+    title,
+    items,
+}: {
+    title: string;
+    items: { label: string; href: string }[];
+}) {
     if (items.length === 0) {
         return null;
     }
@@ -684,12 +719,546 @@ function Inventory({ title, items }: { title: string; items: string[] }) {
             </div>
             <div>
                 {items.map((item) => (
-                    <span className="pill pill-neutral mono" key={item}>
-                        {item}
-                    </span>
+                    <a
+                        className="pill pill-neutral mono"
+                        key={item.label}
+                        href={item.href}
+                    >
+                        {item.label}
+                    </a>
                 ))}
             </div>
         </>
+    );
+}
+
+function VariableRows({
+    variables,
+    outcomes,
+    onOpen,
+}: {
+    variables: VariableModel[];
+    outcomes: Map<string, TraceOutcome> | null;
+    onOpen: (id: string) => void;
+}) {
+    return (
+        <div className="row-list">
+            {variables.map((variable) => {
+                const outcome = outcomes?.get(variable.id);
+                return (
+                    <button
+                        className="row"
+                        key={variable.id}
+                        onClick={() => onOpen(variable.id)}
+                    >
+                        <span className="row-text">
+                            <span className="row-title mono">
+                                {variable.id}
+                            </span>
+                            <span className="row-sub">
+                                {variable.declaration.value ?? "?"}
+                                {variable.description !== undefined
+                                    ? ` — ${variable.description}`
+                                    : ""}
+                            </span>
+                        </span>
+                        <span className="row-side mono">
+                            {outcome === undefined ? (
+                                summarizeDefault(variable)
+                            ) : outcome.error !== undefined ? (
+                                <span
+                                    className="pill pill-warn"
+                                    title={outcome.error}
+                                >
+                                    cannot resolve
+                                </span>
+                            ) : (
+                                <span className="pill pill-sea">
+                                    {clipValue(outcome.trace?.resolution.value)}
+                                </span>
+                            )}
+                        </span>
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+// --- the address tail, rendered ---
+
+// An address names an entity, a collective, or a namespace subtree
+// (design/addressing.md). Entities with structured editors get them;
+// entity kinds without one open as their defining file, so every address
+// in the package resolves to something honest.
+function AddressView({
+    treeId,
+    detail,
+    steps,
+    go,
+    editable,
+    changeSet,
+    chosen,
+    outcomes,
+    inventory,
+    onUseContext,
+    onSaved,
+    onError,
+}: {
+    treeId: string;
+    detail: PackageDetail;
+    steps: AddressStep[];
+    go: (view: PackageView, patch?: Partial<ViewState>) => void;
+    editable: boolean;
+    changeSet: ChangeSet | null;
+    chosen: ChosenContext;
+    outcomes: Map<string, TraceOutcome> | null;
+    inventory: ContextInventory | null;
+    onUseContext: (chosen: ChosenContext) => void;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
+}) {
+    const model = detail.model;
+    const head = steps[0] as AddressStep;
+    const child = steps[1];
+    const openAddress = (next: AddressStep[]) =>
+        go({ kind: "address", steps: next });
+    const file = (path: string, onBack: () => void) => (
+        <FilePanel
+            key={`${path}@${detail.pin}`}
+            treeId={treeId}
+            detail={detail}
+            file={path}
+            editable={editable}
+            changeSet={changeSet}
+            onBack={onBack}
+            onSaved={onSaved}
+            onError={onError}
+        />
+    );
+
+    if (head.class === "variable") {
+        if (isCollective(head)) {
+            const variables = model.variables.filter((variable) =>
+                variable.id.startsWith(head.id),
+            );
+            return (
+                <CollectionPage
+                    title={CLASS_LABELS["variable"] as string}
+                    prefix={head.id}
+                    count={variables.length}
+                    empty="No variables in this package yet."
+                >
+                    <VariableRows
+                        variables={variables}
+                        outcomes={outcomes}
+                        onOpen={(id) =>
+                            openAddress([{ class: "variable", id }])
+                        }
+                    />
+                </CollectionPage>
+            );
+        }
+        return (
+            <VariablePanel
+                key={`${head.id}@${detail.pin}`}
+                detail={detail}
+                variableId={head.id}
+                editable={editable}
+                changeSet={changeSet}
+                chosen={chosen}
+                outcome={outcomes?.get(head.id) ?? null}
+                synthesized={inventory?.synthesized ?? []}
+                onUseContext={onUseContext}
+                onBack={() => openAddress([{ class: "variable", id: "" }])}
+                onSaved={onSaved}
+                onError={onError}
+            />
+        );
+    }
+    if (head.class === "catalog") {
+        if (isCollective(head)) {
+            const catalogs = model.catalogs.filter((catalog) =>
+                catalog.id.startsWith(head.id),
+            );
+            return (
+                <CollectionPage
+                    title={CLASS_LABELS["catalog"] as string}
+                    prefix={head.id}
+                    count={catalogs.length}
+                    empty="No catalogs in this package yet."
+                >
+                    <div className="row-list">
+                        {catalogs.map((catalog) => {
+                            const entries = model.catalogEntries.filter(
+                                (entry) => entry.catalog === catalog.id,
+                            ).length;
+                            return (
+                                <button
+                                    className="row"
+                                    key={catalog.id}
+                                    onClick={() =>
+                                        openAddress([
+                                            {
+                                                class: "catalog",
+                                                id: catalog.id,
+                                            },
+                                        ])
+                                    }
+                                >
+                                    <span className="row-text">
+                                        <span className="row-title mono">
+                                            {catalog.id}
+                                        </span>
+                                        <span className="row-sub">
+                                            {entries} entr
+                                            {entries === 1 ? "y" : "ies"} ·{" "}
+                                            {catalog.path}
+                                        </span>
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </CollectionPage>
+            );
+        }
+        if (child !== undefined && !isCollective(child)) {
+            return file(`data/catalogs/${head.id}/${child.id}.toml`, () =>
+                openAddress([{ class: "catalog", id: head.id }]),
+            );
+        }
+        return (
+            <CatalogPanel
+                model={model}
+                catalogId={head.id}
+                entryPrefix={child?.id ?? ""}
+                onOpenEntry={(key) =>
+                    openAddress([
+                        { class: "catalog", id: head.id },
+                        { class: "entry", id: key },
+                    ])
+                }
+                onOpenSchema={(path) => go({ kind: "files", file: path })}
+                onBack={() => openAddress([{ class: "catalog", id: "" }])}
+            />
+        );
+    }
+    if (head.class === "list") {
+        if (isCollective(head)) {
+            const lists = model.lists.filter((list) =>
+                list.id.startsWith(head.id),
+            );
+            return (
+                <CollectionPage
+                    title={CLASS_LABELS["list"] as string}
+                    prefix={head.id}
+                    count={lists.length}
+                    empty="No lists in this package yet."
+                >
+                    <div className="row-list">
+                        {lists.map((list) => (
+                            <button
+                                className="row"
+                                key={list.id}
+                                onClick={() =>
+                                    openAddress([
+                                        { class: "list", id: list.id },
+                                    ])
+                                }
+                            >
+                                <span className="row-text">
+                                    <span className="row-title mono">
+                                        {list.id}
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </CollectionPage>
+            );
+        }
+        return file(`lists/${head.id}.toml`, () =>
+            openAddress([{ class: "list", id: "" }]),
+        );
+    }
+    if (head.class === "evaluation-context") {
+        if (isCollective(head)) {
+            const contexts = model.evaluationContexts.filter((context) =>
+                context.id.startsWith(head.id),
+            );
+            return (
+                <CollectionPage
+                    title={CLASS_LABELS["evaluation-context"] as string}
+                    prefix={head.id}
+                    count={contexts.length}
+                    empty="No evaluation contexts in this package yet."
+                >
+                    <div className="row-list">
+                        {contexts.map((context) => (
+                            <button
+                                className="row"
+                                key={context.id}
+                                onClick={() =>
+                                    openAddress([
+                                        {
+                                            class: "evaluation-context",
+                                            id: context.id,
+                                        },
+                                    ])
+                                }
+                            >
+                                <span className="row-text">
+                                    <span className="row-title mono">
+                                        {context.id}
+                                    </span>
+                                    <span className="row-sub">
+                                        {context.path}
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </CollectionPage>
+            );
+        }
+        if (child !== undefined && !isCollective(child)) {
+            return file(
+                `model/context/${head.id}-samples/${child.id}.json`,
+                () =>
+                    openAddress([{ class: "evaluation-context", id: head.id }]),
+            );
+        }
+        return (
+            <ContextDetailPanel
+                model={model}
+                contextId={head.id}
+                inventory={inventory}
+                onOpenSample={(key) =>
+                    openAddress([
+                        { class: "evaluation-context", id: head.id },
+                        { class: "sample", id: key },
+                    ])
+                }
+                onOpenSchema={(path) => go({ kind: "files", file: path })}
+                onBack={() =>
+                    openAddress([{ class: "evaluation-context", id: "" }])
+                }
+            />
+        );
+    }
+    if (head.class === "manifest") {
+        return file("rototo-package.toml", () => go({ kind: "overview" }));
+    }
+    if (head.class === "governance") {
+        return file("governance.toml", () => go({ kind: "overview" }));
+    }
+    if (head.class === "layer" && !isCollective(head)) {
+        return file(`layers/${head.id}.toml`, () => go({ kind: "overview" }));
+    }
+    if (head.class === "linter" && !isCollective(head)) {
+        return file(`lint/${head.id}.lua`, () => go({ kind: "overview" }));
+    }
+    return (
+        <div className="card">
+            <h2>Nothing at this address</h2>
+            <p className="hint">
+                <span className="mono">{formatAddress(steps)}</span> names
+                nothing this console can show.
+            </p>
+        </div>
+    );
+}
+
+// A collection page: one entity class, optionally narrowed to a namespace
+// subtree by the address's trailing-slash prefix.
+function CollectionPage({
+    title,
+    prefix,
+    count,
+    empty,
+    children,
+}: {
+    title: string;
+    prefix: string;
+    count: number;
+    empty: string;
+    children: ReactNode;
+}) {
+    return (
+        <>
+            <div className="section-header-text">
+                <h2>
+                    {title}
+                    {prefix !== "" ? (
+                        <span className="mono"> · {prefix}</span>
+                    ) : null}
+                </h2>
+            </div>
+            {count === 0 ? <p className="hint">{empty}</p> : children}
+        </>
+    );
+}
+
+function CatalogPanel({
+    model,
+    catalogId,
+    entryPrefix,
+    onOpenEntry,
+    onOpenSchema,
+    onBack,
+}: {
+    model: SemanticModel;
+    catalogId: string;
+    entryPrefix: string;
+    onOpenEntry: (key: string) => void;
+    onOpenSchema: (path: string) => void;
+    onBack: () => void;
+}) {
+    const catalog = model.catalogs.find(
+        (candidate) => candidate.id === catalogId,
+    );
+    if (catalog === undefined) {
+        return (
+            <div className="card">
+                <p className="hint">No such catalog at this pin.</p>
+                <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                    Back
+                </button>
+            </div>
+        );
+    }
+    const entries = model.catalogEntries.filter(
+        (entry) =>
+            entry.catalog === catalogId && entry.key.startsWith(entryPrefix),
+    );
+    return (
+        <div className="card card-stretch">
+            <div className="card-head">
+                <div className="card-head-text">
+                    <h2 className="mono">{catalogId}</h2>
+                    <p className="hint">
+                        {entries.length} entr
+                        {entries.length === 1 ? "y" : "ies"} · schema{" "}
+                        {catalog.path}
+                    </p>
+                </div>
+                <span className="action-row">
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => onOpenSchema(catalog.path)}
+                    >
+                        Schema
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </span>
+            </div>
+            {entries.length === 0 ? (
+                <p className="hint">
+                    No entries
+                    {entryPrefix !== "" ? (
+                        <>
+                            {" "}
+                            under <span className="mono">{entryPrefix}</span>
+                        </>
+                    ) : null}{" "}
+                    yet.
+                </p>
+            ) : (
+                <div className="row-list">
+                    {entries.map((entry) => (
+                        <button
+                            className="row"
+                            key={entry.key}
+                            onClick={() => onOpenEntry(entry.key)}
+                        >
+                            <span className="row-text">
+                                <span className="row-title mono">
+                                    {entry.key}
+                                </span>
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ContextDetailPanel({
+    model,
+    contextId,
+    inventory,
+    onOpenSample,
+    onOpenSchema,
+    onBack,
+}: {
+    model: SemanticModel;
+    contextId: string;
+    inventory: ContextInventory | null;
+    onOpenSample: (key: string) => void;
+    onOpenSchema: (path: string) => void;
+    onBack: () => void;
+}) {
+    const context = model.evaluationContexts.find(
+        (candidate) => candidate.id === contextId,
+    );
+    if (context === undefined) {
+        return (
+            <div className="card">
+                <p className="hint">No such evaluation context at this pin.</p>
+                <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                    Back
+                </button>
+            </div>
+        );
+    }
+    const samples = (inventory?.samples ?? []).filter(
+        (sample) => sample.evaluationContext === contextId,
+    );
+    return (
+        <div className="card card-stretch">
+            <div className="card-head">
+                <div className="card-head-text">
+                    <h2 className="mono">{contextId}</h2>
+                    <p className="hint">Evaluation context · {context.path}</p>
+                </div>
+                <span className="action-row">
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => onOpenSchema(context.path)}
+                    >
+                        Schema
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </span>
+            </div>
+            {inventory === null ? (
+                <p className="muted">Loading samples…</p>
+            ) : samples.length === 0 ? (
+                <p className="hint">No samples for this context yet.</p>
+            ) : (
+                <div className="row-list">
+                    {samples.map((sample) => (
+                        <button
+                            className="row"
+                            key={sample.key}
+                            onClick={() => onOpenSample(sample.key)}
+                        >
+                            <span className="row-text">
+                                <span className="row-title mono">
+                                    {sample.key}
+                                </span>
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 

@@ -1,67 +1,107 @@
-// The shared home plus its lenses: Domain is the surfaces floor, Changes is
-// the change-set list with the three-delta review, History browses any pin,
-// Model is the workbench. What a user can do is decided server-side;
+// The shell: one information hierarchy (tree -> package -> entity) made
+// visible three ways at once — the URL (lib/router.ts owns the grammar),
+// the left nav (scope pickers plus scoped sections), and the breadcrumbs
+// (clickable prefixes of the path). View state (change set, pin, context)
+// renders as topbar chips, not crumbs, because it parameterizes every
+// level rather than naming one. What a user can do is decided server-side;
 // everything rendered here is explanation.
 
 import { useEffect, useState } from "react";
 
 import { RototoMark } from "@/components/rototo-mark";
-import { fetchMe, type MeResponse, type SourceTreeSummary } from "@/lib/api";
-import { navigate, useHashPath } from "@/lib/router";
+import {
+    fetchMe,
+    listPackages,
+    type MeResponse,
+    type SourceTreeSummary,
+} from "@/lib/api";
+import {
+    adminUrl,
+    changeSetUrl,
+    changesUrl,
+    CLASS_LABELS,
+    changesActive,
+    homeUrl,
+    navigate,
+    packageUrl,
+    parseHash,
+    treeUrl,
+    useHashPath,
+    type PackageView,
+    type Route,
+    type ViewState,
+} from "@/lib/router";
 import { AdminPage } from "@/pages/admin";
 import { ChangeSetPage, ChangesPage } from "@/pages/changes";
 import { SurfacesPage } from "@/pages/surfaces";
+import { TreeHomePage } from "@/pages/tree";
 import { WorkbenchPage } from "@/pages/workbench";
-
-type Route =
-    | { page: "home" }
-    | { page: "workbench"; treeId: string }
-    | { page: "surfaces"; treeId: string }
-    | { page: "history"; treeId: string }
-    | { page: "changes"; treeId: string }
-    | { page: "change-set"; id: string }
-    | { page: "admin" }
-    | { page: "not-enrolled" };
-
-function parseRoute(path: string): Route {
-    const segments = path.split("/").filter((segment) => segment !== "");
-    if (segments[0] === "trees" && segments[1] !== undefined) {
-        return segments[2] === "changes"
-            ? { page: "changes", treeId: segments[1] }
-            : segments[2] === "history"
-              ? { page: "history", treeId: segments[1] }
-              : segments[2] === "surfaces"
-                ? { page: "surfaces", treeId: segments[1] }
-                : { page: "workbench", treeId: segments[1] };
-    }
-    if (segments[0] === "change-sets" && segments[1] !== undefined) {
-        return { page: "change-set", id: segments[1] };
-    }
-    if (segments[0] === "admin") {
-        return { page: "admin" };
-    }
-    if (segments[0] === "not-enrolled") {
-        return { page: "not-enrolled" };
-    }
-    return { page: "home" };
-}
 
 export function App() {
     const [me, setMe] = useState<MeResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const route = parseRoute(useHashPath());
+    const { route, state } = parseHash(useHashPath());
 
     useEffect(() => {
         fetchMe().then(setMe, (err: Error) => setError(err.message));
     }, []);
 
-    const treeId =
-        route.page === "workbench" ||
-        route.page === "changes" ||
-        route.page === "history" ||
-        route.page === "surfaces"
-            ? route.treeId
-            : (me?.capabilities?.sourceTrees[0]?.id ?? null);
+    const trees = me?.capabilities?.sourceTrees ?? [];
+    const routeTreeId = "treeId" in route ? route.treeId : null;
+    const treeId = routeTreeId ?? trees[0]?.id ?? null;
+
+    // Packages of the tree in scope, for the nav picker and section links.
+    // This listing is ref-agnostic (default branch); pages fetch their own
+    // branch-aware listings.
+    const [navPackages, setNavPackages] = useState<{
+        treeId: string;
+        paths: string[];
+    } | null>(null);
+    useEffect(() => {
+        if (treeId === null || me?.capabilities == null) {
+            setNavPackages(null);
+            return;
+        }
+        let stale = false;
+        listPackages(treeId).then(
+            (response) => {
+                if (!stale) {
+                    setNavPackages({
+                        treeId,
+                        paths: response.packages.map((entry) => entry.path),
+                    });
+                }
+            },
+            () => {
+                if (!stale) {
+                    setNavPackages(null);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, me]);
+
+    const packages =
+        navPackages !== null && navPackages.treeId === treeId
+            ? navPackages.paths
+            : null;
+    const packagePath =
+        route.page === "package" ? route.packagePath : (packages?.[0] ?? null);
+    // Links into the package the user is already inside keep the view
+    // state; links that change scope start clean.
+    const packageState =
+        route.page === "package" && route.packagePath === packagePath
+            ? state
+            : undefined;
+    const packageHref = (view: PackageView): string | null =>
+        treeId === null || packagePath === null
+            ? null
+            : packageUrl(treeId, packagePath, view, packageState);
+    const view = route.page === "package" ? route.view : null;
+    const addressClass =
+        view?.kind === "address" ? (view.steps[0]?.class ?? null) : null;
 
     return (
         <div className="shell">
@@ -73,60 +113,127 @@ export function App() {
                     <span className="brand-name">rototo</span>
                 </a>
                 <nav className="side-nav">
-                    <div className="label nav-group-label">Lenses</div>
-                    <Lens
-                        label="Domain"
-                        active={route.page === "surfaces"}
-                        disabled={treeId === null}
-                        onClick={() => navigate(`/trees/${treeId}/surfaces`)}
-                        title={
-                            treeId === null
-                                ? "Register a source tree first"
-                                : undefined
-                        }
-                    />
-                    <Lens
-                        label="Changes"
-                        active={
-                            route.page === "changes" ||
-                            route.page === "change-set"
-                        }
-                        disabled={treeId === null}
-                        onClick={() => navigate(`/trees/${treeId}/changes`)}
-                        title={
-                            treeId === null
-                                ? "Register a source tree first"
-                                : undefined
-                        }
-                    />
-                    <Lens
-                        label="History"
-                        active={route.page === "history"}
-                        disabled={treeId === null}
-                        onClick={() => navigate(`/trees/${treeId}/history`)}
-                        title={
-                            treeId === null
-                                ? "Register a source tree first"
-                                : undefined
-                        }
-                    />
-                    <Lens
-                        label="Model"
-                        active={route.page === "workbench"}
-                        disabled={treeId === null}
-                        onClick={() => navigate(`/trees/${treeId}`)}
-                        title={
-                            treeId === null
-                                ? "Register a source tree first"
-                                : undefined
-                        }
-                    />
+                    {trees.length > 0 && treeId !== null ? (
+                        <div className="nav-scope">
+                            <select
+                                className="input"
+                                title="Source tree"
+                                value={treeId}
+                                onChange={(event) =>
+                                    navigate(treeUrl(event.target.value))
+                                }
+                            >
+                                {trees.map((tree) => (
+                                    <option key={tree.id} value={tree.id}>
+                                        {treeLabel(tree)}
+                                    </option>
+                                ))}
+                            </select>
+                            {packages !== null &&
+                            packages.length > 1 &&
+                            packagePath !== null ? (
+                                <select
+                                    className="input"
+                                    title="Package"
+                                    value={packagePath}
+                                    onChange={(event) =>
+                                        navigate(
+                                            packageUrl(
+                                                treeId,
+                                                event.target.value,
+                                                { kind: "overview" },
+                                                // The change set and pin are
+                                                // tree-scoped and survive the
+                                                // move; the chosen context is
+                                                // package-scoped and does not.
+                                                route.page === "package"
+                                                    ? {
+                                                          ...state,
+                                                          context: null,
+                                                      }
+                                                    : undefined,
+                                            ),
+                                        )
+                                    }
+                                >
+                                    {packages.map((path) => (
+                                        <option key={path} value={path}>
+                                            {path === "." ? "(root)" : path}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {packagePath !== null ? (
+                        <>
+                            <div className="label nav-group-label">Package</div>
+                            <NavItem
+                                label="Overview"
+                                on={view?.kind === "overview"}
+                                to={packageHref({ kind: "overview" })}
+                            />
+                            <NavItem
+                                label="Surfaces"
+                                on={view?.kind === "surfaces"}
+                                to={packageHref({
+                                    kind: "surfaces",
+                                    surfaceId: null,
+                                })}
+                            />
+                            <NavItem
+                                label="Variables"
+                                on={addressClass === "variable"}
+                                to={packageHref(collection("variable"))}
+                            />
+                            <NavItem
+                                label="Catalogs"
+                                on={addressClass === "catalog"}
+                                to={packageHref(collection("catalog"))}
+                            />
+                            <NavItem
+                                label="Lists"
+                                on={addressClass === "list"}
+                                to={packageHref(collection("list"))}
+                            />
+                            <NavItem
+                                label="Contexts"
+                                on={addressClass === "evaluation-context"}
+                                to={packageHref(
+                                    collection("evaluation-context"),
+                                )}
+                            />
+                            <NavItem
+                                label="Files"
+                                on={view?.kind === "files"}
+                                to={packageHref({ kind: "files", file: null })}
+                            />
+                            <NavItem
+                                label="History"
+                                on={view?.kind === "history"}
+                                to={packageHref({ kind: "history" })}
+                            />
+                        </>
+                    ) : null}
+                    {treeId !== null ? (
+                        <>
+                            <div className="label nav-group-label">Tree</div>
+                            <NavItem
+                                label="Change sets"
+                                on={changesActive(route)}
+                                to={changesUrl(treeId)}
+                            />
+                        </>
+                    ) : null}
                     {me?.capabilities?.deployment.administer.allow === true ? (
-                        <Lens
-                            label="Admin"
-                            active={route.page === "admin"}
-                            onClick={() => navigate("/admin")}
-                        />
+                        <>
+                            <div className="label nav-group-label">Console</div>
+                            <NavItem
+                                label="Admin"
+                                on={route.page === "admin"}
+                                to={adminUrl()}
+                            />
+                        </>
                     ) : null}
                 </nav>
                 <SideUser me={me} />
@@ -140,28 +247,33 @@ export function App() {
                     >
                         <RototoMark size={24} />
                     </a>
-                    <div className="crumbs">
-                        <a className="label" href="#/">
-                            Home
-                        </a>
-                        {route.page !== "home" ? (
-                            <>
-                                <span className="crumb-sep">/</span>
-                                <span className="label">
-                                    {route.page === "workbench"
-                                        ? "Model"
-                                        : route.page === "surfaces"
-                                          ? "Domain"
-                                          : route.page === "history"
-                                            ? "History"
-                                            : route.page === "change-set"
-                                              ? "Change set"
-                                              : "Changes"}
-                                </span>
-                            </>
+                    <Crumbs route={route} state={state} trees={trees} />
+                    <div className="topbar-actions">
+                        {state.context !== null ? (
+                            <span
+                                className="pill pill-neutral mono"
+                                title="The chosen context; every execution view resolves under it"
+                            >
+                                {state.context}
+                            </span>
+                        ) : null}
+                        {state.changeSetId !== null ? (
+                            <span
+                                className="pill pill-sea mono"
+                                title="Edits accumulate on this change set"
+                            >
+                                {state.changeSetId}
+                            </span>
+                        ) : null}
+                        {state.pin !== null ? (
+                            <span
+                                className="pill pill-info mono"
+                                title="Viewing this historical pin; editing is off"
+                            >
+                                @{state.pin.slice(0, 10)}
+                            </span>
                         ) : null}
                     </div>
-                    <div className="topbar-actions" />
                 </header>
                 <main className="content">
                     <div className="content-inner">
@@ -178,20 +290,38 @@ export function App() {
                             </div>
                         ) : me === null ? (
                             <p className="muted">Loading…</p>
-                        ) : route.page === "workbench" ? (
-                            <WorkbenchPage me={me} treeId={route.treeId} />
-                        ) : route.page === "surfaces" ? (
-                            <SurfacesPage me={me} treeId={route.treeId} />
-                        ) : route.page === "history" ? (
-                            <WorkbenchPage
+                        ) : route.page === "package" ? (
+                            route.view.kind === "surfaces" ? (
+                                <SurfacesPage
+                                    me={me}
+                                    treeId={route.treeId}
+                                    packagePath={route.packagePath}
+                                    surfaceId={route.view.surfaceId}
+                                    state={state}
+                                />
+                            ) : (
+                                <WorkbenchPage
+                                    me={me}
+                                    treeId={route.treeId}
+                                    packagePath={route.packagePath}
+                                    view={route.view}
+                                    state={state}
+                                />
+                            )
+                        ) : route.page === "tree" ? (
+                            <TreeHomePage
                                 me={me}
                                 treeId={route.treeId}
-                                initialView="history"
+                                packages={
+                                    navPackages?.treeId === route.treeId
+                                        ? navPackages.paths
+                                        : null
+                                }
                             />
                         ) : route.page === "changes" ? (
                             <ChangesPage me={me} treeId={route.treeId} />
                         ) : route.page === "change-set" ? (
-                            <ChangeSetPage id={route.id} me={me} />
+                            <ChangeSetPage id={route.changeSetId} me={me} />
                         ) : route.page === "admin" ? (
                             <AdminPage me={me} />
                         ) : route.page === "not-enrolled" ? (
@@ -206,22 +336,26 @@ export function App() {
     );
 }
 
-function Lens({
+function collection(className: string): PackageView {
+    return { kind: "address", steps: [{ class: className, id: "" }] };
+}
+
+function treeLabel(tree: SourceTreeSummary): string {
+    return tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id;
+}
+
+function NavItem({
     label,
-    active,
-    disabled,
-    onClick,
-    title,
+    on,
+    to,
 }: {
     label: string;
-    active?: boolean;
-    disabled?: boolean;
-    onClick?: () => void;
-    title?: string;
+    on?: boolean;
+    to: string | null;
 }) {
-    if (disabled === true) {
+    if (to === null) {
         return (
-            <span className="nav-item" aria-disabled="true" title={title}>
+            <span className="nav-item" aria-disabled="true">
                 <span className="nav-item-text">{label}</span>
             </span>
         );
@@ -229,13 +363,132 @@ function Lens({
     return (
         <button
             className="nav-item"
-            data-active={active === true ? "true" : undefined}
-            onClick={onClick}
-            title={title}
+            data-on={on === true ? "true" : undefined}
+            onClick={() => navigate(to)}
         >
             <span className="nav-item-text">{label}</span>
         </button>
     );
+}
+
+// Breadcrumbs are the URL, humanized: each crumb is a clickable prefix of
+// the containment path, and the last one is where you stand.
+type Crumb = { label: string; to: string | null; mono?: boolean };
+
+function Crumbs({
+    route,
+    state,
+    trees,
+}: {
+    route: Route;
+    state: ViewState;
+    trees: SourceTreeSummary[];
+}) {
+    const parts = crumbsFor(route, state, trees);
+    return (
+        <div className="crumbs">
+            {parts.map((part, index) => {
+                const last = index === parts.length - 1;
+                const className = `label${part.mono === true ? " mono" : ""}`;
+                return (
+                    <span key={index} className="crumb">
+                        {index > 0 ? (
+                            <span className="crumb-sep">/</span>
+                        ) : null}
+                        {last || part.to === null ? (
+                            <span className={className}>{part.label}</span>
+                        ) : (
+                            <a className={className} href={`#${part.to}`}>
+                                {part.label}
+                            </a>
+                        )}
+                    </span>
+                );
+            })}
+        </div>
+    );
+}
+
+function crumbsFor(
+    route: Route,
+    state: ViewState,
+    trees: SourceTreeSummary[],
+): Crumb[] {
+    const parts: Crumb[] = [{ label: "Home", to: homeUrl() }];
+    if (route.page === "admin") {
+        parts.push({ label: "Admin", to: null });
+        return parts;
+    }
+    if (!("treeId" in route)) {
+        return parts;
+    }
+    const tree = trees.find((candidate) => candidate.id === route.treeId);
+    parts.push({
+        label: tree !== undefined ? treeLabel(tree) : route.treeId,
+        to: treeUrl(route.treeId),
+        mono: true,
+    });
+    if (route.page === "changes") {
+        parts.push({ label: "Change sets", to: null });
+    } else if (route.page === "change-set") {
+        parts.push({ label: "Change sets", to: changesUrl(route.treeId) });
+        parts.push({
+            label: route.changeSetId,
+            to: changeSetUrl(route.treeId, route.changeSetId),
+            mono: true,
+        });
+    } else if (route.page === "package") {
+        const at = (view: PackageView): string =>
+            packageUrl(route.treeId, route.packagePath, view, state);
+        parts.push({
+            label: route.packagePath === "." ? "package" : route.packagePath,
+            to: at({ kind: "overview" }),
+            mono: route.packagePath !== ".",
+        });
+        const view = route.view;
+        if (view.kind === "surfaces") {
+            parts.push({
+                label: "Surfaces",
+                to: at({ kind: "surfaces", surfaceId: null }),
+            });
+            if (view.surfaceId !== null) {
+                parts.push({ label: view.surfaceId, to: null, mono: true });
+            }
+        } else if (view.kind === "files") {
+            parts.push({
+                label: "Files",
+                to: at({ kind: "files", file: null }),
+            });
+            if (view.file !== null) {
+                parts.push({ label: view.file, to: null, mono: true });
+            }
+        } else if (view.kind === "history") {
+            parts.push({ label: "History", to: null });
+        } else if (view.kind === "address") {
+            view.steps.forEach((step, index) => {
+                if (index === 0) {
+                    parts.push({
+                        label: CLASS_LABELS[step.class] ?? step.class,
+                        to: at({
+                            kind: "address",
+                            steps: [{ class: step.class, id: "" }],
+                        }),
+                    });
+                }
+                if (step.id !== "") {
+                    parts.push({
+                        label: step.id,
+                        to: at({
+                            kind: "address",
+                            steps: view.steps.slice(0, index + 1),
+                        }),
+                        mono: true,
+                    });
+                }
+            });
+        }
+    }
+    return parts;
 }
 
 function SideUser({ me }: { me: MeResponse | null }) {
@@ -344,23 +597,21 @@ function Home({ me }: { me: MeResponse }) {
 }
 
 function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
-    const name =
-        tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id;
     const verbs = ["view", "propose", "approve", "administer"] as const;
     return (
         <div className="card">
             <div className="card-head">
-                <span className="mono">{name}</span>
+                <span className="mono">{treeLabel(tree)}</span>
                 <span className="card-actions">
                     <button
                         className="btn btn-secondary btn-sm"
-                        onClick={() => navigate(`/trees/${tree.id}`)}
+                        onClick={() => navigate(treeUrl(tree.id))}
                     >
-                        Workbench
+                        Open
                     </button>
                     <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => navigate(`/trees/${tree.id}/changes`)}
+                        onClick={() => navigate(changesUrl(tree.id))}
                     >
                         Change sets
                     </button>

@@ -37,7 +37,12 @@ import {
 } from "@/lib/api";
 import { experienceFor } from "@/lib/experiences";
 import { ControlInput, UI_KIT } from "@/lib/ui-kit";
-import { navigate } from "@/lib/router";
+import {
+    changeSetUrl,
+    navigate,
+    packageUrl,
+    type ViewState,
+} from "@/lib/router";
 import { EditingStrip } from "@/pages/workbench";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
@@ -45,25 +50,44 @@ type Banner = { kind: "ok" | "err" | "warn"; text: string };
 export function SurfacesPage({
     me,
     treeId,
+    packagePath,
+    surfaceId,
+    state,
 }: {
     me: MeResponse;
     treeId: string;
+    packagePath: string;
+    surfaceId: string | null;
+    state: ViewState;
 }) {
     const tree = me.capabilities?.sourceTrees.find(
         (candidate) => candidate.id === treeId,
     );
     const [changeSets, setChangeSets] = useState<ChangeSet[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(null);
     const [listing, setListing] = useState<PackageListing | null>(null);
-    const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
     const [surfaces, setSurfaces] = useState<SurfaceList | null>(null);
-    const [openSurface, setOpenSurface] = useState<string | null>(null);
     const [banner, setBanner] = useState<Banner | null>(null);
 
-    const active = changeSets.find((entry) => entry.id === activeId) ?? null;
+    const active =
+        changeSets.find((entry) => entry.id === state.changeSetId) ?? null;
     const editable =
         active !== null &&
         (active.state === "draft" || active.state === "proposed");
+
+    // Move within the surfaces lens without losing the URL's view state.
+    const go = useCallback(
+        (nextSurface: string | null, patch?: Partial<ViewState>) => {
+            navigate(
+                packageUrl(
+                    treeId,
+                    packagePath,
+                    { kind: "surfaces", surfaceId: nextSurface },
+                    { ...state, ...patch },
+                ),
+            );
+        },
+        [treeId, packagePath, state],
+    );
 
     const refreshChangeSets = useCallback(() => {
         listChangeSets(treeId).then(
@@ -81,16 +105,9 @@ export function SurfacesPage({
         setListing(null);
         listPackages(treeId, ref).then(
             (response) => {
-                if (stale) {
-                    return;
+                if (!stale) {
+                    setListing(response);
                 }
-                setListing(response);
-                setSelectedPackage((current) =>
-                    current !== null &&
-                    response.packages.some((entry) => entry.path === current)
-                        ? current
-                        : (response.packages[0]?.path ?? null),
-                );
             },
             (error: Error) => {
                 if (!stale) {
@@ -105,12 +122,12 @@ export function SurfacesPage({
 
     const pin = listing?.pin ?? null;
     useEffect(() => {
-        if (pin === null || selectedPackage === null) {
+        if (pin === null) {
             return;
         }
         let stale = false;
         setSurfaces(null);
-        fetchSurfaces(treeId, selectedPackage, pin).then(
+        fetchSurfaces(treeId, packagePath, pin).then(
             (response) => {
                 if (!stale) {
                     setSurfaces(response);
@@ -125,7 +142,7 @@ export function SurfacesPage({
         return () => {
             stale = true;
         };
-    }, [treeId, selectedPackage, pin]);
+    }, [treeId, packagePath, pin]);
 
     const afterSave = useCallback(
         (result: EditResponse) => {
@@ -166,15 +183,15 @@ export function SurfacesPage({
     // apply the ready-made operations (the first vendors the schema), and
     // land on the editing strip with it active.
     const acceptSuggestion = (suggestion: SurfaceSuggestion) => {
-        if (selectedPackage === null || listing === null) {
+        if (listing === null) {
             return;
         }
         createChangeSet(treeId, `Add the ${suggestion.title} surface`).then(
             (changeSet) => {
                 setChangeSets((current) => [changeSet, ...current]);
-                setActiveId(changeSet.id);
+                go(surfaceId, { changeSetId: changeSet.id });
                 saveEdit(changeSet.id, {
-                    packagePath: selectedPackage,
+                    packagePath,
                     expectedPin: changeSet.baseShaAtCreation ?? listing.pin,
                     operations: suggestion.operations,
                     summary: `Add the ${suggestion.title} surface`,
@@ -188,7 +205,6 @@ export function SurfacesPage({
     // dangling-binding failures the console shows land in the package's CI.
     const acceptLintScript = () => {
         if (
-            selectedPackage === null ||
             listing === null ||
             surfaces === null ||
             surfaces.lintScript.content === undefined
@@ -199,9 +215,9 @@ export function SurfacesPage({
         createChangeSet(treeId, "Vendor the console surfaces lint").then(
             (changeSet) => {
                 setChangeSets((current) => [changeSet, ...current]);
-                setActiveId(changeSet.id);
+                go(surfaceId, { changeSetId: changeSet.id });
                 saveEdit(changeSet.id, {
-                    packagePath: selectedPackage,
+                    packagePath,
                     expectedPin: changeSet.baseShaAtCreation ?? listing.pin,
                     files: [{ path, content }],
                     summary: "Vendor the console surfaces lint",
@@ -236,12 +252,6 @@ export function SurfacesPage({
                             : ""}
                     </p>
                 </div>
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => navigate(`/trees/${treeId}`)}
-                >
-                    Workbench
-                </button>
             </div>
 
             <EditingStrip
@@ -250,13 +260,13 @@ export function SurfacesPage({
                 changeSets={changeSets}
                 active={active}
                 onSelect={(id) => {
-                    setActiveId(id);
                     setBanner(null);
+                    go(surfaceId, { changeSetId: id });
                 }}
                 onCreated={(changeSet) => {
                     setChangeSets((current) => [changeSet, ...current]);
-                    setActiveId(changeSet.id);
                     setBanner(null);
+                    go(surfaceId, { changeSetId: changeSet.id });
                 }}
                 onError={saveFailed}
             />
@@ -269,45 +279,26 @@ export function SurfacesPage({
                 </div>
             ) : null}
 
-            {listing !== null && listing.packages.length > 1 ? (
-                <div className="field-row">
-                    <span className="label">Package</span>
-                    <select
-                        className="input"
-                        value={selectedPackage ?? ""}
-                        onChange={(event) => {
-                            setSelectedPackage(event.target.value);
-                            setOpenSurface(null);
-                        }}
-                    >
-                        {listing.packages.map((entry) => (
-                            <option key={entry.path} value={entry.path}>
-                                {entry.path}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-            ) : null}
-
-            {surfaces === null || pin === null || selectedPackage === null ? (
+            {surfaces === null || pin === null ? (
                 <p className="muted">Loading…</p>
-            ) : openSurface !== null ? (
+            ) : surfaceId !== null ? (
                 <SurfacePanel
-                    key={`${openSurface}@${pin}`}
+                    key={`${surfaceId}@${pin}`}
                     treeId={treeId}
-                    packagePath={selectedPackage}
+                    packagePath={packagePath}
                     pin={pin}
-                    surfaceId={openSurface}
+                    surfaceId={surfaceId}
                     editable={editable}
                     changeSet={active}
-                    onBack={() => setOpenSurface(null)}
+                    state={state}
+                    onBack={() => go(null)}
                     onSaved={afterSave}
                     onError={saveFailed}
                 />
             ) : (
                 <SurfaceCatalog
                     surfaces={surfaces}
-                    onOpen={setOpenSurface}
+                    onOpen={(id) => go(id)}
                     onAccept={acceptSuggestion}
                     onVendorLint={acceptLintScript}
                     canPropose={tree.capabilities.propose.allow}
@@ -467,6 +458,7 @@ function SurfacePanel({
     surfaceId,
     editable,
     changeSet,
+    state,
     onBack,
     onSaved,
     onError,
@@ -477,6 +469,7 @@ function SurfacePanel({
     surfaceId: string;
     editable: boolean;
     changeSet: ChangeSet | null;
+    state: ViewState;
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
@@ -595,7 +588,16 @@ function SurfacePanel({
                             read={read}
                             propose={propose}
                             ui={UI_KIT}
-                            openWorkbench={() => navigate(`/trees/${treeId}`)}
+                            openWorkbench={() =>
+                                navigate(
+                                    packageUrl(
+                                        treeId,
+                                        packagePath,
+                                        { kind: "overview" },
+                                        state,
+                                    ),
+                                )
+                            }
                         />
                     </ExperienceBoundary>
                 ) : (
@@ -634,7 +636,7 @@ function SurfacePanel({
                                 className="row"
                                 key={row.id}
                                 onClick={() =>
-                                    navigate(`/change-sets/${row.id}`)
+                                    navigate(changeSetUrl(treeId, row.id))
                                 }
                             >
                                 <span className="row-text">

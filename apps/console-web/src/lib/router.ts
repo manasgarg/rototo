@@ -188,6 +188,11 @@ export function isCollective(step: AddressStep): boolean {
     return step.id === "" || step.id.endsWith("/");
 }
 
+// The Change sets nav entry covers the list and every change set under it.
+export function changesActive(route: Route): boolean {
+    return route.page === "changes" || route.page === "change-set";
+}
+
 export function homeUrl(): string {
     return "/";
 }

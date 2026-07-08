@@ -31,7 +31,7 @@ import {
     type ReviewContext,
     type SemanticChange,
 } from "@/lib/api";
-import { navigate } from "@/lib/router";
+import { changeSetUrl, navigate, treeUrl } from "@/lib/router";
 
 export function ChangesPage({
     me,
@@ -73,12 +73,6 @@ export function ChangesPage({
                     <h1>Change sets</h1>
                     <p className="hint">{treeName}</p>
                 </div>
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => navigate(`/trees/${treeId}`)}
-                >
-                    Workbench
-                </button>
             </div>
             {error !== null ? (
                 <div className="banner banner-err">{error}</div>
@@ -101,7 +95,7 @@ export function ChangesPage({
                             className="row"
                             key={changeSet.id}
                             onClick={() =>
-                                navigate(`/change-sets/${changeSet.id}`)
+                                navigate(changeSetUrl(treeId, changeSet.id))
                             }
                         >
                             <span className="row-text">
@@ -251,7 +245,7 @@ export function ChangeSetPage({
                     <button
                         className="btn btn-ghost btn-sm"
                         onClick={() =>
-                            navigate(`/trees/${changeSet.sourceTreeId}`)
+                            navigate(treeUrl(changeSet.sourceTreeId))
                         }
                     >
                         Open workbench
