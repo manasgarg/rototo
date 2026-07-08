@@ -6,7 +6,7 @@ use super::super::syntax::{ParsedToml, item_location};
 use super::fields::{integer_field, optional_string_field};
 use super::json_from_toml_value;
 
-pub(crate) fn project_enum(document: &SourceDocument, toml: &ParsedToml, id: &str) -> ListNode {
+pub(crate) fn project_list(document: &SourceDocument, toml: &ParsedToml, id: &str) -> ListNode {
     let root = toml.root_table();
     let location = document.document_location();
     let schema_version = root

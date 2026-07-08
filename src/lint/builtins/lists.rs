@@ -8,7 +8,7 @@ use super::super::stages::push_project_diagnostic;
 
 const MEMBER_TYPES: &[&str] = &["string", "int", "number", "bool"];
 
-pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
+pub(super) fn lint_list_shapes(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
     for declaration in ctx.index.lists.values() {

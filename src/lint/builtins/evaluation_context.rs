@@ -31,7 +31,7 @@ pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
             );
         }
         if let Some(schema) = evaluation_context.json.as_ref() {
-            lint_context_enum_ref_shapes(&mut diagnostics, ctx, evaluation_context, schema, "$");
+            lint_context_list_ref_shapes(&mut diagnostics, ctx, evaluation_context, schema, "$");
         }
     }
     ctx.diagnostics.extend(diagnostics);
@@ -40,7 +40,7 @@ pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
 /// Context schema fields may pin their values to a list with
 /// `x-rototo-ref: "list=<id>"`. Context facts are caller data, so catalog
 /// targets are rejected here; lists are the only referenceable set.
-fn lint_context_enum_ref_shapes(
+fn lint_context_list_ref_shapes(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
     evaluation_context: &EvaluationContextNode,
@@ -48,7 +48,7 @@ fn lint_context_enum_ref_shapes(
     pointer: &str,
 ) {
     if let Some(target) = schema.get("x-rototo-ref") {
-        match target.as_str().map(context_enum_ref_target) {
+        match target.as_str().map(context_list_ref_target) {
             Some(Ok(id)) if ctx.index.lists.contains_key(&id) => {}
             Some(Ok(id)) => push_project_diagnostic(
                 diagnostics,
@@ -81,7 +81,7 @@ fn lint_context_enum_ref_shapes(
             continue;
         };
         for (key, child) in children {
-            lint_context_enum_ref_shapes(
+            lint_context_list_ref_shapes(
                 diagnostics,
                 ctx,
                 evaluation_context,
@@ -91,7 +91,7 @@ fn lint_context_enum_ref_shapes(
         }
     }
     if let Some(items) = schema.get("items") {
-        lint_context_enum_ref_shapes(
+        lint_context_list_ref_shapes(
             diagnostics,
             ctx,
             evaluation_context,
@@ -104,7 +104,7 @@ fn lint_context_enum_ref_shapes(
             continue;
         };
         for (index, child) in children.iter().enumerate() {
-            lint_context_enum_ref_shapes(
+            lint_context_list_ref_shapes(
                 diagnostics,
                 ctx,
                 evaluation_context,
@@ -115,7 +115,7 @@ fn lint_context_enum_ref_shapes(
     }
 }
 
-fn context_enum_ref_target(target: &str) -> Result<String, String> {
+fn context_list_ref_target(target: &str) -> Result<String, String> {
     if let Some(id) = target.strip_prefix("list=") {
         if id.is_empty() {
             return Err("x-rototo-ref list id must not be empty".to_owned());
@@ -176,7 +176,7 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
                 );
             }
             if let Some(schema) = context.json.as_ref() {
-                lint_sample_enum_refs(&mut diagnostics, ctx, entry, schema, schema, value, "$");
+                lint_sample_list_refs(&mut diagnostics, ctx, entry, schema, schema, value, "$");
             }
         }
     }
@@ -188,7 +188,7 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
 /// set. Local `#/...` `$ref`s resolve against the schema root; anything else is
 /// out of scope for context schemas.
 #[allow(clippy::too_many_arguments)]
-fn lint_sample_enum_refs(
+fn lint_sample_list_refs(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
     entry: &EvaluationContextSampleNode,
@@ -201,14 +201,14 @@ fn lint_sample_enum_refs(
         && let Some(pointer) = reference.strip_prefix("#")
         && let Some(resolved) = root.pointer(pointer)
     {
-        lint_sample_enum_refs(diagnostics, ctx, entry, root, resolved, value, path);
+        lint_sample_list_refs(diagnostics, ctx, entry, root, resolved, value, path);
     }
 
     if let Some(id) = schema
         .get("x-rototo-ref")
         .and_then(JsonValue::as_str)
         .and_then(|target| target.strip_prefix("list="))
-        && let Some(members) = sample_enum_member_values(ctx, id)
+        && let Some(members) = sample_list_member_values(ctx, id)
         && !value.is_object()
         && !value.is_array()
         && !members.contains(&value)
@@ -234,7 +234,7 @@ fn lint_sample_enum_refs(
             let Some(child) = object.get(key) else {
                 continue;
             };
-            lint_sample_enum_refs(
+            lint_sample_list_refs(
                 diagnostics,
                 ctx,
                 entry,
@@ -247,7 +247,7 @@ fn lint_sample_enum_refs(
     }
     if let (Some(items), Some(array)) = (schema.get("items"), value.as_array()) {
         for (index, child) in array.iter().enumerate() {
-            lint_sample_enum_refs(
+            lint_sample_list_refs(
                 diagnostics,
                 ctx,
                 entry,
@@ -263,12 +263,12 @@ fn lint_sample_enum_refs(
             continue;
         };
         for subschema in subschemas {
-            lint_sample_enum_refs(diagnostics, ctx, entry, root, subschema, value, path);
+            lint_sample_list_refs(diagnostics, ctx, entry, root, subschema, value, path);
         }
     }
 }
 
-fn sample_enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+fn sample_list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
     if !ctx.index.lists.contains_key(id) {
         return None;
     }
@@ -498,7 +498,7 @@ fn list_membership_mismatches(
     references: &ExpressionReferences,
 ) -> Vec<(String, String)> {
     let mut mismatches = Vec::new();
-    for (path, list_ids) in &references.context_path_enums {
+    for (path, list_ids) in &references.context_path_lists {
         let mut constraints = BTreeSet::new();
         for list_id in list_ids {
             let Some(declared) = index.lists.get(list_id) else {

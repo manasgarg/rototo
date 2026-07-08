@@ -64,7 +64,7 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                         if !ctx.index.lists.contains_key(list_id) {
                             push_project_diagnostic(
                                 diagnostics,
-                                RototoRuleId::ExpressionUnknownEnum,
+                                RototoRuleId::ExpressionUnknownList,
                                 rule.field_target(&variable.id, field.clone()),
                                 expression.location.clone(),
                                 format!("expression references unknown list: {list_id}"),
@@ -107,7 +107,7 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                     if !ctx.index.lists.contains_key(list_id) {
                         push_project_diagnostic(
                             diagnostics,
-                            RototoRuleId::ExpressionUnknownEnum,
+                            RototoRuleId::ExpressionUnknownList,
                             variable.field_target(field.clone()),
                             expression.location.clone(),
                             format!("expression references unknown list: {list_id}"),
@@ -782,10 +782,10 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
             }
             VariableTypeKind::Catalog(_) => lint_catalog_resolve_values(&mut diagnostics, variable),
             VariableTypeKind::List(id) => {
-                lint_enum_resolve_values(&mut diagnostics, ctx, variable, &type_kind.location, id);
+                lint_list_resolve_values(&mut diagnostics, ctx, variable, &type_kind.location, id);
             }
             VariableTypeKind::Array(item) => {
-                lint_list_resolve_values(
+                lint_array_resolve_values(
                     &mut diagnostics,
                     ctx,
                     variable,
@@ -833,7 +833,7 @@ fn retired_colon_binding(type_name: &str) -> Option<String> {
     }
 }
 
-fn lint_list_resolve_values(
+fn lint_array_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
     variable: &VariableNode,
@@ -841,23 +841,23 @@ fn lint_list_resolve_values(
     item: &VariableTypeKind,
 ) {
     match item {
-        VariableTypeKind::Catalog(_) => lint_catalog_list_resolve_values(diagnostics, variable),
+        VariableTypeKind::Catalog(_) => lint_catalog_array_resolve_values(diagnostics, variable),
         VariableTypeKind::Primitive(type_name) => {
             let Some(primitive) = lint_primitive_type(diagnostics, variable, location, type_name)
             else {
                 return;
             };
-            lint_primitive_list_resolve_values(diagnostics, variable, primitive);
+            lint_primitive_array_resolve_values(diagnostics, variable, primitive);
         }
         VariableTypeKind::List(id) => {
-            lint_enum_list_resolve_values(diagnostics, ctx, variable, location, id);
+            lint_list_array_resolve_values(diagnostics, ctx, variable, location, id);
         }
         VariableTypeKind::Array(_) => push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownType,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
-            "nested list variable types are not supported",
+            "nested array variable types are not supported",
         ),
     }
 }
@@ -876,7 +876,7 @@ fn list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a Json
     Some(members.value.iter().map(|member| &member.value).collect())
 }
 
-fn lint_enum_resolve_values(
+fn lint_list_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
     variable: &VariableNode,
@@ -886,7 +886,7 @@ fn lint_enum_resolve_values(
     if !ctx.index.lists.contains_key(id) {
         push_value_diagnostic(
             diagnostics,
-            RototoRuleId::VariableUnknownEnum,
+            RototoRuleId::VariableUnknownList,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
             format!("variable references unknown list: {id}"),
@@ -912,7 +912,7 @@ fn lint_enum_resolve_values(
     });
 }
 
-fn lint_enum_list_resolve_values(
+fn lint_list_array_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
     variable: &VariableNode,
@@ -922,7 +922,7 @@ fn lint_enum_list_resolve_values(
     if !ctx.index.lists.contains_key(id) {
         push_value_diagnostic(
             diagnostics,
-            RototoRuleId::VariableUnknownEnum,
+            RototoRuleId::VariableUnknownList,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
             format!("variable references unknown list: {id}"),
@@ -1025,7 +1025,7 @@ fn lint_primitive_resolve_values(
     });
 }
 
-fn lint_primitive_list_resolve_values(
+fn lint_primitive_array_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     variable: &VariableNode,
     primitive: PrimitiveType,
@@ -1099,7 +1099,7 @@ fn lint_catalog_resolve_values(diagnostics: &mut Vec<LintDiagnostic>, variable: 
     });
 }
 
-fn lint_catalog_list_resolve_values(
+fn lint_catalog_array_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     variable: &VariableNode,
 ) {

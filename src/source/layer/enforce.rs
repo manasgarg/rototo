@@ -94,7 +94,7 @@ pub(super) fn check_governed_file(
             let declared_below = |kind: &str, id: &str| -> bool {
                 let path = match kind {
                     "catalog" => format!("model/catalogs/{id}.schema.json"),
-                    "list" => format!("model/lists/{id}.toml"),
+                    "list" => format!("lists/{id}.toml"),
                     "variable" => format!("variables/{id}.toml"),
                     "evaluation_context" => format!("model/context/{id}.schema.json"),
                     "layer" => format!("layers/{id}.toml"),

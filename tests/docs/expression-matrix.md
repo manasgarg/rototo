@@ -17,15 +17,15 @@ does with an evaluated result belongs to `tests/docs/resolution-matrix.md`.
 
 | # | Given an expression reading... | Then... | Coverage |
 |---|---|---|---|
-| R1 | `context`, `entry`, `variables["<id>"]`, `lists.<id>`, `env.now` | all five roots evaluate; no issues reported | `flags_invalid_expression_roots` (the valid arm), `evaluates_context_paths_entry_paths_and_variables`, `evaluates_enum_membership`, `evaluates_env_members` |
+| R1 | `context`, `entry`, `variables["<id>"]`, `lists.<id>`, `env.now` | all five roots evaluate; no issues reported | `flags_invalid_expression_roots` (the valid arm), `evaluates_context_paths_entry_paths_and_variables`, `evaluates_list_membership`, `evaluates_env_members` |
 | R2 | an unknown root (`foo.bar`) | reported as `UnknownRoot` | `flags_invalid_expression_roots` |
 | R3 | an unknown `env` member (`env.bogus`) | reported as `UnknownEnvMember` | `flags_invalid_expression_roots` |
 | R4 | the retired `qualifier["x"]` or `env.qualifier["x"]` spellings | reported as `LegacyQualifier`, whose lint diagnostic points at `variables["<id>"]` | `flags_invalid_expression_roots` |
 | R5 | identifiers bound by a CEL comprehension (`.exists(x, ...)`) | not misread as unknown roots | `comprehension_bound_identifiers_are_not_unknown_roots` |
 | R6 | `env.resolving.*` | valid only inside `[[trace]]` policies (resolution matrix T4) | `env_resolving_outside_trace_policy_is_rejected` (`tests/sdk.rs`) |
 | R7 | `variables["<id>"]` in either spelling (`variables.premium` dot form included) | both spellings extract the same reference | `tracks_variable_references_in_both_spellings` |
-| R8 | `lists.<id>` in either spelling (`lists["geo/regions"]` for namespaced ids) | both spellings extract the list reference, and `context.<path> in lists.<id>` records the membership pair for lint's type refinement | `tracks_enum_references_in_both_spellings` |
-| R9 | `lists.<id>` naming a list the package does not declare | `rototo/expression-unknown-list` at lint (trace policies and layer expressions report through their own catch-all rules); at evaluation, a resolution error naming the list | canonical fixture `rules/project/expression-unknown-list`, `lint-failures`, `evaluates_enum_membership` (the error arm) |
+| R8 | `lists.<id>` in either spelling (`lists["geo/regions"]` for namespaced ids) | both spellings extract the list reference, and `context.<path> in lists.<id>` records the membership pair for lint's type refinement | `tracks_list_references_in_both_spellings` |
+| R9 | `lists.<id>` naming a list the package does not declare | `rototo/expression-unknown-list` at lint (trace policies and layer expressions report through their own catch-all rules); at evaluation, a resolution error naming the list | canonical fixture `rules/project/expression-unknown-list`, `lint-failures`, `evaluates_list_membership` (the error arm) |
 
 ## 2. Evaluation semantics
 
@@ -35,7 +35,7 @@ does with an evaluated result belongs to `tests/docs/resolution-matrix.md`.
 | V2 | comparisons, `in` membership, JSON equality | deep equality over JSON values, membership over lists | `evaluates_comparison_membership_and_json_equality` |
 | V3 | context paths, entry paths, variable references | values thread from the caller's JSON and the lazy variable resolver | `evaluates_context_paths_entry_paths_and_variables`, `evaluates_variable_references` |
 | V4 | `env.now` | the injected instant compares as an RFC3339 string and feeds the time functions | `evaluates_env_members` |
-| V8 | `lists.<id>` | binds the list's member list as an ordinary CEL list, so `in`, `size`, and comprehensions compose; a rule `when` and a query `filter` both select through it end to end | `evaluates_enum_membership`, `resolves_enum_membership_in_when_and_query` (`src/resolve.rs`) |
+| V8 | `lists.<id>` | binds the list's member list as an ordinary CEL list, so `in`, `size`, and comprehensions compose; a rule `when` and a query `filter` both select through it end to end | `evaluates_list_membership`, `resolves_list_membership_in_when_and_query` (`src/resolve.rs`) |
 | V5 | a syntactically malformed expression | rejected at parse; unknown-identifier checking is the schema-aware layer's job (R2), not the parser's | `rejects_malformed_expressions_at_parse` |
 | V6 | a wrong-typed evaluation (missing context key, absent `entry`, non-bool operand, unknown function, bad regex, bad cidr, non-collection `size`) | an evaluation error, never a coercion; a non-bool result for a bool position gets the stable "did not evaluate to bool" message | `reports_evaluation_errors_with_stable_messages` |
 | V7 | a basic end-to-end expression | parse then evaluate round-trips | `parses_and_evaluates_basic_expression` |
@@ -67,7 +67,7 @@ does with an evaluated result belongs to `tests/docs/resolution-matrix.md`.
 | T2 | `cidr` and time functions | the string operand is refined (ip / timestamp expectations) | `infers_refined_string_types_from_cidr_and_time_functions` |
 | T3 | a `bucket` unit argument | left unconstrained: any JSON value can hash | `leaves_bucket_value_argument_unconstrained` |
 | T4 | conflicting uses of one path | both expectations are recorded rather than one silently winning | `records_conflicting_uses_as_multiple_expectations` |
-| T5 | `context.<path> in lists.<id>` | the membership is recorded at parse (the member type is unknown there); lint refines the path's expected scalar family from the declared list and reports mismatches through `rototo/variable-rule-context-path-type-mismatch` | `tracks_enum_references_in_both_spellings` (the membership map), `list_membership_mismatches` (`src/lint/builtins/evaluation_context.rs`) |
+| T5 | `context.<path> in lists.<id>` | the membership is recorded at parse (the member type is unknown there); lint refines the path's expected scalar family from the declared list and reports mismatches through `rototo/variable-rule-context-path-type-mismatch` | `tracks_list_references_in_both_spellings` (the membership map), `list_membership_mismatches` (`src/lint/builtins/evaluation_context.rs`) |
 
 ## 6. Fixture-context synthesis (`synthesize.rs`)
 
@@ -79,7 +79,7 @@ false): the engine behind `rototo fixtures`.
 | Y1 | equality / inequality | a satisfying (or refuting) context synthesizes and round-trips through evaluation | `synthesizes_equality_and_inequality`, `assert_round_trip` |
 | Y2 | orderings | boundary-respecting values synthesize | `synthesizes_orderings` |
 | Y3 | membership (`in`) | an element (or non-element) synthesizes | `synthesizes_membership` |
-| Y10 | membership against `lists.<id>` | a member (or non-member) synthesizes when the caller supplies the member list; the fixtures CLI passes no list data yet (the inspect report does not carry members), so those candidates honestly return `None` and are dropped | `synthesizes_enum_membership` |
+| Y10 | membership against `lists.<id>` | a member (or non-member) synthesizes when the caller supplies the member list; the fixtures CLI passes no list data yet (the inspect report does not carry members), so those candidates honestly return `None` and are dropped | `synthesizes_list_membership` |
 | Y4 | boolean composition | conjunctions and disjunctions merge branch contexts | `synthesizes_boolean_composition` |
 | Y5 | `bucket(...)` | a unit id hashing into the wanted range is searched for and found | `synthesizes_bucket`, `fixtures_command_synthesizes_a_unit_id_per_arm` (`tests/fixtures.rs`) |
 | Y6 | an unsatisfiable bucket range | the candidate search stops at `MAX_BUCKET_CANDIDATES` and reports no context instead of spinning | `bucket_synthesis_gives_up_after_the_candidate_budget` |

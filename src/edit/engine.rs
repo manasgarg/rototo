@@ -70,14 +70,14 @@ fn apply_operation(
             )?;
             Ok(vec![create::create_entry(work, catalog, key, fields)?])
         }
-        EditOperation::CreateEnum {
+        EditOperation::CreateList {
             id,
             member_type,
             members,
             description,
         } => {
             ensure_owned(options, &[format!("list={id}")])?;
-            Ok(vec![create::create_enum(
+            Ok(vec![create::create_list(
                 work,
                 id,
                 member_type,

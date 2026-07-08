@@ -701,8 +701,8 @@ fn schema_obviously_matches(schema: &JsonValue, value: &JsonValue) -> bool {
         return false;
     }
 
-    if let Some(list_values) = object.get("list").and_then(JsonValue::as_array)
-        && !list_values.iter().any(|candidate| candidate == value)
+    if let Some(enum_values) = object.get("enum").and_then(JsonValue::as_array)
+        && !enum_values.iter().any(|candidate| candidate == value)
     {
         return false;
     }
@@ -734,8 +734,8 @@ fn schema_obviously_matches(schema: &JsonValue, value: &JsonValue) -> bool {
             {
                 return false;
             }
-            if let Some(list_values) = property_object.get("list").and_then(JsonValue::as_array)
-                && !list_values.iter().any(|candidate| candidate == child)
+            if let Some(enum_values) = property_object.get("enum").and_then(JsonValue::as_array)
+                && !enum_values.iter().any(|candidate| candidate == child)
             {
                 return false;
             }

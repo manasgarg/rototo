@@ -183,7 +183,7 @@ rototo_rules! {
         title: "Identifier is not snake_case",
         help: "rototo-recognized ids appear in TOML tables and CEL expressions, where a hyphen is the minus operator; use lowercase letters, digits, and underscores, with / for namespacing.",
     },
-    VariableUnknownEnum => {
+    VariableUnknownList => {
         id: "variable-unknown-list",
         entity: Variable,
         title: "Variable references an unknown list",
@@ -346,7 +346,7 @@ rototo_rules! {
         title: "Variable rule references an unknown variable",
         help: "Create the referenced variable or fix the variables[\"<id>\"] reference.",
     },
-    ExpressionUnknownEnum => {
+    ExpressionUnknownList => {
         id: "expression-unknown-list",
         entity: Variable,
         title: "Expression references an unknown list",

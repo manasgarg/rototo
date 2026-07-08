@@ -885,7 +885,7 @@ async fn trace_provenance_names_the_layer_that_owns_the_resolution() {
 }
 
 #[tokio::test]
-async fn overlay_enum_members_union_with_the_base() {
+async fn overlay_list_members_union_with_the_base() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -938,7 +938,7 @@ value = "us"
 
 /// A base with a list declared, ready for an overlay to compose member
 /// deletes against through the update marker.
-async fn write_enum_base(root: &Path) {
+async fn write_list_base(root: &Path) {
     // Deny-by-default is unconditional; this base opens itself to its own
     // overlays with a broad [defaults] grant.
     write(
@@ -958,11 +958,11 @@ async fn write_enum_base(root: &Path) {
 }
 
 #[tokio::test]
-async fn overlay_deletes_enum_members_from_the_base() {
+async fn overlay_deletes_list_members_from_the_base() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
-    write_enum_base(&base).await;
+    write_list_base(&base).await;
     write(
         &overlay,
         "rototo-package.toml",
@@ -1026,11 +1026,11 @@ default = "legacy"
 }
 
 #[tokio::test]
-async fn orphan_enum_member_deletes_fail_loudly() {
+async fn orphan_list_member_deletes_fail_loudly() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
-    write_enum_base(&base).await;
+    write_list_base(&base).await;
     write(
         &overlay,
         "rototo-package.toml",
@@ -1072,11 +1072,11 @@ async fn orphan_enum_member_deletes_fail_loudly() {
 }
 
 #[tokio::test]
-async fn same_layer_enum_member_add_and_delete_conflict() {
+async fn same_layer_list_member_add_and_delete_conflict() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
-    write_enum_base(&base).await;
+    write_list_base(&base).await;
     write(
         &overlay,
         "rototo-package.toml",
@@ -1098,11 +1098,11 @@ async fn same_layer_enum_member_add_and_delete_conflict() {
 }
 
 #[tokio::test]
-async fn deleting_every_enum_member_fails_the_load() {
+async fn deleting_every_list_member_fails_the_load() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
-    write_enum_base(&base).await;
+    write_list_base(&base).await;
     write(
         &overlay,
         "rototo-package.toml",
@@ -1521,7 +1521,7 @@ async fn governed_samples_reject_edits_but_admit_additions() {
 }
 
 #[tokio::test]
-async fn governed_enum_members_check_update_and_add() {
+async fn governed_list_members_check_update_and_add() {
     let temp = tempfile::TempDir::new().unwrap();
 
     // G12: adjusting a base list's members goes through the update marker,
@@ -1994,7 +1994,7 @@ async fn sibling_bases_conflict_on_the_same_lint_file() {
 }
 
 #[tokio::test]
-async fn sibling_enum_declaration_and_members_conflict() {
+async fn sibling_list_declaration_and_members_conflict() {
     // Two sibling bases declare the same list id with different content.
     // A list belongs to one owner: siblings may not both declare it, so
     // this is a conflict, deliberately (the split-halves variant dissolved

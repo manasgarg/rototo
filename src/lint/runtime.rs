@@ -18,7 +18,7 @@ pub(crate) struct RuntimePackage {
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
-    pub(crate) lists: BTreeMap<String, RuntimeEnum>,
+    pub(crate) lists: BTreeMap<String, RuntimeList>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
     /// Which layer's `[resolve]` block each variable carries, read from the
@@ -27,7 +27,7 @@ pub(crate) struct RuntimePackage {
 }
 
 #[derive(Debug)]
-pub(crate) struct RuntimeEnum {
+pub(crate) struct RuntimeList {
     pub(crate) description: Option<String>,
     pub(crate) member_type: String,
     pub(crate) members: Vec<JsonValue>,
@@ -239,7 +239,7 @@ impl<'a> RuntimeCompiler<'a> {
         let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
-        let lists = Self::compile_enums(index);
+        let lists = Self::compile_lists(index);
         let variables = self.compile_variables(index)?;
         let trace_policies = Self::compile_trace_policies(manifest)?;
 
@@ -255,7 +255,7 @@ impl<'a> RuntimeCompiler<'a> {
         })
     }
 
-    fn compile_enums(index: &SemanticIndex) -> BTreeMap<String, RuntimeEnum> {
+    fn compile_lists(index: &SemanticIndex) -> BTreeMap<String, RuntimeList> {
         index
             .lists
             .values()
@@ -281,7 +281,7 @@ impl<'a> RuntimeCompiler<'a> {
                     });
                 (
                     declaration.id.clone(),
-                    RuntimeEnum {
+                    RuntimeList {
                         description,
                         member_type,
                         members,

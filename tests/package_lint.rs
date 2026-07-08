@@ -645,7 +645,7 @@ default = "platinum"
     )
     .unwrap();
     std::fs::write(
-        root.join("variables/unknown_enum.toml"),
+        root.join("variables/unknown_list.toml"),
         r#"schema_version = 1
 type = "list=missing"
 
@@ -1928,7 +1928,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::ExpressionUnknownEnum,
+            rule: RototoRuleId::ExpressionUnknownList,
             package: "tests/fixtures/packages/rules/project/expression-unknown-list",
             success: false,
             expected: &[ExpectedDiagnostic {
@@ -2279,7 +2279,7 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::ListShape,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableUnknownEnum,
+            rule: RototoRuleId::VariableUnknownList,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::TraceWhenMissing,

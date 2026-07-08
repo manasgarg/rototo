@@ -392,7 +392,7 @@ pub(super) fn compose_package_layer_file(
             {
                 base_table.insert("description".to_owned(), description.clone());
             }
-            compose_enum_members(&mut base, overlay, relative)?;
+            compose_list_members(&mut base, overlay, relative)?;
             write_layer_toml(&base_path, &base)
         }
         LayerFileComposition::ListRestate => {
@@ -493,7 +493,7 @@ pub(super) fn deep_merge_toml(base: &mut toml::Value, update: toml::Value) {
 /// name a member a layer below actually provides, a layer may not both add
 /// and delete the same value, and the composed set may not end up empty. The
 /// `deleted` key itself never lands in the flattened file.
-pub(super) fn compose_enum_members(
+pub(super) fn compose_list_members(
     base: &mut toml::Value,
     overlay: toml::Value,
     relative: &Path,

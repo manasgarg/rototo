@@ -48,7 +48,7 @@ impl SourceStore {
         Ok(())
     }
 
-    pub(crate) async fn add_enum_documents(&mut self) -> Result<()> {
+    pub(crate) async fn add_list_documents(&mut self) -> Result<()> {
         let directory_path = self.root.join("lists");
         let entries = match sorted_directory_entries_recursive(&directory_path).await {
             Ok(entries) => entries,

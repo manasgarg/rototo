@@ -38,7 +38,7 @@ pub(crate) struct ExpressionReferences {
     /// List memberships per context path (`context.<path> in lists.<id>`).
     /// The member type is not known at parse; lint refines the path's expected
     /// scalar family from the declared list.
-    pub(crate) context_path_enums: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) context_path_lists: BTreeMap<String, BTreeSet<String>>,
     /// Scalar types a context path is compared against, inferred from how the
     /// expression uses it. A path can carry more than one expectation when it is
     /// used in several places. Paths used in ways that do not pin a scalar type
@@ -315,7 +315,7 @@ mod tests {
     }
 
     /// A [`RefResolver`] with a list table alongside the variable table.
-    struct TestRefsWithEnums<'a> {
+    struct TestRefsWithLists<'a> {
         variables: &'a [(&'a str, JsonValue)],
         lists: &'a [(&'a str, JsonValue)],
     }
@@ -334,7 +334,7 @@ mod tests {
         }
     }
 
-    impl RefResolver for TestRefsWithEnums<'_> {
+    impl RefResolver for TestRefsWithLists<'_> {
         fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
             self.variables
                 .iter()
@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn tracks_enum_references_in_both_spellings() {
+    fn tracks_list_references_in_both_spellings() {
         let expr = Expression::parse(
             r#"context.tier in lists.plan_tiers && context.region in lists["geo/regions"]"#,
         )
@@ -638,22 +638,22 @@ mod tests {
         // The membership pairs the context path with the list whose members
         // constrain it; lint refines the path's expected type from the list.
         assert_eq!(
-            expr.references().context_path_enums.get("tier"),
+            expr.references().context_path_lists.get("tier"),
             Some(&string_set(&["plan_tiers"]))
         );
         assert_eq!(
-            expr.references().context_path_enums.get("region"),
+            expr.references().context_path_lists.get("region"),
             Some(&string_set(&["geo/regions"]))
         );
     }
 
     #[test]
-    fn evaluates_enum_membership() {
+    fn evaluates_list_membership() {
         let context = serde_json::json!({ "tier": "team" });
         let expr = Expression::parse(r#"context.tier in lists.plan_tiers"#).unwrap();
         let members = serde_json::json!(["free", "team", "business"]);
 
-        let mut refs = TestRefsWithEnums {
+        let mut refs = TestRefsWithLists {
             variables: &[],
             lists: &[("plan_tiers", members.clone())],
         };
@@ -663,7 +663,7 @@ mod tests {
         );
 
         let outside = serde_json::json!({ "tier": "trial" });
-        let mut refs = TestRefsWithEnums {
+        let mut refs = TestRefsWithLists {
             variables: &[],
             lists: &[("plan_tiers", members.clone())],
         };
@@ -676,7 +676,7 @@ mod tests {
         // The member list is an ordinary CEL list value, so size() and
         // comprehensions compose with it.
         let size = Expression::parse("size(lists.plan_tiers) == 3").unwrap();
-        let mut refs = TestRefsWithEnums {
+        let mut refs = TestRefsWithLists {
             variables: &[],
             lists: &[("plan_tiers", members)],
         };
@@ -686,7 +686,7 @@ mod tests {
         );
 
         // An unknown list surfaces the resolver's error.
-        let mut refs = TestRefsWithEnums {
+        let mut refs = TestRefsWithLists {
             variables: &[],
             lists: &[],
         };
@@ -697,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn synthesizes_enum_membership() {
+    fn synthesizes_list_membership() {
         let source = r#"context.tier in lists.plan_tiers"#;
         let expr = Expression::parse(source).unwrap();
         let members = vec![
@@ -713,7 +713,7 @@ mod tests {
                     Some(members.clone())
                 })
                 .expect("expected list membership synthesis");
-            let mut refs = TestRefsWithEnums {
+            let mut refs = TestRefsWithLists {
                 variables: &[],
                 lists: &[(
                     "plan_tiers",

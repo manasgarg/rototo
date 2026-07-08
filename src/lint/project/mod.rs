@@ -38,7 +38,7 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                 };
                 index
                     .lists
-                    .insert(id.clone(), lists::project_enum(document, toml, id));
+                    .insert(id.clone(), lists::project_list(document, toml, id));
             }
             DocumentKind::Governance => {
                 let Some(toml) = syntax.toml.get(&document.id) else {

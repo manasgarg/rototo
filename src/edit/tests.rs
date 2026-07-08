@@ -556,9 +556,9 @@ default = false
 }
 
 #[test]
-fn create_enum_and_layer_write_their_skeletons() {
+fn create_list_and_layer_write_their_skeletons() {
     let outcome = apply_all(vec![
-        EditOperation::CreateEnum {
+        EditOperation::CreateList {
             id: "regions".to_owned(),
             member_type: "string".to_owned(),
             members: vec![json!("eu"), json!("us")],

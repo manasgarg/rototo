@@ -25,7 +25,7 @@ pub enum EditOperation {
         key: String,
         fields: JsonValue,
     },
-    CreateEnum {
+    CreateList {
         id: String,
         #[serde(rename = "type")]
         member_type: String,
@@ -167,7 +167,7 @@ impl EditOperation {
             Self::CreateVariable { .. } => "create_variable",
             Self::CreateCatalog { .. } => "create_catalog",
             Self::CreateEntry { .. } => "create_entry",
-            Self::CreateEnum { .. } => "create_enum",
+            Self::CreateList { .. } => "create_list",
             Self::CreateContext { .. } => "create_context",
             Self::CreateLayer { .. } => "create_layer",
             Self::CreateSample { .. } => "create_sample",

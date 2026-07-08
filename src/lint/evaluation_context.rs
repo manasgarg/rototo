@@ -345,7 +345,7 @@ fn schema_field_type_tokens(field: &serde_json::Value) -> Option<BTreeSet<String
         return json_value_type_token(constant).map(|token| BTreeSet::from([token]));
     }
 
-    if let Some(serde_json::Value::Array(values)) = field.get("list") {
+    if let Some(serde_json::Value::Array(values)) = field.get("enum") {
         let set = values
             .iter()
             .filter_map(json_value_type_token)

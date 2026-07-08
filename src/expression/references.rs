@@ -17,7 +17,7 @@ pub(super) fn collect_cel(
     bound: &mut Vec<String>,
 ) {
     cel_constraints(expr, &mut references.context_path_types);
-    cel_enum_memberships(expr, &mut references.context_path_enums);
+    cel_list_memberships(expr, &mut references.context_path_lists);
 
     if let Some((root, _)) = cel_path(expr)
         && bound.contains(&root)
@@ -152,7 +152,7 @@ pub(super) fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
 /// know the list's member type; lint later refines the context path's expected
 /// scalar family from the declared list, so the membership itself is what gets
 /// recorded here.
-pub(super) fn cel_enum_memberships(
+pub(super) fn cel_list_memberships(
     expr: &IdedExpr,
     memberships: &mut BTreeMap<String, BTreeSet<String>>,
 ) {

@@ -113,7 +113,7 @@ pub(super) fn create_entry(
     })
 }
 
-pub(super) fn create_enum(
+pub(super) fn create_list(
     work: &mut WorkingTree<'_>,
     id: &str,
     member_type: &str,
@@ -159,7 +159,7 @@ pub(super) fn create_enum(
     let after = json_from_table(document.as_table());
     work.write(path, document.to_string());
     Ok(ChangeRecord {
-        operation: "create_enum",
+        operation: "create_list",
         address: format!("list={id}"),
         before: None,
         after: Some(after),

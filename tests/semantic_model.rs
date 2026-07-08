@@ -139,7 +139,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
 /// Discovery composes each package's declared `extends` edges into the
 /// composition tree, and lists are first-class entities in the model.
 #[tokio::test]
-async fn semantic_model_projects_extends_edges_and_enums() {
+async fn semantic_model_projects_extends_edges_and_lists() {
     let overlay = package_semantic_model(Path::new("examples/acme-overlay"))
         .await
         .expect("examples/acme-overlay should produce a semantic model");

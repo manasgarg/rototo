@@ -1149,7 +1149,7 @@ value = true
     }
 
     #[tokio::test]
-    async fn resolves_enum_membership_in_when_and_query() {
+    async fn resolves_list_membership_in_when_and_query() {
         let package = package_with_conditions(&[(
             "known_tier",
             condition(r#"context.tier in lists.plan_tiers"#),
