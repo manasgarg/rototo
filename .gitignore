@@ -42,6 +42,11 @@ apps/console-server/index.d.ts
 apps/console-server/index.js
 apps/console-web/dist/
 
+# Local environment files with real secrets; .env.example stays tracked
+.env
+.env.*
+!.env.example
+
 
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
