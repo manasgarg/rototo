@@ -201,8 +201,8 @@ export function adminUrl(): string {
     return "/admin";
 }
 
-export function treeUrl(treeId: string): string {
-    return `/trees/${treeId}`;
+export function treeUrl(treeId: string, state?: ViewState): string {
+    return `/trees/${treeId}${formatState(state)}`;
 }
 
 export function changesUrl(treeId: string): string {

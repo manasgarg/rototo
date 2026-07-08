@@ -32,6 +32,8 @@ import {
     type AdminSourceTree,
     type MeResponse,
 } from "@/lib/api";
+import { githubRepoUrl } from "@/lib/github";
+import { treeUrl } from "@/lib/router";
 
 export function AdminPage({
     me,
@@ -106,6 +108,24 @@ export function AdminPage({
     const nameOf = (principalId: string): string =>
         principals.find((p) => p.id === principalId)?.displayName ??
         principalId;
+    // A grant's resource is "deployment" or "source-tree:<id>"; people read
+    // repository names, so resolve the id when the tree is known.
+    const resourceView = (
+        resource: string,
+    ): { label: string; to: string | null } => {
+        if (!resource.startsWith("source-tree:")) {
+            return { label: resource, to: null };
+        }
+        const id = resource.slice("source-tree:".length);
+        const tree = trees.find((candidate) => candidate.id === id);
+        return {
+            label:
+                tree !== undefined && tree.kind === "github"
+                    ? `${tree.owner}/${tree.name}`
+                    : resource,
+            to: treeUrl(id),
+        };
+    };
 
     return (
         <div className="section">
@@ -136,54 +156,81 @@ export function AdminPage({
                     again reactivates it.
                 </p>
                 <div className="row-list">
-                    {trees.map((tree) => (
-                        <div className="row row-static" key={tree.id}>
-                            <span className="row-text">
-                                <span className="row-title mono">
-                                    {tree.kind === "github"
-                                        ? `${tree.owner}/${tree.name}`
-                                        : tree.id}
-                                </span>
-                                <span className="row-sub mono">
-                                    {tree.defaultBranch ??
-                                        "default branch unknown"}
-                                </span>
-                            </span>
-                            <span className="row-side">
-                                {tree.status === "deregistered" ? (
-                                    <span className="pill pill-neutral">
-                                        deregistered
-                                    </span>
-                                ) : (
-                                    <>
-                                        <BranchEditor
-                                            tree={tree}
-                                            onSave={(branch) =>
-                                                act(
-                                                    setSourceTreeBranch(
-                                                        tree.id,
-                                                        branch,
-                                                    ),
-                                                )
-                                            }
-                                        />
-                                        <button
-                                            className="btn btn-ghost btn-sm"
-                                            onClick={() =>
-                                                act(
-                                                    deregisterSourceTree(
-                                                        tree.id,
-                                                    ),
-                                                )
-                                            }
+                    {trees.map((tree) => {
+                        const repoUrl = githubRepoUrl(tree);
+                        return (
+                            <div className="row row-static" key={tree.id}>
+                                <span className="row-text">
+                                    {tree.status === "deregistered" ? (
+                                        <span className="row-title mono">
+                                            {tree.kind === "github"
+                                                ? `${tree.owner}/${tree.name}`
+                                                : tree.id}
+                                        </span>
+                                    ) : (
+                                        <a
+                                            className="row-link row-title mono"
+                                            href={`#${treeUrl(tree.id)}`}
+                                            title="Open this tree"
                                         >
-                                            Deregister
-                                        </button>
-                                    </>
-                                )}
-                            </span>
-                        </div>
-                    ))}
+                                            {tree.kind === "github"
+                                                ? `${tree.owner}/${tree.name}`
+                                                : tree.id}
+                                        </a>
+                                    )}
+                                    <span className="row-sub mono">
+                                        {tree.defaultBranch ??
+                                            "default branch unknown"}
+                                        {repoUrl !== null ? (
+                                            <>
+                                                {" · "}
+                                                <a
+                                                    href={repoUrl}
+                                                    rel="noreferrer"
+                                                    target="_blank"
+                                                >
+                                                    GitHub ↗
+                                                </a>
+                                            </>
+                                        ) : null}
+                                    </span>
+                                </span>
+                                <span className="row-side">
+                                    {tree.status === "deregistered" ? (
+                                        <span className="pill pill-neutral">
+                                            deregistered
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <BranchEditor
+                                                tree={tree}
+                                                onSave={(branch) =>
+                                                    act(
+                                                        setSourceTreeBranch(
+                                                            tree.id,
+                                                            branch,
+                                                        ),
+                                                    )
+                                                }
+                                            />
+                                            <button
+                                                className="btn btn-ghost btn-sm"
+                                                onClick={() =>
+                                                    act(
+                                                        deregisterSourceTree(
+                                                            tree.id,
+                                                        ),
+                                                    )
+                                                }
+                                            >
+                                                Deregister
+                                            </button>
+                                        </>
+                                    )}
+                                </span>
+                            </div>
+                        );
+                    })}
                 </div>
                 <RegisterTreeForm
                     onRegister={(input) => act(registerSourceTree(input))}
@@ -319,7 +366,22 @@ export function AdminPage({
                         <div className="row row-static" key={grant.id}>
                             <span className="row-text">
                                 <span className="row-title mono">
-                                    {grant.action} on {grant.resource}
+                                    {grant.action} on{" "}
+                                    {(() => {
+                                        const view = resourceView(
+                                            grant.resource,
+                                        );
+                                        return view.to === null ? (
+                                            view.label
+                                        ) : (
+                                            <a
+                                                className="row-link"
+                                                href={`#${view.to}`}
+                                            >
+                                                {view.label}
+                                            </a>
+                                        );
+                                    })()}
                                 </span>
                                 <span className="row-sub">
                                     {grant.granteeKind === "group"

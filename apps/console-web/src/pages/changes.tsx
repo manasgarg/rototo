@@ -34,7 +34,17 @@ import {
     type ReviewContext,
     type SemanticChange,
 } from "@/lib/api";
-import { changeSetUrl, navigate, treeUrl } from "@/lib/router";
+import { entityLabel, entitySteps } from "@/components/entity-link";
+import { formatInstant } from "@/lib/format";
+import { githubBranchUrl, githubCommitUrl } from "@/lib/github";
+import {
+    changeSetUrl,
+    navigate,
+    packageUrl,
+    treeUrl,
+    type AddressStep,
+    type ViewState,
+} from "@/lib/router";
 
 export function ChangesPage({
     me,
@@ -94,12 +104,10 @@ export function ChangesPage({
             ) : (
                 <div className="row-list">
                     {changeSets.map((changeSet) => (
-                        <button
+                        <a
                             className="row"
                             key={changeSet.id}
-                            onClick={() =>
-                                navigate(changeSetUrl(treeId, changeSet.id))
-                            }
+                            href={`#${changeSetUrl(treeId, changeSet.id)}`}
                         >
                             <span className="row-text">
                                 <span className="row-title">
@@ -107,12 +115,16 @@ export function ChangesPage({
                                 </span>
                                 <span className="row-sub mono">
                                     {changeSet.branch}
+                                    {changeSet.prNumber !== null
+                                        ? ` · PR #${changeSet.prNumber}`
+                                        : ""}
+                                    {` · ${changeSet.authorPrincipal}`}
                                 </span>
                             </span>
                             <span className="row-side">
                                 <StatePill changeSet={changeSet} />
                             </span>
-                        </button>
+                        </a>
                     ))}
                 </div>
             )}
@@ -154,6 +166,21 @@ export function ChangeSetPage({
         return <p className="muted">Loading…</p>;
     }
     const changeSet = detail.changeSet;
+    const tree = me?.capabilities?.sourceTrees.find(
+        (candidate) => candidate.id === changeSet.sourceTreeId,
+    );
+    const branchUrl =
+        tree === undefined ? null : githubBranchUrl(tree, changeSet.branch);
+    const headUrl =
+        tree === undefined || changeSet.headSha === null
+            ? null
+            : githubCommitUrl(tree, changeSet.headSha);
+    // The workbench opens with this change set active, so edits land here.
+    const workbenchState: ViewState = {
+        changeSetId: changeSet.id,
+        pin: null,
+        context: null,
+    };
     const open = changeSet.state === "draft" || changeSet.state === "proposed";
     const act = (action: Promise<unknown>) => {
         setBusy(true);
@@ -209,10 +236,37 @@ export function ChangeSetPage({
                         <h1>{changeSet.title}</h1>
                     )}
                     <p className="hint mono">
-                        {changeSet.branch}
-                        {changeSet.headSha !== null
-                            ? ` @ ${changeSet.headSha.slice(0, 10)}`
-                            : ""}
+                        {branchUrl !== null ? (
+                            <a
+                                className="row-link"
+                                href={branchUrl}
+                                rel="noreferrer"
+                                target="_blank"
+                                title="Open this branch on GitHub"
+                            >
+                                {changeSet.branch}
+                            </a>
+                        ) : (
+                            changeSet.branch
+                        )}
+                        {changeSet.headSha !== null ? (
+                            <>
+                                {" @ "}
+                                {headUrl !== null ? (
+                                    <a
+                                        className="row-link"
+                                        href={headUrl}
+                                        rel="noreferrer"
+                                        target="_blank"
+                                        title="Open the head commit on GitHub"
+                                    >
+                                        {changeSet.headSha.slice(0, 10)}
+                                    </a>
+                                ) : (
+                                    changeSet.headSha.slice(0, 10)
+                                )}
+                            </>
+                        ) : null}
                     </p>
                 </div>
                 <StatePill changeSet={changeSet} />
@@ -252,7 +306,9 @@ export function ChangeSetPage({
                     <div className="meta-item">
                         <span className="label">Observed</span>
                         <span className="meta-value">
-                            {changeSet.lastReconciledAt ?? "never"}
+                            {changeSet.lastReconciledAt === null
+                                ? "never"
+                                : formatInstant(changeSet.lastReconciledAt)}
                         </span>
                     </div>
                 </div>
@@ -293,8 +349,11 @@ export function ChangeSetPage({
                     </button>
                     <button
                         className="btn btn-ghost btn-sm"
+                        title="Open the workbench with this change set active"
                         onClick={() =>
-                            navigate(treeUrl(changeSet.sourceTreeId))
+                            navigate(
+                                treeUrl(changeSet.sourceTreeId, workbenchState),
+                            )
                         }
                     >
                         Open workbench
@@ -415,7 +474,9 @@ export function ChangeSetPage({
                                     </span>
                                 ) : null}
                             </span>
-                            <span className="tl-when">{event.at}</span>
+                            <span className="tl-when">
+                                {formatInstant(event.at)}
+                            </span>
                         </span>
                     </div>
                 ))}
@@ -612,8 +673,38 @@ function PackageReviewView({
     pkg: PackageReview;
     onPromoted: () => void;
 }) {
+    // Review links open the workbench on the change set's branch, so what
+    // the reviewer inspects is what the change set holds.
+    const reviewState: ViewState = {
+        changeSetId: changeSet.id,
+        pin: null,
+        context: null,
+    };
+    const hrefEntity = (steps: AddressStep[]): string =>
+        `#${packageUrl(
+            changeSet.sourceTreeId,
+            pkg.path,
+            { kind: "address", steps },
+            reviewState,
+        )}`;
     return (
         <div className="section">
+            <div className="section-header-text">
+                <h3>
+                    <a
+                        className="row-link mono"
+                        href={`#${packageUrl(
+                            changeSet.sourceTreeId,
+                            pkg.path,
+                            { kind: "overview" },
+                            reviewState,
+                        )}`}
+                        title="Open this package in the workbench, on this change set"
+                    >
+                        {pkg.path}
+                    </a>
+                </h3>
+            </div>
             {pkg.surfaces.length > 0 ? (
                 <div className="card">
                     <h3>Surfaces this change touches</h3>
@@ -643,7 +734,11 @@ function PackageReviewView({
                 ) : (
                     <div className="row-list">
                         {pkg.changes.map((change, index) => (
-                            <SemanticChangeRow key={index} change={change} />
+                            <SemanticChangeRow
+                                key={index}
+                                change={change}
+                                hrefEntity={hrefEntity}
+                            />
                         ))}
                     </div>
                 )}
@@ -655,6 +750,7 @@ function PackageReviewView({
                     changeSet={changeSet}
                     headPin={headPin}
                     pkg={pkg}
+                    hrefEntity={hrefEntity}
                     onPromoted={onPromoted}
                 />
             </div>
@@ -667,7 +763,16 @@ function PackageReviewView({
     );
 }
 
-function SemanticChangeRow({ change }: { change: SemanticChange }) {
+function SemanticChangeRow({
+    change,
+    hrefEntity,
+}: {
+    change: SemanticChange;
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
+    const steps = entitySteps(change.target.entity);
+    const label = `${change.target.entity.kind} ${entityLabel(change.target.entity)}`;
+    const pointer = fieldPointer(change.target.field);
     return (
         <div className="row row-static">
             <span className="row-text">
@@ -675,7 +780,12 @@ function SemanticChangeRow({ change }: { change: SemanticChange }) {
                     {change.kind.replaceAll("_", " ")}
                 </span>
                 <span className="row-sub mono">
-                    {describeTarget(change.target)}
+                    {steps === null ? (
+                        label
+                    ) : (
+                        <a href={hrefEntity(steps)}>{label}</a>
+                    )}
+                    {pointer}
                 </span>
             </span>
             <span className="row-side mono review-values">
@@ -700,11 +810,13 @@ function ImpactView({
     changeSet,
     headPin,
     pkg,
+    hrefEntity,
     onPromoted,
 }: {
     changeSet: ChangeSet;
     headPin: string;
     pkg: PackageReview;
+    hrefEntity: (steps: AddressStep[]) => string;
     onPromoted: () => void;
 }) {
     const [promoting, setPromoting] = useState<string | null>(null);
@@ -782,7 +894,14 @@ function ImpactView({
                             Samples exercise {covered} of{" "}
                             {variable.rules.length} rule
                             {variable.rules.length === 1 ? "" : "s"} on{" "}
-                            <span className="mono">{variable.id}</span>
+                            <a
+                                className="row-link mono"
+                                href={hrefEntity([
+                                    { class: "variable", id: variable.id },
+                                ])}
+                            >
+                                {variable.id}
+                            </a>
                             {variable.defaultCovered
                                 ? ", including the default."
                                 : "; no sample exercises its default."}{" "}
@@ -808,6 +927,7 @@ function ImpactView({
                         impact={impact}
                         context={contextsByLabel.get(impact.context) ?? null}
                         promoting={promoting === impact.context}
+                        hrefEntity={hrefEntity}
                         onPromote={promote}
                     />
                 ))
@@ -820,11 +940,13 @@ function ContextImpactView({
     impact,
     context,
     promoting,
+    hrefEntity,
     onPromote,
 }: {
     impact: ContextImpact;
     context: ReviewContext | null;
     promoting: boolean;
+    hrefEntity: (steps: AddressStep[]) => string;
     onPromote: (context: ReviewContext) => void;
 }) {
     const synthetic = context?.source === "synthetic";
@@ -855,7 +977,15 @@ function ContextImpactView({
             </div>
             {impact.impacts.map((outcome) => (
                 <p className="diagnostic mono" key={outcome.variable}>
-                    {outcome.variable}:{" "}
+                    <a
+                        className="row-link"
+                        href={hrefEntity([
+                            { class: "variable", id: outcome.variable },
+                        ])}
+                    >
+                        {outcome.variable}
+                    </a>
+                    :{" "}
                     <span className="review-before">
                         {outcome.before !== undefined
                             ? clip(outcome.before.value)
@@ -913,18 +1043,11 @@ function LintDeltaView({
     );
 }
 
-function describeTarget(target: SemanticChange["target"]): string {
-    const entity = target.entity;
-    const parts = Object.entries(entity)
-        .filter(([key]) => key !== "kind")
-        .map(([, value]) => String(value));
-    const field = target.field as
-        { kind?: string; path?: string[] } | undefined;
-    const pointer =
-        field?.path !== undefined && Array.isArray(field.path)
-            ? `#/${field.path.join("/")}`
-            : "";
-    return `${entity.kind} ${parts.join(" / ")}${pointer}`;
+function fieldPointer(field: SemanticChange["target"]["field"]): string {
+    const path = (field as { path?: string[] } | undefined)?.path;
+    return path !== undefined && Array.isArray(path)
+        ? `#/${path.join("/")}`
+        : "";
 }
 
 function stripLabel(label: string): string {

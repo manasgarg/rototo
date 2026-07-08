@@ -55,6 +55,7 @@ import {
     syntheticLabel,
     type ChosenContext,
 } from "@/components/context-picker";
+import { entityLabel, entitySteps } from "@/components/entity-link";
 import {
     CompositionPanel,
     FleetPanel,
@@ -65,6 +66,7 @@ import {
 import { LitGraph } from "@/components/lit-graph";
 import { TracePreview } from "@/components/trace-preview";
 import {
+    changeSetUrl,
     CLASS_LABELS,
     formatAddress,
     isCollective,
@@ -125,6 +127,21 @@ export function WorkbenchPage({
             );
         },
         [treeId, packagePath, state],
+    );
+
+    // The same move as an href, for everything rendered as a real link.
+    const hrefView = useCallback(
+        (next: PackageView): string =>
+            `#${packageUrl(treeId, packagePath, next, state)}`,
+        [treeId, packagePath, state],
+    );
+    const hrefEntity = useCallback(
+        (steps: AddressStep[]): string => hrefView({ kind: "address", steps }),
+        [hrefView],
+    );
+    const hrefFile = useCallback(
+        (path: string): string => hrefView({ kind: "files", file: path }),
+        [hrefView],
     );
 
     const refreshChangeSets = useCallback(() => {
@@ -428,6 +445,7 @@ export function WorkbenchPage({
             ) : view.kind === "history" ? (
                 <HistoryPanel
                     treeId={treeId}
+                    tree={tree}
                     packagePath={packagePath}
                     viewingPin={state.pin}
                     onViewPin={(candidate) => {
@@ -444,6 +462,7 @@ export function WorkbenchPage({
                         detail={detail}
                         changeSet={active}
                         editable={editable}
+                        hrefFile={hrefFile}
                         onOpenFile={(path) => go({ kind: "files", file: path })}
                         onSaved={afterSave}
                         onError={saveFailed}
@@ -468,6 +487,9 @@ export function WorkbenchPage({
                     detail={detail}
                     steps={view.steps}
                     go={go}
+                    hrefView={hrefView}
+                    hrefEntity={hrefEntity}
+                    hrefFile={hrefFile}
                     editable={editable}
                     changeSet={active}
                     chosen={chosen}
@@ -483,25 +505,20 @@ export function WorkbenchPage({
                     detail={detail}
                     refName={ref}
                     outcomes={outcomes}
-                    hrefView={(next) =>
-                        `#${packageUrl(treeId, packagePath, next, state)}`
+                    hrefView={hrefView}
+                    hrefPackage={(path) =>
+                        `#${packageUrl(
+                            treeId,
+                            path,
+                            { kind: "overview" },
+                            { ...state, context: null },
+                        )}`
                     }
                     onOpenVariable={(id) =>
                         go({
                             kind: "address",
                             steps: [{ class: "variable", id }],
                         })
-                    }
-                    onOpenFile={(path) => go({ kind: "files", file: path })}
-                    onOpenPackage={(path) =>
-                        navigate(
-                            packageUrl(
-                                treeId,
-                                path,
-                                { kind: "overview" },
-                                { ...state, context: null },
-                            ),
-                        )
                     }
                 />
             )}
@@ -558,7 +575,13 @@ export function EditingStrip({
                 ))}
             </select>
             {active !== null ? (
-                <span className="mono mode-strip-branch">{active.branch}</span>
+                <a
+                    className="row-link mono mode-strip-branch"
+                    href={`#${changeSetUrl(treeId, active.id)}`}
+                    title="Open this change set"
+                >
+                    {active.branch}
+                </a>
             ) : null}
             {creating ? (
                 <form
@@ -618,22 +641,24 @@ function EntityLists({
     refName,
     outcomes,
     hrefView,
+    hrefPackage,
     onOpenVariable,
-    onOpenFile,
-    onOpenPackage,
 }: {
     treeId: string;
     detail: PackageDetail;
     refName: string | undefined;
     outcomes: Map<string, TraceOutcome> | null;
     hrefView: (view: PackageView) => string;
+    hrefPackage: (path: string) => string;
     onOpenVariable: (id: string) => void;
-    onOpenFile: (path: string) => void;
-    onOpenPackage: (path: string) => void;
 }) {
     const model = detail.model;
     const entityHref = (className: string, id: string): string =>
         hrefView({ kind: "address", steps: [{ class: className, id }] });
+    const hrefEntity = (steps: AddressStep[]): string =>
+        hrefView({ kind: "address", steps });
+    const hrefFile = (path: string): string =>
+        hrefView({ kind: "files", file: path });
     return (
         <>
             {model.variables.length > 1 ? (
@@ -662,6 +687,7 @@ function EntityLists({
                 treeId={treeId}
                 packagePath={detail.path}
                 pin={detail.pin}
+                hrefEntity={hrefEntity}
             />
 
             <div className="section-header-text">
@@ -670,7 +696,7 @@ function EntityLists({
             <VariableRows
                 variables={model.variables}
                 outcomes={outcomes}
-                onOpen={onOpenVariable}
+                hrefFor={(id) => entityHref("variable", id)}
             />
 
             <Inventory
@@ -699,21 +725,26 @@ function EntityLists({
                 }))}
             />
 
-            <ValidityPanel diagnostics={detail.lint.diagnostics} />
+            <ValidityPanel
+                diagnostics={detail.lint.diagnostics}
+                hrefFile={hrefFile}
+            />
 
             <CompositionPanel
                 treeId={treeId}
                 refName={refName}
-                onOpenPackage={onOpenPackage}
+                hrefPackage={hrefPackage}
             />
 
             <FleetPanel
                 treeId={treeId}
                 packagePath={detail.path}
                 pin={detail.pin}
+                hrefPackage={hrefPackage}
+                hrefEntity={hrefEntity}
             />
 
-            <FileList treeId={treeId} detail={detail} onOpenFile={onOpenFile} />
+            <FileList treeId={treeId} detail={detail} hrefFile={hrefFile} />
         </>
     );
 }
@@ -756,21 +787,21 @@ function Inventory({
 function VariableRows({
     variables,
     outcomes,
-    onOpen,
+    hrefFor,
 }: {
     variables: VariableModel[];
     outcomes: Map<string, TraceOutcome> | null;
-    onOpen: (id: string) => void;
+    hrefFor: (id: string) => string;
 }) {
     return (
         <div className="row-list">
             {variables.map((variable) => {
                 const outcome = outcomes?.get(variable.id);
                 return (
-                    <button
+                    <a
                         className="row"
                         key={variable.id}
-                        onClick={() => onOpen(variable.id)}
+                        href={hrefFor(variable.id)}
                     >
                         <span className="row-text">
                             <span className="row-title mono">
@@ -794,12 +825,12 @@ function VariableRows({
                                     cannot resolve
                                 </span>
                             ) : (
-                                <span className="pill pill-sea">
+                                <span className="pill pill-sea mono">
                                     {clipValue(outcome.trace?.resolution.value)}
                                 </span>
                             )}
                         </span>
-                    </button>
+                    </a>
                 );
             })}
         </div>
@@ -817,6 +848,9 @@ function AddressView({
     detail,
     steps,
     go,
+    hrefView,
+    hrefEntity,
+    hrefFile,
     editable,
     changeSet,
     chosen,
@@ -830,6 +864,9 @@ function AddressView({
     detail: PackageDetail;
     steps: AddressStep[];
     go: (view: PackageView, patch?: Partial<ViewState>) => void;
+    hrefView: (view: PackageView) => string;
+    hrefEntity: (steps: AddressStep[]) => string;
+    hrefFile: (path: string) => string;
     editable: boolean;
     changeSet: ChangeSet | null;
     chosen: ChosenContext;
@@ -886,8 +923,8 @@ function AddressView({
                     <VariableRows
                         variables={variables}
                         outcomes={outcomes}
-                        onOpen={(id) =>
-                            openAddress([{ class: "variable", id }])
+                        hrefFor={(id) =>
+                            hrefEntity([{ class: "variable", id }])
                         }
                     />
                 </CollectionPage>
@@ -903,6 +940,8 @@ function AddressView({
                 chosen={chosen}
                 outcome={outcomes?.get(head.id) ?? null}
                 synthesized={inventory?.synthesized ?? []}
+                hrefEntity={hrefEntity}
+                hrefFile={hrefFile}
                 onUseContext={onUseContext}
                 onBack={() => openAddress([{ class: "variable", id: "" }])}
                 onSaved={onSaved}
@@ -938,17 +977,12 @@ function AddressView({
                                 (entry) => entry.catalog === catalog.id,
                             ).length;
                             return (
-                                <button
+                                <a
                                     className="row"
                                     key={catalog.id}
-                                    onClick={() =>
-                                        openAddress([
-                                            {
-                                                class: "catalog",
-                                                id: catalog.id,
-                                            },
-                                        ])
-                                    }
+                                    href={hrefEntity([
+                                        { class: "catalog", id: catalog.id },
+                                    ])}
                                 >
                                     <span className="row-text">
                                         <span className="row-title mono">
@@ -960,7 +994,7 @@ function AddressView({
                                             {catalog.path}
                                         </span>
                                     </span>
-                                </button>
+                                </a>
                             );
                         })}
                     </div>
@@ -981,6 +1015,8 @@ function AddressView({
                 catalogId={head.id}
                 entryPrefix={child?.id ?? ""}
                 editable={editable}
+                hrefEntity={hrefEntity}
+                hrefFile={hrefFile}
                 onOpenEntry={(key) =>
                     openAddress([
                         { class: "catalog", id: head.id },
@@ -1017,21 +1053,27 @@ function AddressView({
                 >
                     <div className="row-list">
                         {lists.map((list) => (
-                            <button
+                            <a
                                 className="row"
                                 key={list.id}
-                                onClick={() =>
-                                    openAddress([
-                                        { class: "list", id: list.id },
-                                    ])
-                                }
+                                href={hrefEntity([
+                                    { class: "list", id: list.id },
+                                ])}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
                                         {list.id}
                                     </span>
+                                    <span className="row-sub">
+                                        {list.memberType.value ?? "string"} ·{" "}
+                                        {list.members.length} member
+                                        {list.members.length === 1 ? "" : "s"}
+                                        {list.description !== undefined
+                                            ? ` — ${list.description}`
+                                            : ""}
+                                    </span>
                                 </span>
-                            </button>
+                            </a>
                         ))}
                     </div>
                 </CollectionPage>
@@ -1044,6 +1086,7 @@ function AddressView({
                 model={model}
                 listId={head.id}
                 editable={editable}
+                hrefEntity={hrefEntity}
                 onOpenFile={(path) => go({ kind: "files", file: path })}
                 onBack={() => openAddress([{ class: "list", id: "" }])}
                 onDeleted={() => openAddress([{ class: "list", id: "" }])}
@@ -1076,17 +1119,15 @@ function AddressView({
                 >
                     <div className="row-list">
                         {contexts.map((context) => (
-                            <button
+                            <a
                                 className="row"
                                 key={context.id}
-                                onClick={() =>
-                                    openAddress([
-                                        {
-                                            class: "evaluation-context",
-                                            id: context.id,
-                                        },
-                                    ])
-                                }
+                                href={hrefEntity([
+                                    {
+                                        class: "evaluation-context",
+                                        id: context.id,
+                                    },
+                                ])}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
@@ -1096,7 +1137,7 @@ function AddressView({
                                         {context.path}
                                     </span>
                                 </span>
-                            </button>
+                            </a>
                         ))}
                     </div>
                 </CollectionPage>
@@ -1117,6 +1158,7 @@ function AddressView({
                 contextId={head.id}
                 inventory={inventory}
                 editable={editable}
+                hrefEntity={hrefEntity}
                 onOpenSample={(key) =>
                     openAddress([
                         { class: "evaluation-context", id: head.id },
@@ -1202,6 +1244,8 @@ function CatalogPanel({
     editable,
     changeSet,
     detail,
+    hrefEntity,
+    hrefFile,
     onOpenEntry,
     onOpenSchema,
     onBack,
@@ -1215,6 +1259,8 @@ function CatalogPanel({
     editable: boolean;
     changeSet: ChangeSet | null;
     detail: PackageDetail;
+    hrefEntity: (steps: AddressStep[]) => string;
+    hrefFile: (path: string) => string;
     onOpenEntry: (key: string) => void;
     onOpenSchema: (path: string) => void;
     onBack: () => void;
@@ -1229,9 +1275,11 @@ function CatalogPanel({
         return (
             <div className="card">
                 <p className="hint">No such catalog at this pin.</p>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <div className="action-row">
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </div>
             </div>
         );
     }
@@ -1254,7 +1302,12 @@ function CatalogPanel({
                     <p className="hint">
                         {entries.length} entr
                         {entries.length === 1 ? "y" : "ies"} · schema{" "}
-                        {catalog.path}
+                        <a
+                            className="row-link mono"
+                            href={hrefFile(catalog.path)}
+                        >
+                            {catalog.path}
+                        </a>
                     </p>
                 </div>
                 <span className="action-row">
@@ -1332,20 +1385,34 @@ function CatalogPanel({
             ) : (
                 <div className="row-list">
                     {entries.map((entry) => (
-                        <button
+                        <a
                             className="row"
                             key={entry.key}
-                            onClick={() => onOpenEntry(entry.key)}
+                            href={hrefEntity([
+                                { class: "catalog", id: catalogId },
+                                { class: "entry", id: entry.key },
+                            ])}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
                                     {entry.key}
                                 </span>
                             </span>
-                        </button>
+                        </a>
                     ))}
                 </div>
             )}
+            <ReferencePills
+                title="Referenced by"
+                entities={model.references
+                    .filter(
+                        (reference) =>
+                            reference.to.kind === "catalog" &&
+                            reference.to.id === catalogId,
+                    )
+                    .map((reference) => reference.from)}
+                hrefEntity={hrefEntity}
+            />
         </div>
     );
 }
@@ -1359,6 +1426,7 @@ function ListPanel({
     editable,
     changeSet,
     detail,
+    hrefEntity,
     onOpenFile,
     onBack,
     onDeleted,
@@ -1370,6 +1438,7 @@ function ListPanel({
     editable: boolean;
     changeSet: ChangeSet | null;
     detail: PackageDetail;
+    hrefEntity: (steps: AddressStep[]) => string;
     onOpenFile: (path: string) => void;
     onBack: () => void;
     onDeleted: () => void;
@@ -1383,9 +1452,11 @@ function ListPanel({
         return (
             <div className="card">
                 <p className="hint">No such list at this pin.</p>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <div className="action-row">
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </div>
             </div>
         );
     }
@@ -1526,6 +1597,20 @@ function ListPanel({
                     Start or pick a change set above to edit.
                 </p>
             )}
+            {listTypedVariables(model, listId).length > 0 ? (
+                <div className="reference-links">
+                    <span className="label">Typed against this list</span>
+                    {listTypedVariables(model, listId).map((id) => (
+                        <a
+                            key={id}
+                            className="pill pill-neutral mono"
+                            href={hrefEntity([{ class: "variable", id }])}
+                        >
+                            {id}
+                        </a>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -1537,6 +1622,7 @@ function ContextDetailPanel({
     editable,
     changeSet,
     detail,
+    hrefEntity,
     onOpenSample,
     onOpenSchema,
     onBack,
@@ -1550,6 +1636,7 @@ function ContextDetailPanel({
     editable: boolean;
     changeSet: ChangeSet | null;
     detail: PackageDetail;
+    hrefEntity: (steps: AddressStep[]) => string;
     onOpenSample: (key: string) => void;
     onOpenSchema: (path: string) => void;
     onBack: () => void;
@@ -1564,9 +1651,11 @@ function ContextDetailPanel({
         return (
             <div className="card">
                 <p className="hint">No such evaluation context at this pin.</p>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <div className="action-row">
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </div>
             </div>
         );
     }
@@ -1652,17 +1741,23 @@ function ContextDetailPanel({
             ) : (
                 <div className="row-list">
                     {samples.map((sample) => (
-                        <button
+                        <a
                             className="row"
                             key={sample.key}
-                            onClick={() => onOpenSample(sample.key)}
+                            href={hrefEntity([
+                                {
+                                    class: "evaluation-context",
+                                    id: contextId,
+                                },
+                                { class: "sample", id: sample.key },
+                            ])}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
                                     {sample.key}
                                 </span>
                             </span>
-                        </button>
+                        </a>
                     ))}
                 </div>
             )}
@@ -1675,6 +1770,7 @@ function FileList({
     detail,
     changeSet,
     editable,
+    hrefFile,
     onOpenFile,
     onSaved,
     onError,
@@ -1683,7 +1779,8 @@ function FileList({
     detail: PackageDetail;
     changeSet?: ChangeSet | null;
     editable?: boolean;
-    onOpenFile: (path: string) => void;
+    hrefFile: (path: string) => string;
+    onOpenFile?: (path: string) => void;
     onSaved?: (result: EditResponse) => void;
     onError?: (error: unknown) => void;
 }) {
@@ -1729,22 +1826,18 @@ function FileList({
                             summary: `Create ${path}`,
                         }).then((result) => {
                             onSaved(result);
-                            onOpenFile(path);
+                            onOpenFile?.(path);
                         }, onError)
                     }
                 />
             ) : null}
             <div className="row-list">
                 {(files ?? []).map((file) => (
-                    <button
-                        className="row"
-                        key={file}
-                        onClick={() => onOpenFile(file)}
-                    >
+                    <a className="row" key={file} href={hrefFile(file)}>
                         <span className="row-text">
                             <span className="row-title mono">{file}</span>
                         </span>
-                    </button>
+                    </a>
                 ))}
             </div>
         </>
@@ -1763,6 +1856,8 @@ function VariablePanel({
     chosen,
     outcome,
     synthesized,
+    hrefEntity,
+    hrefFile,
     onUseContext,
     onBack,
     onSaved,
@@ -1775,6 +1870,8 @@ function VariablePanel({
     chosen: ChosenContext;
     outcome: TraceOutcome | null;
     synthesized: SynthesizedContext[];
+    hrefEntity: (steps: AddressStep[]) => string;
+    hrefFile: (path: string) => string;
     onUseContext: (chosen: ChosenContext) => void;
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
@@ -1805,12 +1902,29 @@ function VariablePanel({
         return (
             <div className="card">
                 <p className="hint">No such variable at this pin.</p>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <div className="action-row">
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </div>
             </div>
         );
     }
+
+    const reads = detail.model.references
+        .filter(
+            (reference) =>
+                reference.from.kind === "variable" &&
+                reference.from.id === variableId,
+        )
+        .map((reference) => reference.to);
+    const readBy = detail.model.references
+        .filter(
+            (reference) =>
+                reference.to.kind === "variable" &&
+                reference.to.id === variableId,
+        )
+        .map((reference) => reference.from);
 
     const save = () => {
         if (changeSet === null) {
@@ -1880,7 +1994,13 @@ function VariablePanel({
                 <div className="card-head-text">
                     <h2 className="mono">{variable.id}</h2>
                     <p className="hint">
-                        {type} · {variable.location.path}
+                        <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
+                        <a
+                            className="row-link mono"
+                            href={hrefFile(variable.location.path)}
+                        >
+                            {variable.location.path}
+                        </a>
                     </p>
                 </div>
                 <span className="action-row">
@@ -1923,12 +2043,28 @@ function VariablePanel({
                 </span>
             </div>
 
+            {reads.length > 0 || readBy.length > 0 ? (
+                <div className="field-stack">
+                    <ReferencePills
+                        title="Reads"
+                        entities={reads}
+                        hrefEntity={hrefEntity}
+                    />
+                    <ReferencePills
+                        title="Read by"
+                        entities={readBy}
+                        hrefEntity={hrefEntity}
+                    />
+                </div>
+            ) : null}
+
             <TracePreview
                 variableId={variableId}
                 chosen={chosen}
                 outcome={outcome}
                 synthesized={synthesized}
                 canPromote={editable}
+                hrefEntity={hrefEntity}
                 onUseContext={onUseContext}
                 onPromote={promote}
             />
@@ -1941,7 +2077,7 @@ function VariablePanel({
                 }}
             >
                 <div className="form-fields">
-                    <div className="field-row">
+                    <div className="form-row">
                         <span className="label">Description</span>
                         <input
                             className="input"
@@ -1952,7 +2088,7 @@ function VariablePanel({
                             }
                         />
                     </div>
-                    <div className="field-row">
+                    <div className="form-row">
                         <span className="label">Default</span>
                         <ValueInput
                             type={type}
@@ -2129,6 +2265,33 @@ function VariablePanel({
     );
 }
 
+// A variable's declared type; entity-backed types (catalog=, list=, and
+// their array item forms) link to the entity that defines the value shape.
+function TypeLabel({
+    type,
+    hrefEntity,
+}: {
+    type: string;
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
+    const match = /^(array<)?(catalog|list)=([a-z0-9_/]+)>?$/.exec(type);
+    if (match === null) {
+        return <>{type}</>;
+    }
+    const [, arrayOpen, className, id] = match as unknown as [
+        string,
+        string | undefined,
+        string,
+        string,
+    ];
+    const link = (
+        <a className="expr-link" href={hrefEntity([{ class: className, id }])}>
+            {className}={id}
+        </a>
+    );
+    return arrayOpen !== undefined ? <>array&lt;{link}&gt;</> : link;
+}
+
 function ValueInput({
     type,
     value,
@@ -2197,7 +2360,7 @@ function QueryFields({
                     answers when nothing matches.
                 </p>
             </div>
-            <div className="field-row">
+            <div className="form-row">
                 <span className="label">From</span>
                 <input
                     className="input mono"
@@ -2207,7 +2370,7 @@ function QueryFields({
                     onChange={(event) => set("from")(event.target.value)}
                 />
             </div>
-            <div className="field-row">
+            <div className="form-row">
                 <span className="label">Filter</span>
                 <input
                     className="input mono"
@@ -2217,7 +2380,7 @@ function QueryFields({
                     onChange={(event) => set("filter")(event.target.value)}
                 />
             </div>
-            <div className="field-row">
+            <div className="form-row">
                 <span className="label">Sort</span>
                 <input
                     className="input mono"
@@ -2227,7 +2390,7 @@ function QueryFields({
                     onChange={(event) => set("sort")(event.target.value)}
                 />
             </div>
-            <div className="field-row">
+            <div className="form-row">
                 <span className="label">Order</span>
                 <select
                     className="input"
@@ -2240,7 +2403,7 @@ function QueryFields({
                     <option value="desc">desc</option>
                 </select>
             </div>
-            <div className="field-row">
+            <div className="form-row">
                 <span className="label">Limit</span>
                 <input
                     className="input mono"
@@ -2971,7 +3134,7 @@ function referenceLabels(
 // The reference index does not track list usage, so the visible blast
 // radius for a list is the variables typed against it; expression uses
 // (`lists.<id>`) surface through lint after the delete.
-function listReferrers(model: SemanticModel, listId: string): string[] {
+function listTypedVariables(model: SemanticModel, listId: string): string[] {
     return model.variables
         .filter((variable) => {
             const value = variable.declaration.value ?? "";
@@ -2979,7 +3142,53 @@ function listReferrers(model: SemanticModel, listId: string): string[] {
                 value === `list=${listId}` || value === `array<list=${listId}>`
             );
         })
-        .map((variable) => `variable ${variable.id}`);
+        .map((variable) => variable.id);
+}
+
+function listReferrers(model: SemanticModel, listId: string): string[] {
+    return listTypedVariables(model, listId).map((id) => `variable ${id}`);
+}
+
+// One side of the reference index as links: the entities a panel's subject
+// reads, or the entities that read it, rendered the same everywhere.
+function ReferencePills({
+    title,
+    entities,
+    hrefEntity,
+}: {
+    title: string;
+    entities: ModelEntityRef[];
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
+    const seen = new Map<string, AddressStep[] | null>();
+    for (const entity of entities) {
+        seen.set(entityLabel(entity), entitySteps(entity));
+    }
+    if (seen.size === 0) {
+        return null;
+    }
+    return (
+        <div className="reference-links">
+            <span className="label">{title}</span>
+            {[...seen.entries()]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([label, steps]) =>
+                    steps === null ? (
+                        <span key={label} className="pill pill-neutral mono">
+                            {label}
+                        </span>
+                    ) : (
+                        <a
+                            key={label}
+                            className="pill pill-neutral mono"
+                            href={hrefEntity(steps)}
+                        >
+                            {label}
+                        </a>
+                    ),
+                )}
+        </div>
+    );
 }
 
 function blastWarning(what: string, referrers: string[]): string {

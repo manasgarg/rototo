@@ -14,6 +14,8 @@ import {
     type ChosenContext,
     contextLabel,
 } from "@/components/context-picker";
+import { ExpressionText } from "@/components/entity-link";
+import type { AddressStep } from "@/lib/router";
 
 export function TracePreview({
     variableId,
@@ -21,6 +23,7 @@ export function TracePreview({
     outcome,
     synthesized,
     canPromote,
+    hrefEntity,
     onUseContext,
     onPromote,
 }: {
@@ -29,6 +32,7 @@ export function TracePreview({
     outcome: TraceOutcome | null;
     synthesized: SynthesizedContext[];
     canPromote: boolean;
+    hrefEntity: (steps: AddressStep[]) => string;
     onUseContext: (chosen: ChosenContext) => void;
     onPromote: (entry: SynthesizedContext) => void;
 }) {
@@ -57,7 +61,7 @@ export function TracePreview({
                     Cannot resolve under this context: {outcome.error}
                 </div>
             ) : outcome.trace !== undefined ? (
-                <TraceWalk outcome={outcome} />
+                <TraceWalk outcome={outcome} hrefEntity={hrefEntity} />
             ) : null}
 
             {cases.length > 0 ? (
@@ -109,7 +113,13 @@ export function TracePreview({
     );
 }
 
-function TraceWalk({ outcome }: { outcome: TraceOutcome }) {
+function TraceWalk({
+    outcome,
+    hrefEntity,
+}: {
+    outcome: TraceOutcome;
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
     const trace = outcome.trace;
     if (trace === undefined) {
         return null;
@@ -155,7 +165,10 @@ function TraceWalk({ outcome }: { outcome: TraceOutcome }) {
                                   : "no match"}
                         </span>
                         <span className="mono trace-rule-when">
-                            {rule.condition}
+                            <ExpressionText
+                                text={rule.condition}
+                                hrefFor={hrefEntity}
+                            />
                         </span>
                         <span className="mono trace-rule-value">
                             → {JSON.stringify(rule.value)}

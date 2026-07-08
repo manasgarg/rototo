@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ExpressionText } from "@/components/entity-link";
 import {
     fetchComposition,
     fetchContexts,
@@ -17,8 +18,12 @@ import {
     type LintDiagnostic,
     type MatrixColumn,
     type SampleContext,
+    type SourceTreeSummary,
     type UpcomingChange,
 } from "@/lib/api";
+import { formatInstant } from "@/lib/format";
+import { githubCommitUrl } from "@/lib/github";
+import type { AddressStep } from "@/lib/router";
 
 // Behavior that changes with no commit and no deploy: env.now boundaries
 // that have not passed. Empty means nothing is scheduled, and the panel
@@ -27,10 +32,12 @@ export function UpcomingPanel({
     treeId,
     packagePath,
     pin,
+    hrefEntity,
 }: {
     treeId: string;
     packagePath: string;
     pin: string;
+    hrefEntity: (steps: AddressStep[]) => string;
 }) {
     const [changes, setChanges] = useState<UpcomingChange[] | null>(null);
     useEffect(() => {
@@ -68,11 +75,20 @@ export function UpcomingPanel({
                 {changes.map((change, index) => (
                     <div className="row row-static" key={index}>
                         <span className="row-text">
-                            <span className="row-title mono">
+                            <a
+                                className="row-link row-title mono"
+                                href={hrefEntity([
+                                    { class: "variable", id: change.variable },
+                                ])}
+                            >
                                 {change.variable}
-                            </span>
+                            </a>
                             <span className="row-sub mono">
-                                {siteLabel(change.site)}: {change.expression}
+                                {siteLabel(change.site)}:{" "}
+                                <ExpressionText
+                                    text={change.expression}
+                                    hrefFor={hrefEntity}
+                                />
                             </span>
                         </span>
                         <span className="row-side">
@@ -102,8 +118,10 @@ function siteLabel(site: UpcomingChange["site"]): string {
 // place, grouped by severity.
 export function ValidityPanel({
     diagnostics,
+    hrefFile,
 }: {
     diagnostics: LintDiagnostic[];
+    hrefFile: (path: string) => string;
 }) {
     const [open, setOpen] = useState(false);
     const errors = diagnostics.filter(
@@ -148,7 +166,16 @@ export function ValidityPanel({
                             {diagnostic.location?.path !== undefined ? (
                                 <span className="hint">
                                     {" "}
-                                    ({diagnostic.location.path})
+                                    (
+                                    <a
+                                        className="row-link mono"
+                                        href={hrefFile(
+                                            diagnostic.location.path,
+                                        )}
+                                    >
+                                        {diagnostic.location.path}
+                                    </a>
+                                    )
                                 </span>
                             ) : null}
                         </p>
@@ -164,11 +191,11 @@ export function ValidityPanel({
 export function CompositionPanel({
     treeId,
     refName,
-    onOpenPackage,
+    hrefPackage,
 }: {
     treeId: string;
     refName: string | undefined;
-    onOpenPackage: (path: string) => void;
+    hrefPackage: (path: string) => string;
 }) {
     const [edges, setEdges] = useState<CompositionEdge[] | null>(null);
     const [nodes, setNodes] = useState<string[]>([]);
@@ -213,17 +240,14 @@ export function CompositionPanel({
             <div className="row-list">
                 {roots.map((root) => (
                     <div key={root}>
-                        <button
-                            className="row"
-                            onClick={() => onOpenPackage(root)}
-                        >
+                        <a className="row" href={hrefPackage(root)}>
                             <span className="row-title mono">{root}</span>
-                        </button>
+                        </a>
                         {overlaysOf(root).map((overlay) => (
-                            <button
+                            <a
                                 className="row row-indent"
                                 key={overlay}
-                                onClick={() => onOpenPackage(overlay)}
+                                href={hrefPackage(overlay)}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
@@ -233,7 +257,7 @@ export function CompositionPanel({
                                         extends {root}
                                     </span>
                                 </span>
-                            </button>
+                            </a>
                         ))}
                     </div>
                 ))}
@@ -251,10 +275,14 @@ export function FleetPanel({
     treeId,
     packagePath,
     pin,
+    hrefPackage,
+    hrefEntity,
 }: {
     treeId: string;
     packagePath: string;
     pin: string;
+    hrefPackage: (path: string) => string;
+    hrefEntity: (steps: AddressStep[]) => string;
 }) {
     const [overlays, setOverlays] = useState<FleetOverlayHealth[] | null>(null);
     const [samples, setSamples] = useState<SampleContext[]>([]);
@@ -363,9 +391,12 @@ export function FleetPanel({
                 {overlays.map((overlay) => (
                     <div className="row row-static" key={overlay.path}>
                         <span className="row-text">
-                            <span className="row-title mono">
+                            <a
+                                className="row-link row-title mono"
+                                href={hrefPackage(overlay.path)}
+                            >
                                 {overlay.path}
-                            </span>
+                            </a>
                             {overlay.failure !== undefined ? (
                                 <span className="row-sub">
                                     {overlay.failure}
@@ -402,7 +433,12 @@ export function FleetPanel({
                                     <th>variable</th>
                                     {columns.map((column) => (
                                         <th className="mono" key={column.path}>
-                                            {column.path}
+                                            <a
+                                                className="row-link"
+                                                href={hrefPackage(column.path)}
+                                            >
+                                                {column.path}
+                                            </a>
                                         </th>
                                     ))}
                                 </tr>
@@ -410,7 +446,19 @@ export function FleetPanel({
                             <tbody>
                                 {variableIds.map((id) => (
                                     <tr key={id}>
-                                        <td className="mono">{id}</td>
+                                        <td className="mono">
+                                            <a
+                                                className="row-link"
+                                                href={hrefEntity([
+                                                    {
+                                                        class: "variable",
+                                                        id,
+                                                    },
+                                                ])}
+                                            >
+                                                {id}
+                                            </a>
+                                        </td>
                                         {columns.map((column) => {
                                             const outcome =
                                                 column.outcomes.find(
@@ -460,11 +508,13 @@ function clip(value: unknown): string {
 // pin that was in force, browse the package as it was.
 export function HistoryPanel({
     treeId,
+    tree,
     packagePath,
     viewingPin,
     onViewPin,
 }: {
     treeId: string;
+    tree: SourceTreeSummary | undefined;
     packagePath: string;
     viewingPin: string | null;
     onViewPin: (pin: string | null) => void;
@@ -500,11 +550,12 @@ export function HistoryPanel({
                 <h2>History</h2>
                 <p className="hint">
                     Every commit that touched this package. Ask for an instant
-                    to see what was in force then.
+                    to see what was in force then; a commit opens the package as
+                    it was.
                 </p>
             </div>
             <form
-                className="field-row"
+                className="action-row"
                 onSubmit={(event) => {
                     event.preventDefault();
                     setBound(
@@ -516,7 +567,7 @@ export function HistoryPanel({
             >
                 <span className="label">On this date</span>
                 <input
-                    className="input mono"
+                    className="input mono history-instant"
                     placeholder="2026-03-03 or 2026-03-03T12:00:00Z"
                     value={until}
                     onChange={(event) => setUntil(event.target.value)}
@@ -551,22 +602,46 @@ export function HistoryPanel({
                     {commits.map((commit, index) => {
                         const current = viewingPin === commit.sha;
                         const inForce = bound !== undefined && index === 0;
+                        const commitUrl =
+                            tree === undefined
+                                ? null
+                                : githubCommitUrl(tree, commit.sha);
                         return (
-                            <button
-                                className="row"
+                            <div
+                                className="row row-static"
                                 data-active={current ? "true" : undefined}
                                 key={commit.sha}
-                                onClick={() =>
-                                    onViewPin(current ? null : commit.sha)
-                                }
                             >
                                 <span className="row-text">
-                                    <span className="row-title">
+                                    <button
+                                        className="row-link row-title"
+                                        title={
+                                            current
+                                                ? "Back to now"
+                                                : "View the package as it was after this commit"
+                                        }
+                                        onClick={() =>
+                                            onViewPin(
+                                                current ? null : commit.sha,
+                                            )
+                                        }
+                                    >
                                         {commit.message.split("\n")[0]}
-                                    </span>
+                                    </button>
                                     <span className="row-sub mono">
-                                        {commit.sha.slice(0, 10)} ·{" "}
-                                        {commit.date}
+                                        {commitUrl !== null ? (
+                                            <a
+                                                href={commitUrl}
+                                                rel="noreferrer"
+                                                target="_blank"
+                                                title="Open this commit on GitHub"
+                                            >
+                                                {commit.sha.slice(0, 10)}
+                                            </a>
+                                        ) : (
+                                            commit.sha.slice(0, 10)
+                                        )}{" "}
+                                        · {formatInstant(commit.date)}
                                         {commit.authorName !== null
                                             ? ` · ${commit.authorName}`
                                             : ""}
@@ -584,7 +659,7 @@ export function HistoryPanel({
                                         </span>
                                     ) : null}
                                 </span>
-                            </button>
+                            </div>
                         );
                     })}
                 </div>

@@ -36,14 +36,19 @@ import {
     type SurfaceSuggestion,
 } from "@/lib/api";
 import { experienceFor } from "@/lib/experiences";
+import { formatInstant } from "@/lib/format";
+import { githubCommitUrl } from "@/lib/github";
 import { ControlInput, UI_KIT } from "@/lib/ui-kit";
 import {
     changeSetUrl,
     navigate,
     packageUrl,
+    parseAddress,
+    type AddressStep,
     type ViewState,
 } from "@/lib/router";
 import { DeleteButton, EditingStrip } from "@/pages/workbench";
+import type { SourceTreeSummary } from "@/lib/api";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
 
@@ -285,6 +290,7 @@ export function SurfacesPage({
                 <SurfacePanel
                     key={`${surfaceId}@${pin}`}
                     treeId={treeId}
+                    tree={tree}
                     packagePath={packagePath}
                     pin={pin}
                     surfaceId={surfaceId}
@@ -298,7 +304,14 @@ export function SurfacesPage({
             ) : (
                 <SurfaceCatalog
                     surfaces={surfaces}
-                    onOpen={(id) => go(id)}
+                    hrefFor={(id) =>
+                        `#${packageUrl(
+                            treeId,
+                            packagePath,
+                            { kind: "surfaces", surfaceId: id },
+                            state,
+                        )}`
+                    }
                     onAccept={acceptSuggestion}
                     onVendorLint={acceptLintScript}
                     canPropose={tree.capabilities.propose.allow}
@@ -310,13 +323,13 @@ export function SurfacesPage({
 
 function SurfaceCatalog({
     surfaces,
-    onOpen,
+    hrefFor,
     onAccept,
     onVendorLint,
     canPropose,
 }: {
     surfaces: SurfaceList;
-    onOpen: (id: string) => void;
+    hrefFor: (id: string) => string;
     onAccept: (suggestion: SurfaceSuggestion) => void;
     onVendorLint: () => void;
     canPropose: boolean;
@@ -399,10 +412,10 @@ function SurfaceCatalog({
                         (diagnostic) => diagnostic.severity === "error",
                     );
                     return (
-                        <button
+                        <a
                             className="row"
                             key={surface.id}
-                            onClick={() => onOpen(surface.id)}
+                            href={hrefFor(surface.id)}
                         >
                             <span className="row-text">
                                 <span className="row-title">
@@ -441,7 +454,7 @@ function SurfaceCatalog({
                                     </span>
                                 ) : null}
                             </span>
-                        </button>
+                        </a>
                     );
                 })}
             </div>
@@ -453,6 +466,7 @@ function SurfaceCatalog({
 
 function SurfacePanel({
     treeId,
+    tree,
     packagePath,
     pin,
     surfaceId,
@@ -464,6 +478,7 @@ function SurfacePanel({
     onError,
 }: {
     treeId: string;
+    tree: SourceTreeSummary;
     packagePath: string;
     pin: string;
     surfaceId: string;
@@ -533,6 +548,11 @@ function SurfacePanel({
             .finally(() => setSaving(false));
     };
 
+    // Every identifier a binding shows can open in the workbench, with the
+    // URL's view state (change set, context) carried along.
+    const hrefEntity = (steps: AddressStep[]): string =>
+        `#${packageUrl(treeId, packagePath, { kind: "address", steps }, state)}`;
+
     const experience = experienceFor(surface.kind);
     const floor = (
         <>
@@ -541,6 +561,7 @@ function SurfacePanel({
                     key={index}
                     item={item}
                     editable={editable && !saving}
+                    hrefEntity={hrefEntity}
                     onPropose={propose}
                 />
             ))}
@@ -645,7 +666,14 @@ function SurfacePanel({
                     <h3>Scheduled to change on its own</h3>
                     {detail.upcoming.map((change, index) => (
                         <p className="diagnostic" key={index}>
-                            <span className="mono">{change.variable}</span>{" "}
+                            <a
+                                className="row-link mono"
+                                href={hrefEntity([
+                                    { class: "variable", id: change.variable },
+                                ])}
+                            >
+                                {change.variable}
+                            </a>{" "}
                             crosses{" "}
                             <span className="mono">{change.boundary}</span> (
                             {change.expression})
@@ -659,24 +687,27 @@ function SurfacePanel({
                     <h3>Pending change sets touching this surface</h3>
                     <div className="row-list">
                         {detail.pending.map((row) => (
-                            <button
+                            <a
                                 className="row"
                                 key={row.id}
-                                onClick={() =>
-                                    navigate(changeSetUrl(treeId, row.id))
-                                }
+                                href={`#${changeSetUrl(treeId, row.id)}`}
                             >
                                 <span className="row-text">
                                     <span className="row-title">
                                         {row.title}
                                     </span>
+                                    {row.prNumber !== null ? (
+                                        <span className="row-sub mono">
+                                            PR #{row.prNumber}
+                                        </span>
+                                    ) : null}
                                 </span>
                                 <span className="row-side">
                                     <span className="pill pill-info">
                                         {row.state}
                                     </span>
                                 </span>
-                            </button>
+                            </a>
                         ))}
                     </div>
                 </div>
@@ -685,27 +716,42 @@ function SurfacePanel({
             <div className="card">
                 <h3>History of what this surface binds</h3>
                 <div className="timeline">
-                    {detail.history.map((commit) => (
-                        <div className="tl-row" key={commit.sha}>
-                            <span className="tl-icon" aria-hidden>
-                                •
-                            </span>
-                            <span className="tl-body">
-                                <span className="tl-detail">
-                                    {commit.message}
-                                    {commit.authorName !== null
-                                        ? ` — ${commit.authorName}`
-                                        : ""}
+                    {detail.history.map((commit) => {
+                        const commitUrl = githubCommitUrl(tree, commit.sha);
+                        return (
+                            <div className="tl-row" key={commit.sha}>
+                                <span className="tl-icon" aria-hidden>
+                                    •
                                 </span>
-                                <span className="tl-when">
-                                    {commit.date.slice(0, 10)} ·{" "}
-                                    <span className="mono">
-                                        {commit.sha.slice(0, 10)}
+                                <span className="tl-body">
+                                    <span className="tl-detail">
+                                        {commit.message}
+                                        {commit.authorName !== null
+                                            ? ` — ${commit.authorName}`
+                                            : ""}
+                                    </span>
+                                    <span className="tl-when">
+                                        {commit.date.slice(0, 10)} ·{" "}
+                                        {commitUrl !== null ? (
+                                            <a
+                                                className="row-link mono"
+                                                href={commitUrl}
+                                                rel="noreferrer"
+                                                target="_blank"
+                                                title="Open this commit on GitHub"
+                                            >
+                                                {commit.sha.slice(0, 10)}
+                                            </a>
+                                        ) : (
+                                            <span className="mono">
+                                                {commit.sha.slice(0, 10)}
+                                            </span>
+                                        )}
                                     </span>
                                 </span>
-                            </span>
-                        </div>
-                    ))}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -742,26 +788,40 @@ class ExperienceBoundary extends Component<
 function SurfaceItemView({
     item,
     editable,
+    hrefEntity,
     onPropose,
 }: {
     item: SurfaceItem;
     editable: boolean;
+    hrefEntity: (steps: AddressStep[]) => string;
     onPropose: (operations: EditOperation[], summary: string) => void;
 }) {
     if (item.kind === "missing") {
+        const steps = parseAddress(item.target);
         return (
             <div className="banner banner-err">
-                Binding <span className="mono">{item.target}</span> resolves to
-                nothing at this pin.
+                Binding{" "}
+                {steps === null ? (
+                    <span className="mono">{item.target}</span>
+                ) : (
+                    <a className="row-link mono" href={hrefEntity(steps)}>
+                        {item.target}
+                    </a>
+                )}{" "}
+                resolves to nothing at this pin.
             </div>
         );
     }
     if (item.kind === "variable") {
         return (
             <div className="field-row surface-item">
-                <span className="label" title={item.description ?? undefined}>
+                <a
+                    className="row-link label"
+                    title={item.description ?? undefined}
+                    href={hrefEntity([{ class: "variable", id: item.id }])}
+                >
                     {item.id}
-                </span>
+                </a>
                 <ControlInput
                     control={item.control}
                     value={item.default}
@@ -780,12 +840,13 @@ function SurfaceItemView({
                     }
                 />
                 {item.ruleCount > 0 ? (
-                    <span
-                        className="hint"
+                    <a
+                        className="hint row-link"
                         title="Rules may answer before this default; the workbench shows them"
+                        href={hrefEntity([{ class: "variable", id: item.id }])}
                     >
                         +{item.ruleCount} rule{item.ruleCount === 1 ? "" : "s"}
-                    </span>
+                    </a>
                 ) : null}
             </div>
         );
@@ -809,7 +870,15 @@ function SurfaceItemView({
         return (
             <div className="surface-item">
                 <div className="section-header-text">
-                    <h3 className="mono">layer {item.id}</h3>
+                    <h3 className="mono">
+                        layer{" "}
+                        <a
+                            className="row-link"
+                            href={hrefEntity([{ class: "layer", id: item.id }])}
+                        >
+                            {item.id}
+                        </a>
+                    </h3>
                     {item.description !== null ? (
                         <p className="hint">{item.description}</p>
                     ) : null}
@@ -939,7 +1008,14 @@ function SurfaceItemView({
     return (
         <div className="surface-item">
             <div className="section-header-text">
-                <h3 className="mono">{item.id}</h3>
+                <h3 className="mono">
+                    <a
+                        className="row-link"
+                        href={hrefEntity([{ class: "catalog", id: item.id }])}
+                    >
+                        {item.id}
+                    </a>
+                </h3>
                 {item.description !== null ? (
                     <p className="hint">{item.description}</p>
                 ) : null}

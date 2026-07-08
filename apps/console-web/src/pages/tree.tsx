@@ -5,30 +5,44 @@
 import { useEffect } from "react";
 
 import type { MeResponse } from "@/lib/api";
-import { changesUrl, navigate, packageUrl, redirect } from "@/lib/router";
+import { githubRepoUrl } from "@/lib/github";
+import {
+    changesUrl,
+    navigate,
+    packageUrl,
+    redirect,
+    type ViewState,
+} from "@/lib/router";
 
 export function TreeHomePage({
     me,
     treeId,
+    state,
     packages,
 }: {
     me: MeResponse;
     treeId: string;
+    state: ViewState;
     packages: string[] | null;
 }) {
     const tree = me.capabilities?.sourceTrees.find(
         (candidate) => candidate.id === treeId,
     );
 
+    // The forward keeps the URL's view state, so a link like
+    // /trees/st_x?cs=cs_y lands on the package with the change set active.
     useEffect(() => {
         if (packages !== null && packages.length === 1) {
             redirect(
-                packageUrl(treeId, packages[0] as string, {
-                    kind: "overview",
-                }),
+                packageUrl(
+                    treeId,
+                    packages[0] as string,
+                    { kind: "overview" },
+                    state,
+                ),
             );
         }
-    }, [packages, treeId]);
+    }, [packages, treeId, state]);
 
     if (tree === undefined) {
         return (
@@ -42,6 +56,7 @@ export function TreeHomePage({
     }
     const treeName =
         tree.kind === "github" ? `${tree.owner}/${tree.name}` : tree.id;
+    const repoUrl = githubRepoUrl(tree);
 
     return (
         <div className="section">
@@ -50,6 +65,19 @@ export function TreeHomePage({
                     <h1>{treeName}</h1>
                     <p className="hint">
                         The packages discovered in this tree.
+                        {repoUrl !== null ? (
+                            <>
+                                {" "}
+                                <a
+                                    className="pill-link"
+                                    href={repoUrl}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                >
+                                    GitHub ↗
+                                </a>
+                            </>
+                        ) : null}
                     </p>
                 </div>
                 <button
@@ -72,23 +100,17 @@ export function TreeHomePage({
             ) : (
                 <div className="row-list">
                     {packages.map((path) => (
-                        <button
+                        <a
                             className="row"
                             key={path}
-                            onClick={() =>
-                                navigate(
-                                    packageUrl(treeId, path, {
-                                        kind: "overview",
-                                    }),
-                                )
-                            }
+                            href={`#${packageUrl(treeId, path, { kind: "overview" }, state)}`}
                         >
                             <span className="row-text">
                                 <span className="row-title mono">
                                     {path === "." ? "(root package)" : path}
                                 </span>
                             </span>
-                        </button>
+                        </a>
                     ))}
                 </div>
             )}

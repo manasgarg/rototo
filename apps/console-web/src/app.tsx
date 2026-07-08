@@ -15,6 +15,7 @@ import {
     type MeResponse,
     type SourceTreeSummary,
 } from "@/lib/api";
+import { githubRepoUrl } from "@/lib/github";
 import {
     adminUrl,
     changeSetUrl,
@@ -263,20 +264,44 @@ export function App() {
                             </span>
                         ) : null}
                         {state.changeSetId !== null ? (
-                            <span
-                                className="pill pill-sea mono"
-                                title="Edits accumulate on this change set"
-                            >
-                                {state.changeSetId}
-                            </span>
+                            routeTreeId !== null ? (
+                                <a
+                                    className="pill-link"
+                                    href={`#${changeSetUrl(routeTreeId, state.changeSetId)}`}
+                                    title="Edits accumulate on this change set; open it"
+                                >
+                                    <span className="pill pill-sea mono">
+                                        {state.changeSetId}
+                                    </span>
+                                </a>
+                            ) : (
+                                <span
+                                    className="pill pill-sea mono"
+                                    title="Edits accumulate on this change set"
+                                >
+                                    {state.changeSetId}
+                                </span>
+                            )
                         ) : null}
                         {state.pin !== null ? (
-                            <span
-                                className="pill pill-info mono"
-                                title="Viewing this historical pin; editing is off"
-                            >
-                                @{state.pin.slice(0, 10)}
-                            </span>
+                            route.page === "package" ? (
+                                <a
+                                    className="pill-link"
+                                    href={`#${packageUrl(route.treeId, route.packagePath, { kind: "history" }, state)}`}
+                                    title="Viewing this historical pin; open the package history"
+                                >
+                                    <span className="pill pill-info mono">
+                                        @{state.pin.slice(0, 10)}
+                                    </span>
+                                </a>
+                            ) : (
+                                <span
+                                    className="pill pill-info mono"
+                                    title="Viewing this historical pin; editing is off"
+                                >
+                                    @{state.pin.slice(0, 10)}
+                                </span>
+                            )
                         ) : null}
                     </div>
                 </header>
@@ -317,6 +342,7 @@ export function App() {
                             <TreeHomePage
                                 me={me}
                                 treeId={route.treeId}
+                                state={state}
                                 packages={
                                     navPackages?.treeId === route.treeId
                                         ? navPackages.paths
@@ -606,10 +632,13 @@ function Home({ me }: { me: MeResponse }) {
 
 function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
     const verbs = ["view", "propose", "approve", "administer"] as const;
+    const repoUrl = githubRepoUrl(tree);
     return (
         <div className="card">
             <div className="card-head">
-                <span className="mono">{treeLabel(tree)}</span>
+                <a className="mono row-link" href={`#${treeUrl(tree.id)}`}>
+                    {treeLabel(tree)}
+                </a>
                 <span className="card-actions">
                     <button
                         className="btn btn-secondary btn-sm"
@@ -625,7 +654,7 @@ function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
                     </button>
                 </span>
             </div>
-            <div>
+            <div className="action-row">
                 {verbs.map((verb) => {
                     const decision = tree.capabilities[verb];
                     return (
@@ -638,6 +667,16 @@ function SourceTreeCard({ tree }: { tree: SourceTreeSummary }) {
                         </span>
                     );
                 })}
+                {repoUrl !== null ? (
+                    <a
+                        className="pill-link"
+                        href={repoUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                    >
+                        <span className="pill pill-neutral">GitHub ↗</span>
+                    </a>
+                ) : null}
             </div>
         </div>
     );
