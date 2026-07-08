@@ -61,6 +61,20 @@ environment. There is no runtime toggle.
 You do not set the mode directly. Configure sign-in and you are in team mode;
 configure nothing and you are in local mode.
 
+## Registering repositories
+
+The console shows the GitHub repositories an administrator has registered
+as source trees. Registration lives on the Admin page (or the same API the
+page calls): give it the owner and name, and the default branch fills in
+from GitHub if you leave it blank. The default branch is the one fact you
+can change later; the owner and name are the tree's identity, so a renamed
+repository is a new registration.
+
+Deregistering a tree hides it and stops new change sets, but keeps the row
+and its merged history for audit; open change sets have to merge or be
+abandoned first. Register the same repository again and the console
+reactivates the tree it already knew, history intact.
+
 ## Configuration
 
 Two kinds of settings. The **shape** of the process, where it listens and
