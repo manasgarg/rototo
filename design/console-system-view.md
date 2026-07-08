@@ -13,7 +13,7 @@ differenced.
 
 ## The rings (zoom)
 
-- **Ring 0, one entity.** A variable, an entry, an enum.
+- **Ring 0, one entity.** A variable, an entry, a list.
 - **Ring 1, one package.** Everything the package declares.
 - **Ring 2, the composition.** A base and its overlays: tenants extending
   a platform package, dev/staging/prod extending an environments base.

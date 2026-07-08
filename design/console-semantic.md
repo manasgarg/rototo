@@ -4,7 +4,7 @@ Status: draft for review. This layer sits between git ops
 (`design/console-git-ops.md`), which moves files without understanding them,
 and the domain surfaces of Layer 4, which will speak in feature flags and
 pricing. Layer 3 is where rototo's own model lives in the console: variables,
-catalogs, enums, evaluation contexts, and the machinery to view and change
+catalogs, lists, evaluation contexts, and the machinery to view and change
 them safely. Identity and permissions are Layer 1
 (`design/console-identity-authz.md`).
 
@@ -62,7 +62,7 @@ The core already exposes two read surfaces, and this layer uses both as-is:
 The console's inventory projection (what the sidebar and lists render) is
 rebuilt from the semantic model as today, with two corrections: qualifiers
 disappear (the core dissolved them; condition variables are just bool
-variables), and enums appear (the format has first-class `enums/<id>.toml`
+variables), and lists appear (the format has first-class `lists/<id>.toml`
 files that today's console does not know about).
 
 References get one promotion. The core's public reference view is a one-way
@@ -100,7 +100,7 @@ judging semantics it becomes a second linter, and we are back to drift.
 files depending on whether the package owns the entity or inherits it from a
 base: editing an owned catalog entry rewrites the entry file; editing an
 inherited one writes `<entry>.update.toml`; deleting an inherited one writes
-`<entry>.deleted.toml`; enum member changes on an inherited enum become the
+`<entry>.deleted.toml`; list member changes on an inherited list become the
 update-marker file. Rule edits on an inherited variable materialize the full
 `[resolve]` block in the update file, because rule lists never merge in the
 composition rules. Governance denials surface here as friendly errors
@@ -169,12 +169,12 @@ Catalog entries:
 | `set_field {target with pointer, value}` | e.g. `catalog=plans:entry=pro#/monthly_price`; nested pointers welcome, grants quantize to the top-level field |
 | `unset_field {target with pointer}` | removes an optional field |
 
-Enums:
+Lists:
 
 | Operation | Notes |
 | --- | --- |
-| `add_member {enum, value}` and `remove_member {enum, value}` | inherited enums compile to the update marker |
-| `set_description {enum, text?}` | |
+| `add_member {list, value}` and `remove_member {list, value}` | inherited lists compile to the update marker |
+| `set_description {list, text?}` | |
 
 Layers and allocations (rollouts and experiments are first-class, not
 source-only):
@@ -251,9 +251,9 @@ Every entity gets: rendered detail from the semantic model, the source text
 with diagnostics inline, its connected entities (from the promoted reference
 queries), and entity-scoped previews where resolution applies. The friendly
 form appears for the kinds with operations (variables, catalog entries,
-enums, samples, layers); everything else is source-first. The catalog-entry form
+lists, samples, layers); everything else is source-first. The catalog-entry form
 keeps today's genuinely good schema-driven widgets (sliders, selects, tags,
-color and date inputs, driven by the catalog's JSON Schema, with enum
+color and date inputs, driven by the catalog's JSON Schema, with list
 references resolved to member lists); the widgets stay, only their save path
 changes from string rewriting to `set_field` operations.
 
@@ -295,7 +295,7 @@ context schema -> rules that read context -> samples -> previews
   to real samples. The entity-level preview and the review-time impact
   panel share this one fix.
 - **A reference picker that points at nothing** (a catalog-typed variable
-  with no catalogs, an enum field with no enum) offers to create the
+  with no catalogs, a list field with no list) offers to create the
   missing target in the same change set, generalizing what today's entity
   templates do by bundling a catalog schema with its first entry.
 

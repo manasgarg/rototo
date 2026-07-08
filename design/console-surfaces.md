@@ -142,7 +142,7 @@ required:
 | Bound entity | Floor control | Operations it may emit |
 | --- | --- | --- |
 | bool variable | toggle | `set_default`, rule-value flip |
-| enum-typed variable | select (members as options) | `set_default` |
+| list-typed variable | select (members as options) | `set_default` |
 | int / number variable | number input | `set_default` |
 | string variable | text input | `set_default` |
 | catalog (or entries) | table, schema-driven cell widgets | `set_field`, `unset_field`, `create_entry` / `delete` where `can_add` / `can_delete` |
@@ -152,7 +152,7 @@ The confirmed principle: **a control exposes exactly its operations and
 nothing else.** A toggle on a variable cannot change its type or
 description; the control is the affordance boundary, grants and governance
 are the enforcement. Fields with `x-rototo-ref` render as reference pickers
-(entry ids or enum members as options), reusing the schema-driven widget
+(entry ids or list members as options), reusing the schema-driven widget
 work the current console already does well.
 
 The floor is also the CLI parity line: `rototo show --catalog

@@ -42,10 +42,10 @@ The package format is rooted at `rototo-package.toml`:
   under the catalog directory is the (possibly namespaced) catalog value id;
   a subtree that is itself a longer catalog id belongs to that catalog, and
   overlapping catalog ids are a lint error (`rototo/catalog-id-overlap`).
-- `enums/<enum-id>.toml`: named enums, one file each like variables:
+- `lists/<list-id>.toml`: named lists, one file each like variables:
   `schema_version = 1`, optional `description`, `type` (one of `string`,
   `int`, `number`, `bool`), and `members = [...]`. Overlays adjust members
-  through `enums/<enum-id>.update.toml` markers carrying only `members`,
+  through `lists/<list-id>.update.toml` markers carrying only `members`,
   `deleted`, and `description`; `type` is never updatable from above.
 - `model/context/*.schema.json`: JSON Schemas for runtime context objects (the
   concept is still called an evaluation context). The evaluation context id is
@@ -62,7 +62,7 @@ use the package addressing grammar (`design/addressing.md`):
 `evaluation-context=<id>:sample=<key>`, with empty ids as collectives and
 trailing-slash ids as namespace subtrees.
 
-rototo-recognized ids (variables, enums, catalogs, catalog entries, evaluation
+rototo-recognized ids (variables, lists, catalogs, catalog entries, evaluation
 contexts, samples) must be lowercase snake_case, with `/` allowed for
 namespacing; enforced by `rototo/id-not-snake-case` (error). Ids appear in TOML
 table headers and CEL expressions, where a hyphen is the minus operator, and
@@ -80,12 +80,12 @@ kind-prefixed target:
   apps follow references explicitly (design/package-reflection.md).
 - `"x-rototo-ref": true` marks an object field whose `{catalog, entry,
   pointer}` value names the target dynamically.
-- `"x-rototo-ref": "enum=<id>"` pins a field to an enum's member set; catalog
+- `"x-rototo-ref": "list=<id>"` pins a field to a list's member set; catalog
   entry values and evaluation-context sample values are checked against the
   members.
 
-Catalog schemas accept catalog and enum targets; evaluation context schemas
-accept only enum targets.
+Catalog schemas accept catalog and list targets; evaluation context schemas
+accept only list targets.
 
 The example package at `examples/basic` is intentionally broad and should stay
 lint-clean. It covers primitive variables, catalog-backed nested values, default
@@ -136,10 +136,10 @@ Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
 exactly five roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
 `entry` (the catalog entry under consideration in a `query`), `variables`
 (other variables' resolved values, as `variables.<id>` or `variables["<id>"]`
-for namespaced ids, resolved lazily with per-resolution memoization), `enums`
-(a declared enum's member list, as `enums.<id>` or `enums["<id>"]`, for
-membership tests like `context.tier in enums.plan_tiers`; an unknown enum id is
-`rototo/expression-unknown-enum`), and `env.now` (the evaluation timestamp,
+for namespaced ids, resolved lazily with per-resolution memoization), `lists`
+(a declared list's member set, as `lists.<id>` or `lists["<id>"]`, for
+membership tests like `context.tier in lists.plan_tiers`; an unknown list id is
+`rototo/expression-unknown-list`), and `env.now` (the evaluation timestamp,
 captured once per resolution as an RFC3339 string). `env.resolving.variable` is
 available only inside `[[trace]]` policies. Variables resolve by taking the
 first matching rule value, otherwise the default value.
@@ -204,26 +204,26 @@ package structure and files:
   points at `variables["<id>"]`. Expression, bucket, and operator shapes are
   validated.
 - Variable types support `bool`, `int`, `number`, `string`, `array`,
-  `catalog=<id>`, `enum=<id>`, and `array<...>` where the array item is a
-  primitive, catalog, or enum type. Resolve defaults and rule values must match
-  the declared type; for enum-typed variables every default and rule value must
-  be a member of the enum (`rototo/variable-unknown-enum` for an unknown enum
+  `catalog=<id>`, `list=<id>`, and `array<...>` where the array item is a
+  primitive, catalog, or list type. Resolve defaults and rule values must match
+  the declared type; for list-typed variables every default and rule value must
+  be a member of the list (`rototo/variable-unknown-list` for an unknown list
   id).
 - rototo-recognized ids are lowercase snake_case with optional `/` namespacing
   (`rototo/id-not-snake-case`, error).
-- Enums under `enums/*.toml` parse, declare `schema_version = 1`, declare
+- Lists under `lists/*.toml` parse, declare `schema_version = 1`, declare
   `type` as one of `string`, `int`, `number`, or `bool`, and declare
   `members` as a non-empty array of distinct values matching the declared
-  type (`rototo/enum-parse-failed`, `rototo/enum-schema-version`,
-  `rototo/enum-shape`).
+  type (`rototo/list-parse-failed`, `rototo/list-schema-version`,
+  `rototo/list-shape`).
 - Catalog schemas under `model/catalogs/*.schema.json` parse and compile as
   JSON Schema. Catalog entries under `data/catalogs/<id>/*.toml` validate
   against their catalog schema, and `x-rototo-ref` targets resolve: catalog
-  targets to real entries, enum targets to declared members.
+  targets to real entries, list targets to declared members.
 - Evaluation context schemas under `model/context/*.schema.json` parse and
-  compile as JSON Schema and use only `enum=<id>` targets in `x-rototo-ref`.
+  compile as JSON Schema and use only `list=<id>` targets in `x-rototo-ref`.
   Samples under `model/context/<id>-samples/*.json` validate against their
-  evaluation context schema, including enum member checks.
+  evaluation context schema, including list member checks.
 - Lua files under `lint/**.lua` define `register(lint)` and register rules with
   `lint:rule({ id, title, help, target, handler })`. Handlers return diagnostics
   with `message`; the registration owns the rule id. `rototo` is reserved for
@@ -250,10 +250,15 @@ The Rust SDK mirrors the first-class model. Prefer explicit APIs such as:
 
 - `inspect_package`
 - `lint_package`, `lint_variable`, `lint_catalog`
-- `list_variables`, `list_catalogs`
+- `inspect_variables`, `inspect_catalogs`
 - `read_variable`, `read_variables`
 - `read_catalog`, `read_catalogs`
 - `resolve_variable`, `resolve_variables`
+
+Enumeration APIs that return bare ids are named `<noun>_ids` (`list_ids`,
+`entry_ids`); the `list_` verb prefix is retired so the noun "list" (a named
+closed set of scalar values) owns the word. Reads that return configs keep
+`read_<noun>` (`read_list`, `read_entry`).
 
 All SDK APIs that touch package files, source loading, lint, or resolution are
 async. `Package::load(source).await` accepts the same source forms as the CLI,

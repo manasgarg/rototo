@@ -1,6 +1,6 @@
 # Diagnostics
 
-When you run `rototo lint`, what comes back is a list of **diagnostics** - each
+When you run `rototo lint`, what comes back is a set of **diagnostics** - each
 one a specific thing that's wrong, or worth a second look, in your package. This
 page explains how to read a diagnostic, how the built-in checks are organized,
 and how your own custom checks fit in alongside them.
@@ -58,14 +58,14 @@ hyphens. That keeps every diagnostic in the system addressable the same way, no
 matter who wrote the rule.
 
 One distinction worth being explicit about: rule names are hyphenated, but the
-ids *inside* your package (variables, enums, catalogs, entries, evaluation
+ids *inside* your package (variables, lists, catalogs, entries, evaluation
 contexts, samples) are snake_case. Those are two separate namespaces. Package
 ids appear in expressions, where a hyphen is the minus operator; rule names
 never do, so they keep the kebab convention.
 
 ## Seeing the whole catalog
 
-You don't have to memorize the rules - you can ask for the list:
+You don't have to memorize the rules - you can ask for the catalog:
 
 ```sh
 # every built-in rule rototo ships
@@ -79,12 +79,12 @@ rototo show --lint-rules --json
 ```
 
 Run it with no package and you get the global built-in catalog. Run it from
-inside a package and rototo adds that package's custom rules to the list, so you
+inside a package and rototo adds that package's custom rules to the output, so you
 see exactly what *this* package will be checked against. The human view is a
 table of `rule | entity | severity | title`; the JSON view carries the same
 fields plus each rule's `help`.
 
-That command is the source of truth - it can't drift the way a hand-written list
+That command is the source of truth - it can't drift the way a hand-written page
 in these docs would.
 
 ## How the built-in checks are grouped
@@ -106,18 +106,18 @@ roughly where a finding is coming from.
   `rototo/governance-parse-failed`, `rototo/governance-shape`,
   `rototo/governance-unknown-target`, `rototo/governance-unscoped-update`)
 - **Evaluation contexts** - context schemas are valid JSON Schema, don't use
-  reserved fields, only use enum targets in `x-rototo-ref`, and every sample
-  matches its schema, including any enum member pins. (e.g.
+  reserved fields, only use list targets in `x-rototo-ref`, and every sample
+  matches its schema, including any list member pins. (e.g.
   `rototo/evaluation-context-sample-schema-mismatch`)
 - **Variables** - they parse, declare a `type` and a `[resolve]` default, their
   values match the declared type, catalog-backed variables point at real catalog
-  entries, enum-backed variables use declared enums and stay inside the member
+  entries, list-backed variables use declared lists and stay inside the member
   set, and rule `when` expressions reference real variables and declared
   context paths with the right types. This group also flags variables whose
   references form a cycle. Allocation-backed variables (`method =
   "allocation"`) name a real allocation and cover its arms exactly. (e.g.
   `rototo/variable-value-type-mismatch`,
-  `rototo/variable-rule-unknown-variable`, `rototo/variable-unknown-enum`,
+  `rototo/variable-rule-unknown-variable`, `rototo/variable-unknown-list`,
   `rototo/variable-reference-cycle`, `rototo/variable-unknown-allocation`,
   `rototo/variable-allocation-shape`)
 - **Variable rules** - warnings about rules that can never fire because an
@@ -131,13 +131,13 @@ roughly where a finding is coming from.
 - **Catalogs** - schemas are valid JSON Schema, and any UI widget hints make
   sense for the property they're on. (e.g. `rototo/catalog-schema-invalid`)
 - **Catalog entries** - each entry parses, validates against its catalog's
-  schema, and any `x-rototo-ref` values point at real catalog entries or enum
+  schema, and any `x-rototo-ref` values point at real catalog entries or list
   members. (e.g. `rototo/catalog-entry-schema-mismatch`,
   `rototo/catalog-entry-unknown-reference`)
-- **Enums** - each file under `enums/` parses, declares
+- **Lists** - each file under `lists/` parses, declares
   `schema_version = 1`, a scalar `type`, and a non-empty `members` array of
-  distinct values matching that type. (e.g. `rototo/enum-parse-failed`,
-  `rototo/enum-schema-version`, `rototo/enum-shape`)
+  distinct values matching that type. (e.g. `rototo/list-parse-failed`,
+  `rototo/list-schema-version`, `rototo/list-shape`)
 - **Custom lint** - your Lua files register cleanly, without conflicting or
   duplicate rule metadata. (e.g. `rototo/custom-lint-registration-invalid`)
 
@@ -202,9 +202,9 @@ What each field in `lint:rule({...})` does:
 - `target` - what the rule runs against (defaults to `/`, the whole package).
 - `severity` - `error` or `warning` (defaults to `error`).
 
-The handler gets the `package` and the current `target`, and returns a list of
+The handler gets the `package` and the current `target`, and returns an array of
 problems. Each problem needs a `message`, and can optionally point at the exact
-spot with a `path` or `field`. Returning an empty list (or `nil`) means "nothing
+spot with a `path` or `field`. Returning an empty array (or `nil`) means "nothing
 wrong here."
 
 A couple of guardrails worth knowing, since they shape what your Lua can do: the

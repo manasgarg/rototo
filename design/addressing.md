@@ -64,7 +64,7 @@ The pointer does not walk a raw file. It walks the entity's **logical
 projection**: the JSON view of the entity that the semantic model already
 defines, whose every field carries a source location in the index. For
 most entities the projection mirrors the single file, so pointers look
-exactly like the file you are editing. For every current entity the projection now mirrors one file (enums
+exactly like the file you are editing. For every current entity the projection now mirrors one file (lists
 collapsed to single files after this was drafted), so pointers look
 exactly like the file being edited; the projection rule stays for any
 future entity that spans files.
@@ -80,7 +80,7 @@ by `x-rototo-ref` and type declarations):
 | `variable=` | `variables/**.toml` | no |
 | `catalog=` | `model/catalogs/**.schema.json` | no |
 | `entry=` | `data/catalogs/<catalog>/**.toml`, nested under a catalog | no |
-| `enum=` | `enums/**.toml` | no |
+| `list=` | `lists/**.toml` | no |
 | `evaluation-context=` | `model/context/**.schema.json` | no |
 | `sample=` | `model/context/<id>-samples/*.json`, nested under a context | no |
 | `layer=` | `layers/**.toml` | no |
@@ -88,9 +88,9 @@ by `x-rototo-ref` and type declarations):
 
 Nesting exists **only** where the child is its own entity: a separate
 document with its own id that other things reference individually.
-Entries under a catalog and samples under a context qualify. Enum
+Entries under a catalog and samples under a context qualify. List
 members do not: the members file has no id of its own and nothing
-references a member as an entity, so members are fields of the enum,
+references a member as an entity, so members are fields of the list,
 reached through its projection. Everything below the entity level is a
 real JSON pointer; rules stop being pseudo-entities, and rule 0 of a
 variable is `#/resolve/rule/0`, the path you see in the file, not
@@ -121,7 +121,7 @@ data/catalogs/
   support_banner/default.toml
   acme/banner/default.toml
   acme/banner/promo/summer.toml          (a namespaced entry)
-enums/tier.toml
+lists/tier.toml
 model/context/request.schema.json
 model/context/request-samples/premium.json
 layers/rollout.toml
@@ -153,10 +153,10 @@ Absolute (package-relative) addresses, from coarse to fine:
 | `catalog=acme/banner:entry=default` | one entry |
 | `catalog=acme/banner:entry=promo/summer` | a namespaced entry; the `:` shows where the catalog ends and the entry begins |
 | `catalog=acme/banner:entry=default#/message` | a field of an entry |
-| `enum=tier` | the enum (one file, contract and members together) |
-| `enum=tier#/type` | its member type |
-| `enum=tier#/members` | the member set |
-| `enum=tier#/members/1` | the second member |
+| `list=tier` | the list (one file, contract and members together) |
+| `list=tier#/type` | its member type |
+| `list=tier#/members` | the member set |
+| `list=tier#/members/1` | the second member |
 | `evaluation-context=request` | the context schema |
 | `evaluation-context=request#/properties/user/properties/tier` | one declared context path |
 | `evaluation-context=request:sample=` | all samples of that context |
@@ -211,7 +211,7 @@ The grammar is shared; what depth an address may stop at is per consumer.
 | consumer | accepts | notes |
 |---|---|---|
 | custom lint `target` | `package=`, class collectives, namespace subtrees, entities, nested entities; optionally entity `#` pointer for field-scoped rules | collectives and subtrees fan out, one handler invocation per member. Replaces the whole `/variables/...` grammar; old spellings get a rejection message that shows the new form |
-| `x-rototo-ref` | class only (`catalog=acme/banner`, `enum=tier`, or an array of catalog classes) | semantics unchanged; migrated from the old `catalog:<id>` spelling (landed with step 3). Dynamic `{catalog, entry, pointer}` objects could later accept a single address string |
+| `x-rototo-ref` | class only (`catalog=acme/banner`, `list=tier`, or an array of catalog classes) | semantics unchanged; migrated from the old `catalog:<id>` spelling (landed with step 3). Dynamic `{catalog, entry, pointer}` objects could later accept a single address string |
 | entry reference values | bare id + fragment, against the pinned class | unchanged semantics (`welcome#/body`) |
 | governance targets | entities and namespace subtrees (`variable=payments/`) | today's `[variable."payments/max_tokens"]` TOML keys stay valid; addresses become the string form when policies need subtrees |
 | diagnostics (`target` in JSON output) | full entity address `#` field pointer, as the canonical serialization of `SemanticTarget` | today's structured object stays; the string form is additive |
@@ -266,9 +266,9 @@ policy: no compatibility shims, loud rejections with the new spelling.
 
 ## Open questions
 
-1. **Resolved: enum members are fragments, not a child class.**
+1. **Resolved: list members are fragments, not a child class.**
    Fragments walk the entity's logical projection rather than a raw
-   file, so `enum=tier#/members/1` reaches the data half directly and
+   file, so `list=tier#/members/1` reaches the data half directly and
    the earlier `members:` singleton-child idea is dropped. The general
    rule: child entities exist only for documents with their own ids
    (entries, samples); everything else is projection fields.
@@ -288,7 +288,7 @@ policy: no compatibility shims, loud rejections with the new spelling.
 5. **Resolved: the `=` binder reaches everywhere.** Both colon-bound
    surfaces migrate: `x-rototo-ref` pins become `"catalog=banner"` and
    variable type declarations become `type = "catalog=banner"` /
-   `array<enum=banner>` spellings. One binding character everywhere; the
+   `array<list=banner>` spellings. One binding character everywhere; the
    one-time churn across packages, examples, and docs is accepted under
    the clean-break policy. Old spellings are rejected with the new
    spelling in the error message.

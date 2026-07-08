@@ -23,7 +23,7 @@ reach.
 ## The five things an expression can read
 
 An expression can only look at five roots. That's it - five names, and
-everything hangs off them. Keeping the list short is what makes expressions easy
+everything hangs off them. Keeping that set short is what makes expressions easy
 to reason about and easy for lint to check.
 
 ### `context` - the facts your app passed in
@@ -76,28 +76,28 @@ answer. A chain of variables referencing each other is fine; a *cycle* is not.
 Lint catches cycles at edit time (`rototo/variable-reference-cycle`), and
 resolution refuses them too.
 
-### `enums` - a named set of legal values
+### `lists` - a named set of legal values
 
-`enums` reads the member list of an enum you declared under `enums/<id>.toml`.
-Write it with a dot (`enums.plan_tiers`) or with brackets for a namespaced id
-(`enums["geo/regions"]`). The value is the plain member list, so the natural
+`lists` reads the member set of a list you declared under `lists/<id>.toml`.
+Write it with a dot (`lists.plan_tiers`) or with brackets for a namespaced id
+(`lists["geo/regions"]`). The value is the plain array of members, so the natural
 use is a membership test:
 
 ```toml
-when = 'context.account.plan_tier in enums.plan_tiers'
+when = 'context.account.plan_tier in lists.plan_tiers'
 ```
 
 The point is naming the set instead of restating it. Without this, every rule
 that cares about "a real plan tier" carries its own copy of
 `["free", "team", "business"]`, and adding a tier means hunting them all down.
-With `enums.plan_tiers`, the enum file is the one place the set lives, and the
+With `lists.plan_tiers`, the list file is the one place the set lives, and the
 rules follow it.
 
-Because the list is an ordinary value, the collection tools work on it too:
-`size(enums.plan_tiers)` or a `.exists(...)` comprehension are fine. Referencing
-an enum the package doesn't declare is a lint error
-(`rototo/expression-unknown-enum`), and lint also checks that the context path
-you're testing has a type the enum's members could actually match.
+Because the member set is an ordinary value, the collection tools work on it too:
+`size(lists.plan_tiers)` or a `.exists(...)` comprehension are fine. Referencing
+a list the package doesn't declare is a lint error
+(`rototo/expression-unknown-list`), and lint also checks that the context path
+you're testing has a type the list's members could actually match.
 
 ### `env` - what rototo provides
 
@@ -141,7 +141,7 @@ Comparisons, logic, and membership all work the way you'd guess:
 | Equal / not equal | `==`, `!=` |
 | Ordering | `<`, `<=`, `>`, `>=` |
 | And / or / not | `&&`, `\|\|`, `!` |
-| Is it in a list? | `context.region in ["us","eu"]` |
+| Is it one of these? | `context.region in ["us","eu"]` |
 | Is this item in an array field? | `"admin" in context.user.roles` |
 | Does a field exist? | `has(context.user.tier)` |
 
@@ -165,7 +165,7 @@ same thing.
 | --- | --- |
 | Text starts with something | `startsWith` / `starts_with` / `prefix` |
 | Text ends with something | `endsWith` / `ends_with` / `suffix` |
-| Text (or a list) contains something | `contains` |
+| Text (or an array) contains something | `contains` |
 | Text matches a pattern | `matches` / `regex`, or `glob` for glob-style |
 | Version comparison | `semver` |
 | A deterministic rollout bucket | `bucket` (see below) |

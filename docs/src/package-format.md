@@ -25,7 +25,7 @@ my-package/
 ├── model/                           # contracts: what values must look like
 │   ├── catalogs/
 │   │   └── checkout_redesign.schema.json
-│   ├── enums/
+│   ├── lists/
 │   │   └── plan_tiers.toml
 │   └── context/                     # the shape of the facts your app passes in
 │       ├── request.schema.json
@@ -35,15 +35,15 @@ my-package/
 │   ├── catalogs/
 │   │   └── checkout_redesign/
 │   │       └── control.toml
-│   └── enums/
+│   └── lists/
 │       └── plan_tiers.toml
 └── lint/                            # your own custom checks, in Lua
     └── checkout_redesign.lua
 ```
 
 Notice the split between `model/` and `data/`. `model/` holds contracts: catalog
-schemas, enum declarations, evaluation-context schemas. `data/` holds the values
-that have to satisfy those contracts: catalog entries and enum members. That
+schemas, list declarations, evaluation-context schemas. `data/` holds the values
+that have to satisfy those contracts: catalog entries and list members. That
 separation matters in review: a change under `model/` changes what's *allowed*,
 a change under `data/` changes what's *there*. Variables and lint sit at the top
 level because each is its own thing - a variable is both contract and value in
@@ -57,8 +57,8 @@ defines a variable whose id is `checkout_redesign`. A catalog schema at
 `checkout_redesign`. You never write the id *inside* the file - the filename
 already said it. Subdirectories are namespaces, for every collection alike:
 `variables/acme/in_trial.toml` is the variable `acme/in_trial` (referenced as
-`variables["acme/in_trial"]` in expressions), `enums/acme/tier.toml` is
-the enum `acme/tier`, `model/catalogs/acme/plans.schema.json` is the catalog
+`variables["acme/in_trial"]` in expressions), `lists/acme/tier.toml` is
+the list `acme/tier`, `model/catalogs/acme/plans.schema.json` is the catalog
 `acme/plans` with its entries under `data/catalogs/acme/plans/`, and the same
 holds for evaluation contexts and layers. Catalog entry ids themselves stay
 flat: an entry is always a direct child of its catalog's data directory.
@@ -67,7 +67,7 @@ A file that sits under a rototo-owned directory but maps to no entity - a
 mistyped suffix, an entry directory for a catalog with no schema - draws a
 lint warning, `rototo/unrecognized-file`, instead of being silently ignored.
 
-Second, **ids are snake_case**. Every id rototo recognizes - variables, enums,
+Second, **ids are snake_case**. Every id rototo recognizes - variables, lists,
 catalogs, catalog entries, evaluation contexts, samples - is lowercase letters,
 digits, and underscores, with `/` allowed for namespacing (like
 `payments/retry_limit`). The reason is that ids show up in TOML table headers
@@ -108,7 +108,7 @@ can travel together. The full rules for what an `extends` entry may point at -
 including why a remotely staged package can't reach into your filesystem, and
 the depth and cycle limits - are in [the package sources
 reference](./package-sources.md#the-rules-for-sources-in-extends). (When you build a distributable archive with `rototo
-package`, the `extends` list gets flattened in and stripped out - the archive is
+package`, the `extends` array gets flattened in and stripped out - the archive is
 already self-contained, so there's nothing left to point at.) How the layers
 actually combine - which files replace and which compose - gets its own
 section, [Extending: how packages combine](#extending-how-packages-combine),
@@ -145,12 +145,12 @@ broad `[defaults]` grant.
 
 The composition rules below describe the child landing on its bases - the
 overlay relationship, where one package was authored to change another. Two
-bases in the same `extends` list are a different relationship: siblings.
+bases in the same `extends` array are a different relationship: siblings.
 Neither was authored as an overlay of the other, so nothing about them may
 silently merge. Each base is flattened on its own first, then the results
-union: the composed package has every variable, catalog, enum, evaluation
+union: the composed package has every variable, catalog, list, evaluation
 context, and layer from every base, and the bases have to be disjoint. Two
-bases touching the same entity - the same variable id, the same enum, context,
+bases touching the same entity - the same variable id, the same list, context,
 or layer - fails the load ("package extends bases conflict on ..."). Catalogs
 and evaluation context samples are the places siblings may share: two bases
 can each add their own entries to a catalog they both inherit from a common
@@ -170,10 +170,10 @@ needs each base's grants for what it changes in that base, and a base with no
 
 The default rule is the simple one: **a file replaces the file at the same path
 in the base packages, whole.** That's still what happens for `model/` schemas
-(catalog, enum, and context), `layers/`, and `lint/` files. But
+(catalog, list, and context), `layers/`, and `lint/` files. But
 four file shapes compose structurally instead, because whole-file replacement
 can't say the things an overlay needs to say: it can't disable one base catalog
-entry, can't change one field of an entry, can't add one enum member, and it
+entry, can't change one field of an entry, can't add one list member, and it
 forces you to copy an entire variable file just to change its resolution.
 
 One bookkeeping note: while flattening, rototo records which package owns each
@@ -188,15 +188,15 @@ Every composition system ends up answering the same four questions, and the
 answers here are deliberate, so they are worth stating before the file
 shapes.
 
-**Lists have no merge.** The classic failure in overlay systems is partial
+**Arrays have no merge.** The classic failure in overlay systems is partial
 updates inside arrays: which element does the overlay mean? Kubernetes grew
 per-field merge-key annotations to answer that, and the machinery is famously
 heavy. Rototo avoids the question structurally. Everything that would be a
-keyed list elsewhere - catalog entries, samples, variables - is a file in a
+keyed array elsewhere - catalog entries, samples, variables - is a file in a
 directory, so "merge by key" is just the filesystem: the key is the filename.
-The one real list left, a variable's rule list, is ordered and positional, and
+The one real ordered array left - a variable's rules - is positional, and
 splicing half of one package's rules into another's produces a resolution
-nobody wrote or reviewed. So rule lists never merge: an update's `[resolve]`
+nobody wrote or reviewed. So rules never merge: an update's `[resolve]`
 block replaces the base's whole.
 
 **Inside one entry, fields merge; arrays replace.** A catalog entry's fields
@@ -213,7 +213,7 @@ load.
 
 **Order means authorship.** An overlay chain is ordered because "I extend
 you" is a statement of intent, so the layer above wins. Sibling bases in one
-`extends` list carry no such statement, so between them there is no
+`extends` array carry no such statement, so between them there is no
 priority: agreement (byte-identical files) composes, disagreement fails the
 load. That is also why byte-identical restatement is always a no-op - it is
 what shared ancestry looks like, not an edit.
@@ -287,31 +287,31 @@ still names the deleted entry, lint catches it as
 variable's resolution too. Removing data quietly out from under a variable is
 exactly the drift this is designed to surface.
 
-### Enum members: union and delete
+### List members: union and delete
 
-An overlay adjusts a base enum's members through an update marker,
-`enums/<id>.update.toml`, the same shape variables use. `members` declares
+An overlay adjusts a base list's members through an update marker,
+`lists/<id>.update.toml`, the same shape variables use. `members` declares
 what the package adds, and `deleted` names the base members it removes:
 
 ```toml
-# overlay's enums/plan_tiers.update.toml
+# overlay's lists/plan_tiers.update.toml
 members = ["acme_enterprise"]
 deleted = ["legacy_bronze"]
 ```
 
-The composed enum has the base's members plus `acme_enterprise`, minus
+The composed list has the base's members plus `acme_enterprise`, minus
 `legacy_bronze`. The marker is consumed during flattening and never appears
 in the flattened package. A marker may carry only `members`, `deleted`, and
-`description`: the enum's `type` is the contract half and is never updatable
-from above, and restating `enums/<id>.toml` wholesale is rejected toward the
+`description`: the list's `type` is the contract half and is never updatable
+from above, and restating `lists/<id>.toml` wholesale is rejected toward the
 marker.
 
 Deletes follow the same rules as catalog entry deletes. Every deleted value
-has to name a member some base package actually provides ("deleted enum member
+has to name a member some base package actually provides ("deleted list member
 is not in the base packages" fails the load), a single package may not both add
 and delete the same value, and deleting every member fails the load - an
-empty enum is not a thing. In a package with no `extends`, a `deleted` key has
-nothing to remove from and lint flags it (`rototo/enum-members-shape`).
+empty list is not a thing. In a package with no `extends`, a `deleted` key has
+nothing to remove from and lint flags it (`rototo/list-members-shape`).
 
 Deleting a member someone depends on is loud in the same way entry deletes
 are: if a base variable default, rule value, catalog entry, or context sample
@@ -328,7 +328,7 @@ that each successive overlay can only turn further down.
 
 The file is a single `governance.toml` at the package root. It holds one block
 per governed entity, keyed `[<kind>.<id>]`, where `kind` is one of `catalog`,
-`enum`, `variable`, `evaluation_context`, or `layer`:
+`list`, `variable`, `evaluation_context`, or `layer`:
 
 ```toml
 [catalog.plans]
@@ -377,7 +377,7 @@ entries can be deleted. `[defaults]` can carry `update_policy` and
 none.
 
 The contract governs what the base declared, nothing more. New ids mint
-freely: a tenant's own namespaced variables, its own catalogs and enums, its
+freely: a tenant's own namespaced variables, its own catalogs and lists, its
 own layers. Whether those minted ids are *well named* is a lint concern
 (`rototo/id-not-snake-case` and friends), not a permission.
 
@@ -388,7 +388,7 @@ Each operation names one on-disk shape the overlay can produce:
 | Operation | What the overlay does on disk |
 | --- | --- |
 | `add` | a new `<entry>.toml` in a governed catalog |
-| `update` | an `<entry>.update.toml` over a base catalog entry, an `enums/<id>.update.toml` that adjusts a base enum's members, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
+| `update` | an `<entry>.update.toml` over a base catalog entry, a `lists/<id>.update.toml` that adjusts a base list's members, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 
 Grants go in `allowed_operations`; `denied_operations` subtracts from them and
@@ -404,7 +404,7 @@ the base owns is rejected outright.
 
 Base schema files are in that group too, and it's worth saying why. Under a
 governed base, an overlay can never change what the base declared under
-`model/`: not a catalog schema, not an enum declaration, not an evaluation
+`model/`: not a catalog schema, not a list declaration, not an evaluation
 context schema or its samples. There is no grant for it. The reason is that a
 schema edit can widen a contract just as easily as narrow it, and no one can
 tell the difference by looking at the grant. When an overlay genuinely needs a
@@ -415,27 +415,27 @@ is the overlay's own, reviewable, tightening on top of it.
 ### Scoping update and delete
 
 Only `update` and `delete` carry a scope, through the optional
-`update_policy` and `delete_policy` tables. Each takes up to four lists:
+`update_policy` and `delete_policy` tables. Each takes up to four arrays:
 
 - `allowed_entries` / `denied_entries` - which entry ids the operation may
   touch.
 - `allowed_fields` / `denied_fields` - which top-level fields an update may
-  change. Field lists on `delete_policy` are a lint error; a delete has no
+  change. Field patterns on `delete_policy` are a lint error; a delete has no
   field scope.
 
-List items are literal ids or `*` globs (`*` matches any run of characters,
+The items are literal ids or `*` globs (`*` matches any run of characters,
 everything else is literal - `acme_*`, `*_hero`). The resolution rules:
 
 - An **allowlist restricts when present.** No `allowed_entries` means every
   entry passes the allow side. An *empty* allowlist is a lint error - "listed
-  nothing" reads two ways, so name targets or drop the list.
+  nothing" reads two ways, so name targets or drop the key.
 - A **denylist subtracts and wins absolutely.** An id matching a denied
   pattern fails, whatever the allowlist says.
-- An `update` must pass both dimensions: the field passes the field lists
-  *and* the entry passes the entry lists.
+- An `update` must pass both dimensions: the field passes the field
+  patterns *and* the entry passes the entry patterns.
 
 Field names are a fixed set, so a field pattern that matches nothing the
-catalog schema declares is a lint error. Entry lists are not checked that way,
+catalog schema declares is a lint error. Entry patterns are not checked that way,
 because they may name entries an overlay adds later.
 
 ### The ceiling: grants only narrow
@@ -468,7 +468,7 @@ Four rules cover the contract file:
 ## Variables: the values your app actually reads
 
 A **variable** is the thing your application asks for at runtime. It has a type,
-a default, and an optional list of rules that override the default when some
+a default, and an optional set of rules that override the default when some
 condition holds.
 
 The simplest kind is a plain on/off flag. Here's `user_is_admin.toml`:
@@ -579,12 +579,12 @@ The `type` field decides what shape a value can take. The built-in types are:
 | `string` | text |
 | `array` | a plain array of values |
 | `catalog=<id>` | one entry from a catalog (see below) |
-| `enum=<id>` | one member of a named enum (see below) |
+| `list=<id>` | one member of a named list (see below) |
 | `array<...>` | an array of a specific item type |
 
 The `array<...>` form lets you say what's *in* the array. The item can be a
-primitive, a catalog reference, or an enum - `array<string>`, `array<int>`,
-`array<catalog=payment_methods>`, `array<enum=plan_tiers>`. What you can't do is
+primitive, a catalog reference, or a list - `array<string>`, `array<int>`,
+`array<catalog=payment_methods>`, `array<list=plan_tiers>`. What you can't do is
 nest arrays inside arrays: `array<array<string>>` is rejected. One level deep is
 the limit.
 
@@ -710,7 +710,7 @@ What the query produces depends on the variable's type:
 
 - `type = "array<catalog=<id>>"` - the value is every matching entry, after
   `sort` and `limit`. No matches means the `default` if you declared one,
-  otherwise an empty list.
+  otherwise an empty array.
 - `type = "catalog=<id>"` - the value is one entry. With a `sort`, the top
   entry wins. Without one, the `filter` has to match exactly one entry;
   matching several is a resolution error (add a `sort` or narrow the filter).
@@ -855,7 +855,7 @@ reproducible, recorded in the trace. Exposure logging ("unit U saw arm A")
 belongs to the consuming app or SDK, and shipping the winning arm is a package
 edit, not runtime state.
 
-## Enums: closed sets of scalar values
+## Lists: closed sets of scalar values
 
 A lot of configuration values aren't free-form. A plan tier is one of `free`,
 `team`, or `business` - never anything else. If someone types `"buisness"` in a
@@ -865,10 +865,10 @@ tier no code path handles.
 You could declare the field as a plain `string` and hope review catches the
 typo. Or you could build a catalog - but a catalog is for structured objects
 with several fields, and it's heavy machinery for "one of these five strings."
-An **enum** is the lightweight middle: it names a closed set of scalar values,
+A **list** is the lightweight middle: it names a closed set of scalar values,
 and lint checks every use against that set.
 
-An enum is one file, `enums/<id>.toml`, holding both the contract and the
+A list is one file, `lists/<id>.toml`, holding both the contract and the
 values, the way a variable holds its type and its resolution:
 
 ```toml
@@ -878,16 +878,16 @@ type = "string"
 members = ["free", "team", "business"]
 ```
 
-The `type` is one of `string`, `int`, `number`, or `bool`. The member list
+The `type` is one of `string`, `int`, `number`, or `bool`. The member set
 has to be non-empty, free of duplicates, and every member has to match the
 declared type.
 
-To use an enum, give a variable the type `enum=<id>`:
+To use a list, give a variable the type `list=<id>`:
 
 ```toml
 schema_version = 1
 description = "The plan tier this account resolves to"
-type = "enum=plan_tiers"
+type = "list=plan_tiers"
 
 [resolve]
 default = "free"
@@ -898,8 +898,8 @@ value = "team"
 ```
 
 Now every default and every rule value is checked against the member set. A
-typo'd `"buisness"` fails lint, and so does an `enum=<id>` type that names an
-enum the package doesn't declare. Enums also work inside schemas, through
+typo'd `"buisness"` fails lint, and so does a `list=<id>` type that names a
+list the package doesn't declare. Lists also work inside schemas, through
 `x-rototo-ref` - that's next.
 
 ## Schema references: `x-rototo-ref`
@@ -964,24 +964,24 @@ optional `pointer`:
 }
 ```
 
-**`"x-rototo-ref": "enum=<id>"`** pins a field to an enum's member set:
+**`"x-rototo-ref": "list=<id>"`** pins a field to a list's member set:
 
 ```json
 {
   "type": "object",
   "required": ["tier"],
   "properties": {
-    "tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" }
+    "tier": { "type": "string", "x-rototo-ref": "list=plan_tiers" }
   }
 }
 ```
 
-Enum targets don't hydrate - the member already *is* the value - but they do
+List targets don't hydrate - the member already *is* the value - but they do
 get checked: catalog entry values and evaluation-context sample values both
-have to be members of the enum.
+have to be members of the list.
 
-Where each target is allowed: catalog schemas can use catalog targets, enum
-targets, and the object form. Evaluation-context schemas accept only enum
+Where each target is allowed: catalog schemas can use catalog targets, list
+targets, and the object form. Evaluation-context schemas accept only list
 targets - context facts are caller data, so pointing them at catalog entries
 doesn't mean anything, but pinning a fact like `account.tier` to a closed set
 does.
@@ -1029,7 +1029,7 @@ Alongside the schema you can keep sample contexts, in
 `model/context/<id>-samples/`. Each is a JSON file - the path under the
 samples directory is the
 sample's id - that has to validate against the schema, including any
-`x-rototo-ref` enum pins the schema declares. Here's
+`x-rototo-ref` list pins the schema declares. Here's
 `premium_enterprise.json`:
 
 ```json
@@ -1089,7 +1089,7 @@ A rule registration has five parts:
 There's also an optional `severity` (`"error"` or `"warning"`, default
 `"error"`), and `target` itself defaults to `/`, the whole package.
 
-The handler returns a list of problems. Each problem just needs a `message`;
+The handler returns an array of problems. Each problem just needs a `message`;
 returning an empty list `{}` means "all good." A problem can also carry a
 `path` (a pointer into the target's value, used to anchor the diagnostic to
 the exact line) and a `field`. The [diagnostics

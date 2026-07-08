@@ -160,7 +160,7 @@ bounds over visitor facts, referenced from banners by id, so a typo'd audience
 is a lint failure and the definition is reused across banners.
 
 The boundary that keeps this healthy: an audience is a condition over context
-facts, never a list of ids. "These 5,000 visitors" belongs in your database,
+facts, never an enumeration of ids. "These 5,000 visitors" belongs in your database,
 surfaced as a context fact the condition can test.
 
 ## 7. Compliance and regional policy
@@ -247,7 +247,7 @@ means you meet a boundary instead of a wall:
   experimentation loop.
 - **Metric-driven automatic rollback.** Rototo makes state reviewable and
   revertable; watching metrics and deciding to revert is your deploy loop.
-- **Enumerated ID lists as targeting.** Conditions over context facts, yes.
+- **Enumerated ID sets as targeting.** Conditions over context facts, yes.
   "These 5,000 tenant ids", no: that set belongs in your database, surfaced as
   a context fact.
 - **Secrets.** Config names the provider; the application holds the credential.

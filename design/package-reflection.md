@@ -16,8 +16,8 @@ SDK from guessing how much of the reference graph an app wants inlined.
 
 The cost is a gap: an app holding a raw reference has no sanctioned way to
 follow it, and an app that wants to enumerate what a package offers (all
-plans, all enum members, all banners) has no read surface for catalogs and
-enums at runtime. Today's answer is "reimplement ref parsing yourself,"
+plans, all list members, all banners) has no read surface for catalogs and
+lists at runtime. Today's answer is "reimplement ref parsing yourself,"
 which is exactly the kind of semantic duplication the SDK exists to
 prevent.
 
@@ -36,18 +36,18 @@ the package, so reflection is as consistent as resolution.
 
 ## Layer 1: discovery
 
-Rust first, mirroring the existing app-facing read APIs (`list_variables`,
+Rust first, mirroring the existing app-facing read APIs (`inspect_variables`,
 `read_catalog`), completing the entity kinds:
 
 ```rust
 impl Package {
-    // Existing: list_variables, list_catalogs, read_variable, read_catalog.
-    pub fn list_enums(&self) -> Vec<EnumSummary>;          // id, description
-    pub fn read_enum(&self, id: &str) -> Result<EnumConfig>;
-    // EnumConfig { id, description, member_type, members: Vec<JsonValue> }
+    // Existing: inspect_variables, inspect_catalogs, read_variable, read_catalog.
+    pub fn list_ids(&self) -> Vec<ListSummary>;          // id, description
+    pub fn read_list(&self, id: &str) -> Result<ListConfig>;
+    // ListConfig { id, description, member_type, members: Vec<JsonValue> }
 
     pub fn read_entry(&self, catalog: &str, entry: &str) -> Result<JsonValue>;
-    pub fn list_entries(&self, catalog: &str) -> Result<Vec<String>>;
+    pub fn entry_ids(&self, catalog: &str) -> Result<Vec<String>>;
 }
 ```
 
@@ -55,7 +55,7 @@ Notes:
 
 - `read_entry` returns the raw entry (no hydration, consistent with the
   finding-1 boundary), with the entry id available to the caller already.
-- `list_entries` returns ids, not values: enumerating ten thousand entries
+- `entry_ids` returns ids, not values: enumerating ten thousand entries
   should not deserialize ten thousand values.
 - These extend `CatalogConfig`'s role, not replace it: `read_catalog`
   stays the schema-and-metadata view; `read_entry` is the value view.
@@ -131,9 +131,9 @@ Per the SDK policy (thin bindings, same concepts intentionally):
 
 - **v1 (Rust)**: all three layers, plus contract cases for lookup
   (`resolve_reference` on the catalog-refs fixture shapes: plain, pointer,
-  multi-catalog, dynamic) and discovery (`read_enum`, `read_entry`).
-- **v1 (Python/TS/Go/Java)**: `read_entry`, `read_enum`, `list_enums`,
-  `list_entries`, and `resolve_reference` taking an address string or a
+  multi-catalog, dynamic) and discovery (`read_list`, `read_entry`).
+- **v1 (Python/TS/Go/Java)**: `read_entry`, `read_list`, `list_ids`,
+  `entry_ids`, and `resolve_reference` taking an address string or a
   (value, pins) pair; JSON-compatible values in each language's native
   form, errors mapped normally. The visitor waits for a concrete non-Rust
   consumer.
@@ -158,6 +158,6 @@ Per the SDK policy (thin bindings, same concepts intentionally):
 2. Should `read_entry` inject the `id` field the way hydration does?
    Leaning no: raw means raw, and the caller passed the id in. The
    query-path `id` injection question belongs to finding-1's task.
-3. Namespacing filters on discovery (`list_entries` under a prefix,
+3. Namespacing filters on discovery (`entry_ids` under a prefix,
    `variable=payments/`-style)? Cheap to add, but wait for a consumer;
    the address module's subtree matching is ready when one appears.

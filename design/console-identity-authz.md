@@ -360,7 +360,7 @@ console group Y"), so grants never reference IdP-native identifiers directly.
 
 Rototo's authorization has two graphs. Grants live on the administrative
 hierarchy above. Visibility also flows along the semantic reference graph
-(variable to catalog entry, schema to enum, variable to variable), because a
+(variable to catalog entry, schema to list, variable to variable), because a
 permission model that lets someone change a thing while hiding what the
 change affects is unsafe even though nothing leaks.
 

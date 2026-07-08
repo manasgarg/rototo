@@ -172,13 +172,13 @@ Runtime configuration earns trust in the ugly parts, not the feature tour, so
 we keep this list in the open. Each item is a real production complication we
 have looked at and not solved yet. (Some other hard things are deliberate
 non-goals rather than roadmap items: exposure logging and experiment stats,
-metric-driven auto-rollback, enumerated ID lists as targeting, secrets,
+metric-driven auto-rollback, enumerated ID sets as targeting, secrets,
 identity resolution, and Terraform-style enforcement of resolved state all
 belong to the application or its other tools.)
 
 For orientation, the things that used to be on this list and are now shipped
 and demonstrated under `examples/`: structured composition (entry add, update,
-and delete; atomic `[resolve]` override; namespaced variables; enum member
+and delete; atomic `[resolve]` override; namespaced variables; list member
 union and delete), the `governance.toml` layering contract enforced at compose time,
 layers and allocations for rollouts and experiments, catalog queries with
 filter/sort/limit and effective dating on `env.now`, and dev/staging/prod as
@@ -196,7 +196,7 @@ remains:
 4. **Grandfathering.** Pinning accounts to the plans and prices as of when they
    signed up: frozen old account classes beside evolving new ones.
 5. **Totality lint.** "Exactly one entry for every cell of plan x market":
-   completeness over enum cross-products, not just uniqueness.
+   completeness over list cross-products, not just uniqueness.
 6. **Jurisdiction dominance.** A deny that no lower layer, experiment, or tenant
    override can re-enable. Governance narrows grants; it cannot yet pin an
    outcome.

@@ -11,7 +11,7 @@ Here's the one-line version of each concept:
 - **Catalog**: a named set of allowed values a variable can pick from. Handy for objects that follow a schema (LLM parameters, say).
 - **Layer**: a stable line of buckets that units (users, say) hash onto, for rollouts and experiments.
 - **Allocation**: a named claim on a layer's buckets, divided among arms. Variables read it so an experiment's variables all see one assignment.
-- **Enum**: a named closed set of scalar values. It answers "is this value one of the allowed ones?" when a full catalog would be too heavy.
+- **List**: a named closed set of scalar values. It answers "is this value one of the allowed ones?" when a full catalog would be too heavy.
 - **Context**: the runtime facts the application hands in.
 - **Schema**: validation for package structure, context, catalog entries, or selected values.
 - **Lint**: the check that a package is structurally and semantically ready to release.
@@ -60,7 +60,7 @@ That file is what marks `app-config` as the root of a Rototo package, and `schem
 
 A variable is the named value your application code asks for at runtime. The app asks for `checkout_timeout`, `llm_model`, or `enable_new_onboarding`, and Rototo figures out which value to hand back for the current context.
 
-A quick word on the names themselves: every id Rototo recognizes (variables, enums, catalogs, catalog entries, evaluation contexts, samples) is lowercase snake_case, with `/` allowed for namespacing. That's not just taste. Ids appear in expressions, where a hyphen is the minus operator, so `checkout-timeout` would parse as a subtraction while `variables.checkout_timeout` just works. Lint enforces the convention as an error (`rototo/id-not-snake-case`).
+A quick word on the names themselves: every id Rototo recognizes (variables, lists, catalogs, catalog entries, evaluation contexts, samples) is lowercase snake_case, with `/` allowed for namespacing. That's not just taste. Ids appear in expressions, where a hyphen is the minus operator, so `checkout-timeout` would parse as a subtraction while `variables.checkout_timeout` just works. Lint enforces the convention as an error (`rototo/id-not-snake-case`).
 
 A variable can be backed by a plain type - `bool`, `int`, `number`, `string`, or `array`. It can also pull a value from a catalog when the configuration is a structured object you want to reuse and validate as a named entry.
 
@@ -366,11 +366,11 @@ The hash is deterministic and stable across Rototo releases, so bucket 967 is wh
 
 The boundary to hold: Rototo's job is assignment - deterministic, reproducible, recorded in the trace. Exposure logging ("this user saw this arm") belongs to the consuming application or SDK; analysis of the results belongs to your analytics stack. The loop is: Rototo assigns, the app exposes, analysis picks a winner, a package edit ships it.
 
-## Enum
+## List
 
 Catalogs handle structured objects. But plenty of values are just one scalar from a short, closed list: a plan tier is `free`, `team`, or `business`, and nothing else. Declaring that as a plain `string` leaves the door open for a typo like `"buisness"` to ship. Building a catalog for it is overkill: there's no object, just a name.
 
-An enum answers the question "is this value one of the allowed ones?" It lives in one file, `enums/plan_tiers.toml`, the way a variable does: the contract (what kind of scalar the members are) and the values (which members exist) side by side:
+A list answers the question "is this value one of the allowed ones?" It lives in one file, `lists/plan_tiers.toml`, the way a variable does: the contract (what kind of scalar the members are) and the values (which members exist) side by side:
 
 ```toml
 schema_version = 1
@@ -378,9 +378,11 @@ type = "string"
 members = ["free", "team", "business"]
 ```
 
-A variable uses it with `type = "enum=plan_tiers"` (or `array<enum=plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
+A variable uses it with `type = "list=plan_tiers"` (or `array<list=plan_tiers>` when the value is several members at once). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
 
-Enums also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to an enum with `"x-rototo-ref": "enum=plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
+One naming distinction worth locking in early, because the words are close: a **list** is a named, closed set of allowed values that lives in its own file; an **array** is the plain collection type a variable's value can have. `type = "array<string>"` means "several strings"; `type = "list=plan_tiers"` means "one value, and it must be a member of `plan_tiers`". The docs hold that line everywhere.
+
+Lists also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to a list with `"x-rototo-ref": "list=plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
 
 ## Context
 
@@ -583,7 +585,7 @@ Rototo flattens the packages into one - bases in `extends` order, the extending 
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
 - **Values update atomically.** An overlay updates a base variable with a `variables/<id>.update.toml` marker holding the new `[resolve]` block, which replaces the base's resolution whole - default, rules, everything - while the type stays with the base. There is no merging of individual rules, because half of one package's rule list plus half of another's is a resolution nobody wrote or reviewed. A plain `<id>.toml` is always an add; restating a base variable's file fails the load and points at the marker.
-- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level updates applied. Enum members compose the same way: an overlay's `enums/<id>.update.toml` marker unions its `members` into the base's set and removes the values it names in `deleted`, so an overlay declares only its own adds and removals; the enum's `type` is never updatable from above.
+- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level updates applied. List members compose the same way: an overlay's `lists/<id>.update.toml` marker unions its `members` into the base's set and removes the values it names in `deleted`, so an overlay declares only its own adds and removals; the list's `type` is never updatable from above.
 
 The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **deleted marker**:
 
@@ -673,7 +675,7 @@ Put the two halves together and you have rototo's tenant model. A tenant is:
 - **an authored overlay** - a package that `extends` the base and moves only within its governance contract; and
 - **a context fact** - the tenant id the application already knows, passed like any other runtime fact.
 
-The second half matters because not every tenant difference deserves an overlay. Sometimes the *base* package wants one rule that keys on who's asking. The application puts the tenant id in the context, the evaluation context schema declares it (and can pin it to an enum if the tenant set is closed), and a base variable says:
+The second half matters because not every tenant difference deserves an overlay. Sometimes the *base* package wants one rule that keys on who's asking. The application puts the tenant id in the context, the evaluation context schema declares it (and can pin it to a list if the tenant set is closed), and a base variable says:
 
 ```toml
 [[resolve.rule]]

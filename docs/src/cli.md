@@ -142,7 +142,7 @@ short version of `--json`:
 }
 ```
 
-An empty `diagnostics` list means a clean package.
+An empty `diagnostics` array means a clean package.
 
 ## show - a readable inventory
 

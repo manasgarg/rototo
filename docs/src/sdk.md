@@ -100,7 +100,7 @@ A variable resolution carries three things:
 
 - the **id** of the variable;
 - the **value** - the resolved config value, as native JSON (a bool, number,
-  string, list, or object);
+  string, array, or object);
 - the **source** - where the value came from, so you can see *why* you got it.
   `source.kind` is `literal` for a plain value, `catalog` for a single
   [catalog](./package-format.md) entry (with the catalog and entry ids), or
