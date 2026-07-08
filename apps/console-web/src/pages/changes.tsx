@@ -173,7 +173,15 @@ export function ChangeSetPage({
             <div className="section-header">
                 <div className="section-header-text">
                     {titleDraft !== null ? (
-                        <span className="inline-form">
+                        <form
+                            className="inline-form"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                const title = titleDraft.trim();
+                                setTitleDraft(null);
+                                act(retitleChangeSet(changeSet.id, title));
+                            }}
+                        >
                             <input
                                 autoFocus
                                 className="input"
@@ -184,22 +192,19 @@ export function ChangeSetPage({
                             />
                             <button
                                 className="btn btn-primary btn-sm"
+                                type="submit"
                                 disabled={busy || titleDraft.trim() === ""}
-                                onClick={() => {
-                                    const title = titleDraft.trim();
-                                    setTitleDraft(null);
-                                    act(retitleChangeSet(changeSet.id, title));
-                                }}
                             >
                                 Save
                             </button>
                             <button
                                 className="btn btn-ghost btn-sm"
+                                type="button"
                                 onClick={() => setTitleDraft(null)}
                             >
                                 Cancel
                             </button>
-                        </span>
+                        </form>
                     ) : (
                         <h1>{changeSet.title}</h1>
                     )}
@@ -343,7 +348,21 @@ export function ChangeSetPage({
                             ))}
                         </div>
                     )}
-                    <div className="action-row">
+                    <form
+                        className="action-row"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            const principal = collaboratorDraft.trim();
+                            setCollaboratorDraft("");
+                            act(
+                                changeSetCollaborator(
+                                    changeSet.id,
+                                    principal,
+                                    false,
+                                ),
+                            );
+                        }}
+                    >
                         <input
                             className="input mono"
                             placeholder="principal id"
@@ -354,22 +373,12 @@ export function ChangeSetPage({
                         />
                         <button
                             className="btn btn-secondary btn-sm"
+                            type="submit"
                             disabled={busy || collaboratorDraft.trim() === ""}
-                            onClick={() => {
-                                const principal = collaboratorDraft.trim();
-                                setCollaboratorDraft("");
-                                act(
-                                    changeSetCollaborator(
-                                        changeSet.id,
-                                        principal,
-                                        false,
-                                    ),
-                                );
-                            }}
                         >
                             Add collaborator
                         </button>
-                    </div>
+                    </form>
                 </div>
             ) : null}
 

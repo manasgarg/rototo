@@ -6,7 +6,7 @@
 // level rather than naming one. What a user can do is decided server-side;
 // everything rendered here is explanation.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { RototoMark } from "@/components/rototo-mark";
 import {
@@ -42,9 +42,14 @@ export function App() {
     const [error, setError] = useState<string | null>(null);
     const { route, state } = parseHash(useHashPath());
 
-    useEffect(() => {
+    // The nav renders from /api/me, so anything that changes the caller's
+    // capabilities (registering a source tree, granting) re-fetches it.
+    const refreshMe = useCallback(() => {
         fetchMe().then(setMe, (err: Error) => setError(err.message));
     }, []);
+    useEffect(() => {
+        refreshMe();
+    }, [refreshMe]);
 
     const trees = me?.capabilities?.sourceTrees ?? [];
     const routeTreeId = "treeId" in route ? route.treeId : null;
@@ -323,7 +328,10 @@ export function App() {
                         ) : route.page === "change-set" ? (
                             <ChangeSetPage id={route.changeSetId} me={me} />
                         ) : route.page === "admin" ? (
-                            <AdminPage me={me} />
+                            <AdminPage
+                                me={me}
+                                onCapabilitiesChanged={refreshMe}
+                            />
                         ) : route.page === "not-enrolled" ? (
                             <NotEnrolled />
                         ) : (

@@ -1088,7 +1088,27 @@ function AddAllocationForm({
         });
     const parsed = arms.every((arm) => arm !== null) ? arms : null;
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                if (parsed === null) {
+                    return;
+                }
+                setOpen(false);
+                onPropose(
+                    [
+                        {
+                            op: "add_allocation",
+                            layer,
+                            id: id.trim(),
+                            arms: parsed,
+                        },
+                    ],
+                    `Add ${layer}/${id.trim()}`,
+                );
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -1104,36 +1124,21 @@ function AddAllocationForm({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={
                     id.trim() === "" || parsed === null || parsed.length === 0
                 }
-                onClick={() => {
-                    if (parsed === null) {
-                        return;
-                    }
-                    setOpen(false);
-                    onPropose(
-                        [
-                            {
-                                op: "add_allocation",
-                                layer,
-                                id: id.trim(),
-                                arms: parsed,
-                            },
-                        ],
-                        `Add ${layer}/${id.trim()}`,
-                    );
-                }}
             >
                 Create
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 onClick={() => setOpen(false)}
             >
                 Cancel
             </button>
-        </div>
+        </form>
     );
 }
 
@@ -1160,7 +1165,30 @@ function AddEntryForm({
         );
     }
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(fieldsText);
+                } catch {
+                    return;
+                }
+                setOpen(false);
+                onPropose(
+                    [
+                        {
+                            op: "create_entry",
+                            catalog,
+                            key: key.trim(),
+                            fields: parsed,
+                        },
+                    ],
+                    `Add ${catalog}/${key.trim()}`,
+                );
+            }}
+        >
             <input
                 className="input mono"
                 placeholder="entry_id"
@@ -1175,37 +1203,19 @@ function AddEntryForm({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={key.trim() === ""}
-                onClick={() => {
-                    let parsed: unknown;
-                    try {
-                        parsed = JSON.parse(fieldsText);
-                    } catch {
-                        return;
-                    }
-                    setOpen(false);
-                    onPropose(
-                        [
-                            {
-                                op: "create_entry",
-                                catalog,
-                                key: key.trim(),
-                                fields: parsed,
-                            },
-                        ],
-                        `Add ${catalog}/${key.trim()}`,
-                    );
-                }}
             >
                 Create
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 onClick={() => setOpen(false)}
             >
                 Cancel
             </button>
-        </div>
+        </form>
     );
 }
 

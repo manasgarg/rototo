@@ -503,7 +503,17 @@ export function HistoryPanel({
                     to see what was in force then.
                 </p>
             </div>
-            <div className="field-row">
+            <form
+                className="field-row"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    setBound(
+                        until.trim() === ""
+                            ? undefined
+                            : normalizeInstant(until.trim()),
+                    );
+                }}
+            >
                 <span className="label">On this date</span>
                 <input
                     className="input mono"
@@ -511,21 +521,13 @@ export function HistoryPanel({
                     value={until}
                     onChange={(event) => setUntil(event.target.value)}
                 />
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() =>
-                        setBound(
-                            until.trim() === ""
-                                ? undefined
-                                : normalizeInstant(until.trim()),
-                        )
-                    }
-                >
+                <button className="btn btn-secondary btn-sm" type="submit">
                     Look up
                 </button>
                 {bound !== undefined ? (
                     <button
                         className="btn btn-ghost btn-sm"
+                        type="button"
                         onClick={() => {
                             setBound(undefined);
                             setUntil("");
@@ -534,7 +536,7 @@ export function HistoryPanel({
                         Clear
                     </button>
                 ) : null}
-            </div>
+            </form>
             {error !== null ? (
                 <div className="banner banner-err">{error}</div>
             ) : null}

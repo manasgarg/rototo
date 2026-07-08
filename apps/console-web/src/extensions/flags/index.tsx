@@ -350,30 +350,30 @@ function ScheduleFlip({
         );
     }
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                setOpen(false);
+                propose(
+                    [scheduleFlipOperation(flag, `${instant}:00Z`, on)],
+                    `Schedule ${flag} ${on ? "on" : "off"} at ${instant}`,
+                );
+            }}
+        >
             <input
                 className="input"
                 type="datetime-local"
                 value={instant}
                 onChange={(event) => setInstant(event.target.value)}
             />
-            <ui.Button
-                tone="primary"
-                disabled={instant === ""}
-                onClick={() => {
-                    setOpen(false);
-                    propose(
-                        [scheduleFlipOperation(flag, `${instant}:00Z`, on)],
-                        `Schedule ${flag} ${on ? "on" : "off"} at ${instant}`,
-                    );
-                }}
-            >
+            <ui.Button tone="primary" submit disabled={instant === ""}>
                 Schedule {on ? "on" : "off"}
             </ui.Button>
             <ui.Button tone="ghost" onClick={() => setOpen(false)}>
                 Cancel
             </ui.Button>
-        </div>
+        </form>
     );
 }
 

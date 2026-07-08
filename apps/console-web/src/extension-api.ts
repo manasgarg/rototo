@@ -68,11 +68,14 @@ export type UiKit = {
         title?: string;
         children: ReactNode;
     }>;
+    // `submit` marks the form's default button (Enter submits); everything
+    // else renders type="button" and needs an onClick.
     Button: ComponentType<{
         tone?: "primary" | "secondary" | "ghost";
         disabled?: boolean;
         title?: string;
-        onClick: () => void;
+        submit?: boolean;
+        onClick?: () => void;
         children: ReactNode;
     }>;
     Toggle: ComponentType<{

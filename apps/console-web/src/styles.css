@@ -1345,6 +1345,11 @@ select.input {
     gap: 14px;
 }
 
+/* a form wrapper used only for Enter-to-submit; invisible to layout */
+.form-contents {
+    display: contents;
+}
+
 /* one-line guidance under a form field — never more than one per field */
 .field-hint {
     color: var(--ink-2);

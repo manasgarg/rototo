@@ -63,6 +63,24 @@ export function ContextPicker({
                 ? `synthetic:${chosen.label}`
                 : "adhoc";
 
+    const apply = () => {
+        try {
+            const context = JSON.parse(text) as Record<string, unknown>;
+            if (
+                context === null ||
+                typeof context !== "object" ||
+                Array.isArray(context)
+            ) {
+                throw new Error("a context is a JSON object");
+            }
+            setEditing(false);
+            setProblem(null);
+            onChange({ kind: "adhoc", context });
+        } catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+    };
+
     const select = (value: string) => {
         setEditing(false);
         if (value === "") {
@@ -151,36 +169,22 @@ export function ContextPicker({
                         rows={6}
                         value={text}
                         onChange={(event) => setText(event.target.value)}
+                        onKeyDown={(event) => {
+                            // Enter is a newline in JSON; Ctrl/Cmd+Enter
+                            // applies the context.
+                            if (
+                                event.key === "Enter" &&
+                                (event.metaKey || event.ctrlKey)
+                            ) {
+                                event.preventDefault();
+                                apply();
+                            }
+                        }}
                     />
                     <span className="action-row">
                         <button
                             className="btn btn-primary btn-sm"
-                            onClick={() => {
-                                try {
-                                    const context = JSON.parse(text) as Record<
-                                        string,
-                                        unknown
-                                    >;
-                                    if (
-                                        context === null ||
-                                        typeof context !== "object" ||
-                                        Array.isArray(context)
-                                    ) {
-                                        throw new Error(
-                                            "a context is a JSON object",
-                                        );
-                                    }
-                                    setEditing(false);
-                                    setProblem(null);
-                                    onChange({ kind: "adhoc", context });
-                                } catch (error) {
-                                    setProblem(
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error),
-                                    );
-                                }
-                            }}
+                            onClick={apply}
                         >
                             Use context
                         </button>

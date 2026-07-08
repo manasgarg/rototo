@@ -561,7 +561,19 @@ export function EditingStrip({
                 <span className="mono mode-strip-branch">{active.branch}</span>
             ) : null}
             {creating ? (
-                <span className="inline-form">
+                <form
+                    className="inline-form"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        const changeSetTitle = title.trim();
+                        setCreating(false);
+                        setTitle("");
+                        createChangeSet(treeId, changeSetTitle).then(
+                            onCreated,
+                            onError,
+                        );
+                    }}
+                >
                     <input
                         autoFocus
                         className="input"
@@ -571,26 +583,19 @@ export function EditingStrip({
                     />
                     <button
                         className="btn btn-primary btn-sm"
+                        type="submit"
                         disabled={title.trim() === ""}
-                        onClick={() => {
-                            const changeSetTitle = title.trim();
-                            setCreating(false);
-                            setTitle("");
-                            createChangeSet(treeId, changeSetTitle).then(
-                                onCreated,
-                                onError,
-                            );
-                        }}
                     >
                         Start
                     </button>
                     <button
                         className="btn btn-ghost btn-sm"
+                        type="button"
                         onClick={() => setCreating(false)}
                     >
                         Cancel
                     </button>
-                </span>
+                </form>
             ) : canPropose.allow ? (
                 <button
                     className="btn btn-secondary btn-sm"
@@ -1484,7 +1489,24 @@ function ListPanel({
                 ))}
             </div>
             {canEdit ? (
-                <div className="action-row">
+                <form
+                    className="action-row"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        let value: unknown;
+                        try {
+                            value = textToValue(adding.trim(), memberType);
+                        } catch (error) {
+                            onError(error);
+                            return;
+                        }
+                        oneOp(
+                            { op: "add_member", list: listId, value },
+                            `Add ${adding.trim()} to ${listId}`,
+                            () => setAdding(""),
+                        );
+                    }}
+                >
                     <input
                         className="input mono"
                         placeholder={`new ${memberType} member`}
@@ -1493,25 +1515,12 @@ function ListPanel({
                     />
                     <button
                         className="btn btn-secondary btn-sm"
+                        type="submit"
                         disabled={saving || adding.trim() === ""}
-                        onClick={() => {
-                            let value: unknown;
-                            try {
-                                value = textToValue(adding.trim(), memberType);
-                            } catch (error) {
-                                onError(error);
-                                return;
-                            }
-                            oneOp(
-                                { op: "add_member", list: listId, value },
-                                `Add ${adding.trim()} to ${listId}`,
-                                () => setAdding(""),
-                            );
-                        }}
                     >
                         Add member
                     </button>
-                </div>
+                </form>
             ) : (
                 <p className="hint">
                     Start or pick a change set above to edit.
@@ -1924,178 +1933,198 @@ function VariablePanel({
                 onPromote={promote}
             />
 
-            <div className="form-fields">
-                <div className="field-row">
-                    <span className="label">Description</span>
-                    <input
-                        className="input"
-                        disabled={!editable}
-                        value={description}
-                        onChange={(event) => setDescription(event.target.value)}
-                    />
-                </div>
-                <div className="field-row">
-                    <span className="label">Default</span>
-                    <ValueInput
-                        type={type}
-                        disabled={!editable}
-                        value={defaultText}
-                        onChange={setDefaultText}
-                    />
-                </div>
-
-                {method === "allocation" ? (
-                    <div className="section-header-text">
-                        <h3>Allocation</h3>
-                        <p className="hint">
-                            This variable resolves by allocation; adjust the
-                            rollout on its layer, or edit the raw file.
-                        </p>
+            <form
+                className="form-contents"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    save();
+                }}
+            >
+                <div className="form-fields">
+                    <div className="field-row">
+                        <span className="label">Description</span>
+                        <input
+                            className="input"
+                            disabled={!editable}
+                            value={description}
+                            onChange={(event) =>
+                                setDescription(event.target.value)
+                            }
+                        />
                     </div>
-                ) : method === "query" ? (
-                    <QueryFields
-                        editable={editable}
-                        query={query}
-                        onChange={setQuery}
-                        onUseRules={() => setMethod("rules")}
-                    />
-                ) : (
-                    <>
+                    <div className="field-row">
+                        <span className="label">Default</span>
+                        <ValueInput
+                            type={type}
+                            disabled={!editable}
+                            value={defaultText}
+                            onChange={setDefaultText}
+                        />
+                    </div>
+
+                    {method === "allocation" ? (
                         <div className="section-header-text">
-                            <h3>Rules</h3>
+                            <h3>Allocation</h3>
                             <p className="hint">
-                                First match wins; the default answers when none
-                                do.
+                                This variable resolves by allocation; adjust the
+                                rollout on its layer, or edit the raw file.
                             </p>
                         </div>
-                        {rules.map((rule, index) => (
-                            <div className="rule-row" key={index}>
-                                <span className="rule-word label">when</span>
-                                <input
-                                    className="input mono"
-                                    disabled={!editable}
-                                    value={rule.when}
-                                    onChange={(event) =>
-                                        setRules(
-                                            replaceAt(rules, index, {
-                                                ...rule,
-                                                when: event.target.value,
-                                            }),
-                                        )
-                                    }
-                                />
-                                <span className="rule-word label">value</span>
-                                <ValueInput
-                                    type={type}
-                                    disabled={!editable}
-                                    value={rule.valueText}
-                                    onChange={(valueText) =>
-                                        setRules(
-                                            replaceAt(rules, index, {
-                                                ...rule,
-                                                valueText,
-                                            }),
-                                        )
-                                    }
-                                />
-                                {editable ? (
-                                    <span className="action-row">
-                                        <button
-                                            className="btn btn-icon btn-sm"
-                                            disabled={index === 0}
-                                            title="Move up"
-                                            onClick={() =>
-                                                setRules(
-                                                    moveRule(
-                                                        rules,
-                                                        index,
-                                                        index - 1,
-                                                    ),
-                                                )
-                                            }
-                                        >
-                                            ↑
-                                        </button>
-                                        <button
-                                            className="btn btn-icon btn-sm"
-                                            disabled={
-                                                index === rules.length - 1
-                                            }
-                                            title="Move down"
-                                            onClick={() =>
-                                                setRules(
-                                                    moveRule(
-                                                        rules,
-                                                        index,
-                                                        index + 1,
-                                                    ),
-                                                )
-                                            }
-                                        >
-                                            ↓
-                                        </button>
-                                        <button
-                                            className="btn btn-icon btn-sm btn-remove"
-                                            title="Remove rule"
-                                            onClick={() =>
-                                                setRules(
-                                                    rules.filter(
-                                                        (_, i) => i !== index,
-                                                    ),
-                                                )
-                                            }
-                                        >
-                                            ×
-                                        </button>
+                    ) : method === "query" ? (
+                        <QueryFields
+                            editable={editable}
+                            query={query}
+                            onChange={setQuery}
+                            onUseRules={() => setMethod("rules")}
+                        />
+                    ) : (
+                        <>
+                            <div className="section-header-text">
+                                <h3>Rules</h3>
+                                <p className="hint">
+                                    First match wins; the default answers when
+                                    none do.
+                                </p>
+                            </div>
+                            {rules.map((rule, index) => (
+                                <div className="rule-row" key={index}>
+                                    <span className="rule-word label">
+                                        when
                                     </span>
-                                ) : null}
-                            </div>
-                        ))}
-                        {editable ? (
-                            <div className="action-row">
-                                <button
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() =>
-                                        setRules([
-                                            ...rules,
-                                            {
-                                                when: "",
-                                                valueText:
-                                                    defaultRuleValue(type),
-                                            },
-                                        ])
-                                    }
-                                >
-                                    Add rule
-                                </button>
-                                <button
-                                    className="btn btn-ghost btn-sm"
-                                    title="Select the value with one catalog query instead of rules"
-                                    onClick={() => setMethod("query")}
-                                >
-                                    Use a query instead
-                                </button>
-                            </div>
-                        ) : null}
-                    </>
-                )}
-            </div>
+                                    <input
+                                        className="input mono"
+                                        disabled={!editable}
+                                        value={rule.when}
+                                        onChange={(event) =>
+                                            setRules(
+                                                replaceAt(rules, index, {
+                                                    ...rule,
+                                                    when: event.target.value,
+                                                }),
+                                            )
+                                        }
+                                    />
+                                    <span className="rule-word label">
+                                        value
+                                    </span>
+                                    <ValueInput
+                                        type={type}
+                                        disabled={!editable}
+                                        value={rule.valueText}
+                                        onChange={(valueText) =>
+                                            setRules(
+                                                replaceAt(rules, index, {
+                                                    ...rule,
+                                                    valueText,
+                                                }),
+                                            )
+                                        }
+                                    />
+                                    {editable ? (
+                                        <span className="action-row">
+                                            <button
+                                                className="btn btn-icon btn-sm"
+                                                type="button"
+                                                disabled={index === 0}
+                                                title="Move up"
+                                                onClick={() =>
+                                                    setRules(
+                                                        moveRule(
+                                                            rules,
+                                                            index,
+                                                            index - 1,
+                                                        ),
+                                                    )
+                                                }
+                                            >
+                                                ↑
+                                            </button>
+                                            <button
+                                                className="btn btn-icon btn-sm"
+                                                type="button"
+                                                disabled={
+                                                    index === rules.length - 1
+                                                }
+                                                title="Move down"
+                                                onClick={() =>
+                                                    setRules(
+                                                        moveRule(
+                                                            rules,
+                                                            index,
+                                                            index + 1,
+                                                        ),
+                                                    )
+                                                }
+                                            >
+                                                ↓
+                                            </button>
+                                            <button
+                                                className="btn btn-icon btn-sm btn-remove"
+                                                type="button"
+                                                title="Remove rule"
+                                                onClick={() =>
+                                                    setRules(
+                                                        rules.filter(
+                                                            (_, i) =>
+                                                                i !== index,
+                                                        ),
+                                                    )
+                                                }
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                    ) : null}
+                                </div>
+                            ))}
+                            {editable ? (
+                                <div className="action-row">
+                                    <button
+                                        className="btn btn-secondary btn-sm"
+                                        type="button"
+                                        onClick={() =>
+                                            setRules([
+                                                ...rules,
+                                                {
+                                                    when: "",
+                                                    valueText:
+                                                        defaultRuleValue(type),
+                                                },
+                                            ])
+                                        }
+                                    >
+                                        Add rule
+                                    </button>
+                                    <button
+                                        className="btn btn-ghost btn-sm"
+                                        type="button"
+                                        title="Select the value with one catalog query instead of rules"
+                                        onClick={() => setMethod("query")}
+                                    >
+                                        Use a query instead
+                                    </button>
+                                </div>
+                            ) : null}
+                        </>
+                    )}
+                </div>
 
-            <div className="card-actions">
-                {editable ? (
-                    <button
-                        className="btn btn-primary"
-                        disabled={saving}
-                        onClick={save}
-                    >
-                        {saving ? "Saving…" : "Save (one commit)"}
-                    </button>
-                ) : (
-                    <span className="hint">
-                        Start or pick a change set above to edit.
-                    </span>
-                )}
-            </div>
+                <div className="card-actions">
+                    {editable ? (
+                        <button
+                            className="btn btn-primary"
+                            type="submit"
+                            disabled={saving}
+                        >
+                            {saving ? "Saving…" : "Save (one commit)"}
+                        </button>
+                    ) : (
+                        <span className="hint">
+                            Start or pick a change set above to edit.
+                        </span>
+                    )}
+                </div>
+            </form>
         </div>
     );
 }
@@ -2226,6 +2255,7 @@ function QueryFields({
                 <div className="action-row">
                     <button
                         className="btn btn-ghost btn-sm"
+                        type="button"
                         title="Switch back to first-match rules"
                         onClick={onUseRules}
                     >
@@ -2455,6 +2485,18 @@ function FilePanel({
                     rows={Math.min(30, content.split("\n").length + 2)}
                     value={content}
                     onChange={(event) => setContent(event.target.value)}
+                    onKeyDown={(event) => {
+                        // Enter is a newline here; the submit accelerator
+                        // for multi-line editors is Ctrl/Cmd+Enter.
+                        if (
+                            event.key === "Enter" &&
+                            (event.metaKey || event.ctrlKey) &&
+                            !saving
+                        ) {
+                            event.preventDefault();
+                            save();
+                        }
+                    }}
                 />
             )}
             {diagnostics.length > 0 ? (
@@ -2560,7 +2602,13 @@ function NewVariableForm({
             .finally(() => setBusy(false));
     };
     return (
-        <span className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                submit();
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -2596,19 +2644,20 @@ function NewVariableForm({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={busy || id.trim() === ""}
-                onClick={submit}
             >
                 Create
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 disabled={busy}
                 onClick={() => setOpen(false)}
             >
                 Cancel
             </button>
-        </span>
+        </form>
     );
 }
 
@@ -2730,7 +2779,13 @@ function NewListForm({
             .finally(() => setBusy(false));
     };
     return (
-        <span className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                submit();
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -2757,19 +2812,20 @@ function NewListForm({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={busy || id.trim() === ""}
-                onClick={submit}
             >
                 Create
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 disabled={busy}
                 onClick={() => setOpen(false)}
             >
                 Cancel
             </button>
-        </span>
+        </form>
     );
 }
 
@@ -2800,7 +2856,18 @@ function NewIdForm({
         );
     }
     return (
-        <div className="action-row">
+        <form
+            className="action-row"
+            onSubmit={(event) => {
+                event.preventDefault();
+                setBusy(true);
+                void Promise.resolve(onSubmit(id.trim())).finally(() => {
+                    setBusy(false);
+                    setOpen(false);
+                    setId("");
+                });
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -2810,26 +2877,20 @@ function NewIdForm({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={busy || id.trim() === ""}
-                onClick={() => {
-                    setBusy(true);
-                    void Promise.resolve(onSubmit(id.trim())).finally(() => {
-                        setBusy(false);
-                        setOpen(false);
-                        setId("");
-                    });
-                }}
             >
                 Create
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 disabled={busy}
                 onClick={() => setOpen(false)}
             >
                 Cancel
             </button>
-        </div>
+        </form>
     );
 }
 

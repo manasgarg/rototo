@@ -35,22 +35,28 @@ export function Pill({
     );
 }
 
+// `submit` makes this the enclosing form's default button, so Enter in any
+// of the form's inputs presses it; every other Button is type="button" so
+// it never submits a form it happens to sit inside.
 export function Button({
     tone = "secondary",
     disabled,
     title,
+    submit,
     onClick,
     children,
 }: {
     tone?: "primary" | "secondary" | "ghost";
     disabled?: boolean;
     title?: string;
-    onClick: () => void;
+    submit?: boolean;
+    onClick?: () => void;
     children: ReactNode;
 }) {
     return (
         <button
             className={`btn btn-${tone} btn-sm`}
+            type={submit === true ? "submit" : "button"}
             disabled={disabled}
             title={title}
             onClick={onClick}
@@ -191,6 +197,8 @@ export function ControlInput({
             onBlur={commitText}
             onKeyDown={(event) => {
                 if (event.key === "Enter") {
+                    // Enter commits this one cell, never an enclosing form.
+                    event.preventDefault();
                     commitText();
                 }
             }}

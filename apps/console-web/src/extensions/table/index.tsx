@@ -209,7 +209,30 @@ function AddRow({
         );
     }
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(fieldsText);
+                } catch {
+                    return;
+                }
+                setOpen(false);
+                propose(
+                    [
+                        {
+                            op: "create_entry",
+                            catalog,
+                            key: key.trim(),
+                            fields: parsed,
+                        },
+                    ],
+                    `Add ${catalog}/${key.trim()}`,
+                );
+            }}
+        >
             <input
                 className="input mono"
                 placeholder="entry_id"
@@ -222,36 +245,13 @@ function AddRow({
                 value={fieldsText}
                 onChange={(event) => setFieldsText(event.target.value)}
             />
-            <ui.Button
-                tone="primary"
-                disabled={key.trim() === ""}
-                onClick={() => {
-                    let parsed: unknown;
-                    try {
-                        parsed = JSON.parse(fieldsText);
-                    } catch {
-                        return;
-                    }
-                    setOpen(false);
-                    propose(
-                        [
-                            {
-                                op: "create_entry",
-                                catalog,
-                                key: key.trim(),
-                                fields: parsed,
-                            },
-                        ],
-                        `Add ${catalog}/${key.trim()}`,
-                    );
-                }}
-            >
+            <ui.Button tone="primary" submit disabled={key.trim() === ""}>
                 Create
             </ui.Button>
             <ui.Button tone="ghost" onClick={() => setOpen(false)}>
                 Cancel
             </ui.Button>
-        </div>
+        </form>
     );
 }
 

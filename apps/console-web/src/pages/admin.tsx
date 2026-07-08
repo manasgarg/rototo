@@ -33,7 +33,13 @@ import {
     type MeResponse,
 } from "@/lib/api";
 
-export function AdminPage({ me }: { me: MeResponse }) {
+export function AdminPage({
+    me,
+    onCapabilitiesChanged,
+}: {
+    me: MeResponse;
+    onCapabilitiesChanged: () => void;
+}) {
     const [principals, setPrincipals] = useState<AdminPrincipal[]>([]);
     const [groups, setGroups] = useState<AdminGroup[]>([]);
     const [grants, setGrants] = useState<AdminGrant[]>([]);
@@ -85,8 +91,17 @@ export function AdminPage({ me }: { me: MeResponse }) {
         );
     }
 
+    // Admin acts change what the caller can see (a registered tree, a new
+    // grant), and the shell's nav renders from /api/me — so every
+    // successful act also refreshes the caller's capabilities.
     const act = (action: Promise<unknown>) => {
-        action.then(refresh, (failure: Error) => setError(failure.message));
+        action.then(
+            () => {
+                refresh();
+                onCapabilitiesChanged();
+            },
+            (failure: Error) => setError(failure.message),
+        );
     };
     const nameOf = (principalId: string): string =>
         principals.find((p) => p.id === principalId)?.displayName ??
@@ -420,7 +435,14 @@ function BranchEditor({
         );
     }
     return (
-        <span className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                setEditing(false);
+                onSave(branch.trim());
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -430,21 +452,19 @@ function BranchEditor({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={branch.trim() === ""}
-                onClick={() => {
-                    setEditing(false);
-                    onSave(branch.trim());
-                }}
             >
                 Save
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 onClick={() => setEditing(false)}
             >
                 Cancel
             </button>
-        </span>
+        </form>
     );
 }
 
@@ -461,7 +481,22 @@ function RegisterTreeForm({
     const [name, setName] = useState("");
     const [branch, setBranch] = useState("");
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onRegister({
+                    owner: owner.trim(),
+                    name: name.trim(),
+                    ...(branch.trim() === ""
+                        ? {}
+                        : { defaultBranch: branch.trim() }),
+                });
+                setOwner("");
+                setName("");
+                setBranch("");
+            }}
+        >
             <input
                 className="input mono"
                 placeholder="owner"
@@ -482,23 +517,12 @@ function RegisterTreeForm({
             />
             <button
                 className="btn btn-secondary btn-sm"
+                type="submit"
                 disabled={owner.trim() === "" || name.trim() === ""}
-                onClick={() => {
-                    onRegister({
-                        owner: owner.trim(),
-                        name: name.trim(),
-                        ...(branch.trim() === ""
-                            ? {}
-                            : { defaultBranch: branch.trim() }),
-                    });
-                    setOwner("");
-                    setName("");
-                    setBranch("");
-                }}
             >
                 Register
             </button>
-        </div>
+        </form>
     );
 }
 
@@ -527,7 +551,14 @@ function GroupNameEditor({
         );
     }
     return (
-        <span className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                setEditing(false);
+                onSave(name.trim());
+            }}
+        >
             <input
                 autoFocus
                 className="input mono"
@@ -536,21 +567,19 @@ function GroupNameEditor({
             />
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={name.trim() === ""}
-                onClick={() => {
-                    setEditing(false);
-                    onSave(name.trim());
-                }}
             >
                 Save
             </button>
             <button
                 className="btn btn-ghost btn-sm"
+                type="button"
                 onClick={() => setEditing(false)}
             >
                 Cancel
             </button>
-        </span>
+        </form>
     );
 }
 
@@ -590,7 +619,14 @@ function MemberEditor({
 function NewGroupForm({ onCreate }: { onCreate: (name: string) => void }) {
     const [name, setName] = useState("");
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onCreate(name.trim());
+                setName("");
+            }}
+        >
             <input
                 className="input mono"
                 placeholder="group_name"
@@ -599,15 +635,12 @@ function NewGroupForm({ onCreate }: { onCreate: (name: string) => void }) {
             />
             <button
                 className="btn btn-secondary btn-sm"
+                type="submit"
                 disabled={name.trim() === ""}
-                onClick={() => {
-                    onCreate(name.trim());
-                    setName("");
-                }}
             >
                 New group
             </button>
-        </div>
+        </form>
     );
 }
 
@@ -631,7 +664,22 @@ function NewGrantForm({
     const [action, setAction] = useState("view");
     const [resource, setResource] = useState("deployment");
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                const [kind, id] = grantee.split(":", 2) as [
+                    "principal" | "group",
+                    string,
+                ];
+                onCreate({
+                    granteeKind: kind,
+                    granteeId: id,
+                    action,
+                    resource,
+                });
+            }}
+        >
             <select
                 className="input"
                 value={grantee}
@@ -677,23 +725,12 @@ function NewGrantForm({
             </select>
             <button
                 className="btn btn-secondary btn-sm"
+                type="submit"
                 disabled={grantee === ""}
-                onClick={() => {
-                    const [kind, id] = grantee.split(":", 2) as [
-                        "principal" | "group",
-                        string,
-                    ];
-                    onCreate({
-                        granteeKind: kind,
-                        granteeId: id,
-                        action,
-                        resource,
-                    });
-                }}
             >
                 Grant
             </button>
-        </div>
+        </form>
     );
 }
 
@@ -714,7 +751,27 @@ function NewInvitationForm({
     const [group, setGroup] = useState("");
     const [proposeOn, setProposeOn] = useState("");
     return (
-        <div className="inline-form">
+        <form
+            className="inline-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onCreate({
+                    email: email.trim(),
+                    ...(group === "" ? {} : { initialGroups: [group] }),
+                    ...(proposeOn === ""
+                        ? {}
+                        : {
+                              initialGrants: [
+                                  {
+                                      action: "propose",
+                                      resource: proposeOn,
+                                  },
+                              ],
+                          }),
+                });
+                setEmail("");
+            }}
+        >
             <input
                 className="input"
                 placeholder="person@company.com"
@@ -747,27 +804,11 @@ function NewInvitationForm({
             </select>
             <button
                 className="btn btn-primary btn-sm"
+                type="submit"
                 disabled={!email.includes("@")}
-                onClick={() => {
-                    onCreate({
-                        email: email.trim(),
-                        ...(group === "" ? {} : { initialGroups: [group] }),
-                        ...(proposeOn === ""
-                            ? {}
-                            : {
-                                  initialGrants: [
-                                      {
-                                          action: "propose",
-                                          resource: proposeOn,
-                                      },
-                                  ],
-                              }),
-                    });
-                    setEmail("");
-                }}
             >
                 Invite
             </button>
-        </div>
+        </form>
     );
 }
