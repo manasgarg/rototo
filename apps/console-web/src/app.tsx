@@ -475,7 +475,9 @@ function Crumbs({
                 return (
                     <span key={index} className="crumb">
                         {index > 0 ? (
-                            <span className="crumb-sep">/</span>
+                            // Not "/": package paths and namespaced ids in
+                            // crumb labels already contain slashes.
+                            <span className="crumb-sep">›</span>
                         ) : null}
                         {last || part.to === null ? (
                             <span className={className}>{part.label}</span>
