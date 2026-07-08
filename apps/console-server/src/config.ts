@@ -2,6 +2,9 @@
 // console did it: GitHub OAuth app credentials in the environment turn on
 // team mode; otherwise the server trusts the workstation (local mode).
 
+import os from "node:os";
+import path from "node:path";
+
 export const GITHUB_CLIENT_ID_ENV = "ROTOTO_GITHUB_CLIENT_ID";
 export const GITHUB_CLIENT_SECRET_ENV = "ROTOTO_GITHUB_CLIENT_SECRET";
 export const TOKEN_ENCRYPTION_KEY_ENV = "ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY";
@@ -31,6 +34,10 @@ export type ServerConfig = {
     allowedOrigins: string[];
     //Null means ephemeral state: in-memory store, no stored credentials.
     dataDir: string | null;
+    //Where rebuildable caches live (the pin store): the XDG cache home.
+    //Independent of dataDir because a commit-keyed cache is always safe to
+    //share and never worth backing up.
+    cacheDir: string;
     githubOAuth: { clientId: string; clientSecret: string } | null;
     //One generic OIDC provider covers Okta, Entra, Google, and the rest.
     oidc: {
@@ -144,6 +151,11 @@ export function resolveConfig(
         publicUrl,
         allowedOrigins,
         dataDir: overrides.dataDir ?? null,
+        cacheDir: path.join(
+            trimmed(env.XDG_CACHE_HOME) ?? path.join(os.homedir(), ".cache"),
+            "rototo",
+            "console",
+        ),
         githubOAuth,
         oidc,
         enrollment,

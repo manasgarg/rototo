@@ -37,8 +37,8 @@ export function resolveExtend(
 }
 
 export type StagerOptions = {
-    // Where staged trees live; per-deployment under the data dir, or a
-    // scratch directory in ephemeral mode.
+    // Where staged trees live; under the data dir when one is set, or the
+    // XDG cache home otherwise (config.cacheDir).
     cacheRoot: string;
     maxBytes?: number;
     // Test seam: where a source tree's git remote actually is. Production

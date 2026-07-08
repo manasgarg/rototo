@@ -147,6 +147,47 @@ fn setup_zsh_reports_plain_profile_instruction() {
 }
 
 #[test]
+fn setup_bash_honors_xdg_data_home() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let data = temp.path().join("data");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&data).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env("XDG_DATA_HOME", &data)
+        .args(["setup", "--shell", "bash"])
+        .assert()
+        .success();
+
+    assert!(data.join("bash-completion/completions/rototo").exists());
+    assert!(!home.join(".local/share").exists());
+}
+
+#[test]
+fn setup_elvish_defaults_to_xdg_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env_remove("XDG_DATA_HOME")
+        .args(["setup", "--shell", "elvish"])
+        .assert()
+        .success();
+
+    assert!(
+        home.join(".local/share/elvish/lib/rototo-completions.elv")
+            .exists()
+    );
+    assert!(!home.join(".elvish").exists());
+}
+
+#[test]
 fn setup_editor_help_omits_vscode_until_supported() {
     Command::cargo_bin("rototo")
         .unwrap()

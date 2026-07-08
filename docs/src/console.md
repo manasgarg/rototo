@@ -76,7 +76,7 @@ starting point you can copy to `.env` and fill in.
 | `--host` | `127.0.0.1` | Address to bind |
 | `--port` | `7687` | Port to listen on |
 | `--public-url` | `http://{host}:{port}` | The externally visible origin. OAuth redirects and cookies use it, and the allowed-origin check is derived from it. Set this whenever people reach the console at a real hostname. |
-| `--data-dir` | *(none)* | Where the coordination store and stored credentials live. Leave it off and the console runs fully in memory. |
+| `--data-dir` | *(none)* | Where the coordination store and stored credentials live. Leave it off and the console runs fully in memory. Staged package caches follow it too; without it they go to the XDG cache directory. |
 | `--web` | *(auto)* | Path to the built web bundle. Falls back to the packaged copy, then a repo checkout's build output. |
 
 ### Environment variables
@@ -134,9 +134,16 @@ itself never lives there. It lives in git, where it always has.
 
 That split is deliberate, and it is what makes the store safe to lose. If the
 file is deleted or the container is replaced, the console rebuilds what it
-needs from GitHub. Run without a `--data-dir` and there is no file at all;
-everything is in memory and gone on restart, which is exactly what you want
-for a quick local look.
+needs from GitHub. Run without a `--data-dir` and there is no store file at
+all; everything is in memory and gone on restart, which is exactly what you
+want for a quick local look.
+
+One thing does persist either way: the cache of staged package trees, keyed
+by commit. With a `--data-dir` it lives under `pins/` inside it, so one
+volume holds everything. Without one it goes to the standard cache location,
+`$XDG_CACHE_HOME/rototo/console` (usually `~/.cache/rototo/console`). It is
+a pure cache: size-bounded, safe to delete at any time, and never worth
+backing up.
 
 ## Hosting it for a team
 

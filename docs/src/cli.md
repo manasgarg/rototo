@@ -360,7 +360,10 @@ rototo setup --agent claude
 
 - **`--all`** - set up every supported integration.
 - **`--shell <shell>`** - `auto`, `bash`, `fish`, `zsh`, `elvish`, `powershell`,
-  or `none`.
+  or `none`. Completions land where each shell already looks, following the
+  XDG base directories: bash and elvish under `$XDG_DATA_HOME` (usually
+  `~/.local/share`), fish and the Neovim config under `$XDG_CONFIG_HOME`
+  (usually `~/.config`), zsh under `$ZDOTDIR/.zfunc`.
 - **`--editor <editor>`** - `all`, `neovim`, or `none`.
 - **`--agent <agent>`** - `all`, `claude`, `codex`, or `none`. Agent guidance is
   written into a clearly marked, managed block.

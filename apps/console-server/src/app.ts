@@ -6,7 +6,6 @@
 //   the server recomputes `decide()` inside every mutation. Explanation is
 //   never authority.
 
-import os from "node:os";
 import path from "node:path";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -243,12 +242,15 @@ export function buildApp(deps: AppDeps): App {
     };
 
     const git = deps.git ?? new GitHubGit();
+    // The pin store is a pure cache (commit-keyed, size-bounded), so it
+    // defaults to the XDG cache home and is shared across processes and
+    // restarts; a data dir, when given, keeps everything on one volume.
     const stager = new PackageStager({
         cacheRoot:
             deps.pinCacheRoot ??
             (config.dataDir !== null
                 ? path.join(config.dataDir, "pins")
-                : path.join(os.tmpdir(), `rototo-console-pins-${process.pid}`)),
+                : path.join(config.cacheDir, "pins")),
         remoteFor: deps.gitRemote,
     });
     const changeSets = new ChangeSets({ store, git, stager });
