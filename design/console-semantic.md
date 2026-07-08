@@ -137,7 +137,7 @@ Creation and deletion, any kind:
 | `create_variable {id, type, description?, default}` | skeleton file; replaces today's templates |
 | `create_catalog {id, schema}` | schema file under `model/catalogs/` |
 | `create_entry {catalog, key, fields}` | |
-| `create_enum {id, type, members, description?}` | |
+| `create_list {id, type, members, description?}` | |
 | `create_context {id, schema}` | plus a default sample |
 | `create_layer {id, unit, buckets}` | hash unit and bucket count are fixed at creation |
 | `create_sample {context, key, content}` | |
@@ -150,10 +150,12 @@ Variables:
 | `set_description {variable, text?}` | absent text clears it |
 | `set_type {variable, type}` | applies structurally; lint judges the fallout |
 | `set_default {variable, value}` | generalizes today's one server-side edit to all types |
-| `add_rule {variable, position?, when, value}` | or `query` for catalog-typed; default position is the end |
-| `update_rule {variable, index, when?, value?, query?}` | partial update of one rule |
+| `add_rule {variable, position?, when, value}` | default position is the end |
+| `update_rule {variable, index, when?, value?}` | partial update of one rule |
 | `remove_rule {variable, index}` | |
 | `move_rule {variable, from, to}` | today's drag-reorder |
+| `set_query {variable, from, filter, sort?, order?, limit?}` | switches the resolve to `method = "query"` and removes any rules; query is a resolve method, not a rule field |
+| `clear_query {variable}` | back to rules, keeping the default |
 
 Rules are addressed by index on purpose: rules are positional in the format
 (first match wins), and the expected-pin staleness check from Layer 2

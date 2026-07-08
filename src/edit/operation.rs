@@ -95,6 +95,25 @@ pub enum EditOperation {
         from: usize,
         to: usize,
     },
+    /// Switches the resolve to `method = "query"` and writes the query
+    /// fields whole. Any rules are removed: a query resolve has no rules
+    /// to run. The default, when present, stays as the empty-result
+    /// fallback.
+    SetQuery {
+        variable: String,
+        from: String,
+        filter: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        order: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<i64>,
+    },
+    /// Returns a query resolve to rules, keeping the default.
+    ClearQuery {
+        variable: String,
+    },
     /// The target is an entry address with a pointer:
     /// `catalog=plans:entry=pro#/limits/api_calls`. Missing intermediate
     /// objects are created; grant checks quantize the pointer to its
@@ -179,6 +198,8 @@ impl EditOperation {
             Self::UpdateRule { .. } => "update_rule",
             Self::RemoveRule { .. } => "remove_rule",
             Self::MoveRule { .. } => "move_rule",
+            Self::SetQuery { .. } => "set_query",
+            Self::ClearQuery { .. } => "clear_query",
             Self::SetField { .. } => "set_field",
             Self::UnsetField { .. } => "unset_field",
             Self::AddMember { .. } => "add_member",

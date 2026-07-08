@@ -167,6 +167,29 @@ fn apply_operation(
             ensure_owned(options, &[format!("variable={variable}")])?;
             Ok(vec![variable::move_rule(work, variable, *from, *to)?])
         }
+        EditOperation::SetQuery {
+            variable,
+            from,
+            filter,
+            sort,
+            order,
+            limit,
+        } => {
+            ensure_owned(options, &[format!("variable={variable}")])?;
+            Ok(vec![variable::set_query(
+                work,
+                variable,
+                from,
+                filter,
+                sort.as_deref(),
+                order.as_deref(),
+                *limit,
+            )?])
+        }
+        EditOperation::ClearQuery { variable } => {
+            ensure_owned(options, &[format!("variable={variable}")])?;
+            Ok(vec![variable::clear_query(work, variable)?])
+        }
         EditOperation::SetField { target, value } => {
             let target = entry::parse_entry_target(target)?;
             ensure_owned(options, &target.ownership_addresses())?;

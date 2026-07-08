@@ -232,6 +232,104 @@ pub(super) fn move_rule(
     })
 }
 
+pub(super) fn set_query(
+    work: &mut WorkingTree<'_>,
+    variable: &str,
+    from: &str,
+    filter: &str,
+    sort: Option<&str>,
+    order: Option<&str>,
+    limit: Option<i64>,
+) -> Result<ChangeRecord> {
+    checked_id("variable", variable)?;
+    if from.trim().is_empty() {
+        return Err(RototoError::new("a query needs a non-empty from catalog"));
+    }
+    if filter.trim().is_empty() {
+        return Err(RototoError::new(
+            "a query needs a non-empty filter expression",
+        ));
+    }
+    if let Some(order) = order
+        && order != "asc"
+        && order != "desc"
+    {
+        return Err(RototoError::new(format!(
+            "query order is `asc` or `desc`, not `{order}`"
+        )));
+    }
+    if order.is_some() && sort.is_none() {
+        return Err(RototoError::new("query order needs a sort expression"));
+    }
+    if let Some(limit) = limit
+        && limit < 1
+    {
+        return Err(RototoError::new(format!(
+            "query limit must be at least 1, not {limit}"
+        )));
+    }
+    let path = variable_path(variable);
+    let mut document = work.parse_existing(&path, &format!("variable `{variable}`"))?;
+    let resolve = resolve_table_mut(&mut document, &path)?;
+    if resolve.get("method").and_then(|item| item.as_str()) == Some("allocation") {
+        return Err(RototoError::new(format!(
+            "variable `{variable}` resolves by allocation; end the allocation \
+             before switching it to a query"
+        )));
+    }
+    let before = json_from_table(resolve);
+    set_value_preserving_decor(resolve, "method", Value::from("query"));
+    set_value_preserving_decor(resolve, "from", Value::from(from));
+    set_value_preserving_decor(resolve, "filter", Value::from(filter));
+    for (key, text) in [("sort", sort), ("order", order)] {
+        match text {
+            Some(text) => set_value_preserving_decor(resolve, key, Value::from(text)),
+            None => {
+                resolve.remove(key);
+            }
+        }
+    }
+    match limit {
+        Some(limit) => set_value_preserving_decor(resolve, "limit", Value::from(limit)),
+        None => {
+            resolve.remove("limit");
+        }
+    }
+    resolve.remove("rule");
+    let after = json_from_table(resolve);
+    work.write(path, document.to_string());
+    Ok(ChangeRecord {
+        operation: "set_query",
+        address: format!("variable={variable}#/resolve"),
+        before: Some(before),
+        after: Some(after),
+    })
+}
+
+pub(super) fn clear_query(work: &mut WorkingTree<'_>, variable: &str) -> Result<ChangeRecord> {
+    checked_id("variable", variable)?;
+    let path = variable_path(variable);
+    let mut document = work.parse_existing(&path, &format!("variable `{variable}`"))?;
+    let resolve = resolve_table_mut(&mut document, &path)?;
+    if resolve.get("method").and_then(|item| item.as_str()) != Some("query") {
+        return Err(RototoError::new(format!(
+            "variable `{variable}` does not resolve by query"
+        )));
+    }
+    let before = json_from_table(resolve);
+    for key in ["method", "from", "filter", "sort", "order", "limit"] {
+        resolve.remove(key);
+    }
+    let after = json_from_table(resolve);
+    work.write(path, document.to_string());
+    Ok(ChangeRecord {
+        operation: "clear_query",
+        address: format!("variable={variable}#/resolve"),
+        before: Some(before),
+        after: Some(after),
+    })
+}
+
 /// The `[resolve]` table, created when absent: a variable file without one
 /// is already broken, and the edit that adds a default or rule is the
 /// repair.

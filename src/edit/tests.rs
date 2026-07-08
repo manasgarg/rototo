@@ -39,6 +39,20 @@ projects = 50
 members = 500
 "#;
 
+const CTA_COPY: &str = r#"schema_version = 1
+description = "Call-to-action copy on the checkout button"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy_test"
+default = "Place order"
+
+[[resolve.assign]]
+arm = "control"
+value = "Place order"
+"#;
+
 const CHECKOUT_LAYER: &str = r#"schema_version = 1
 
 description = "Checkout experiments, diverted by user id"
@@ -63,6 +77,7 @@ fn tree() -> EditTree {
     EditTree::from_files([
         ("rototo-package.toml", "schema_version = 1\n"),
         ("variables/checkout_redesign.toml", CHECKOUT),
+        ("variables/cta_copy.toml", CTA_COPY),
         ("lists/plan_tiers.toml", PLAN_TIERS),
         (
             "model/catalogs/plans.schema.json",
@@ -282,6 +297,131 @@ fn rule_indexes_out_of_range_are_refused_with_the_count() {
     });
     assert!(message.contains("index 5 is out of range"), "{message}");
     assert!(message.contains("2 rules"), "{message}");
+}
+
+#[test]
+fn set_query_switches_a_rules_variable_to_a_query() {
+    let outcome = apply_one(EditOperation::SetQuery {
+        variable: "checkout_redesign".to_owned(),
+        from: "plans".to_owned(),
+        filter: "entry.tier == context.user.tier".to_owned(),
+        sort: Some("entry.priority".to_owned()),
+        order: Some("desc".to_owned()),
+        limit: None,
+    });
+    let content = written(&outcome, "variables/checkout_redesign.toml");
+    assert!(content.contains("method = \"query\""), "{content}");
+    assert!(content.contains("from = \"plans\""), "{content}");
+    assert!(
+        content.contains("filter = \"entry.tier == context.user.tier\""),
+        "{content}"
+    );
+    assert!(content.contains("sort = \"entry.priority\""), "{content}");
+    assert!(content.contains("order = \"desc\""), "{content}");
+    // The rules are gone (a query resolve has no rules to run), the default
+    // stays as the fallback, and the resolve comments survive.
+    assert!(!content.contains("[[resolve.rule]]"), "{content}");
+    assert!(
+        content.contains("default = \"control\" # chosen at launch"),
+        "{content}"
+    );
+
+    let record = &outcome.records[0];
+    assert_eq!(record.operation, "set_query");
+    assert_eq!(record.address, "variable=checkout_redesign#/resolve");
+    let before = record.before.as_ref().expect("before captured");
+    assert!(before["rule"].is_array(), "before holds the removed rules");
+    let after = record.after.as_ref().expect("after captured");
+    assert_eq!(after["method"], json!("query"));
+}
+
+#[test]
+fn clear_query_returns_the_resolve_to_rules() {
+    let outcome = apply_all(vec![
+        EditOperation::SetQuery {
+            variable: "checkout_redesign".to_owned(),
+            from: "plans".to_owned(),
+            filter: "entry.tier == context.user.tier".to_owned(),
+            sort: None,
+            order: None,
+            limit: Some(1),
+        },
+        EditOperation::ClearQuery {
+            variable: "checkout_redesign".to_owned(),
+        },
+    ]);
+    let content = written(&outcome, "variables/checkout_redesign.toml");
+    assert!(!content.contains("method"), "{content}");
+    assert!(!content.contains("from = "), "{content}");
+    assert!(!content.contains("limit"), "{content}");
+    assert!(
+        content.contains("default = \"control\" # chosen at launch"),
+        "{content}"
+    );
+    let record = &outcome.records[1];
+    assert_eq!(record.operation, "clear_query");
+    assert_eq!(record.address, "variable=checkout_redesign#/resolve");
+}
+
+#[test]
+fn queries_validate_their_shape_before_writing() {
+    let message = apply_err(EditOperation::SetQuery {
+        variable: "checkout_redesign".to_owned(),
+        from: " ".to_owned(),
+        filter: "entry.a".to_owned(),
+        sort: None,
+        order: None,
+        limit: None,
+    });
+    assert!(message.contains("non-empty from"), "{message}");
+
+    let message = apply_err(EditOperation::SetQuery {
+        variable: "checkout_redesign".to_owned(),
+        from: "plans".to_owned(),
+        filter: "entry.a".to_owned(),
+        sort: None,
+        order: Some("desc".to_owned()),
+        limit: None,
+    });
+    assert!(message.contains("order needs a sort"), "{message}");
+
+    let message = apply_err(EditOperation::SetQuery {
+        variable: "checkout_redesign".to_owned(),
+        from: "plans".to_owned(),
+        filter: "entry.a".to_owned(),
+        sort: Some("entry.priority".to_owned()),
+        order: Some("upward".to_owned()),
+        limit: None,
+    });
+    assert!(message.contains("`asc` or `desc`"), "{message}");
+
+    let message = apply_err(EditOperation::SetQuery {
+        variable: "checkout_redesign".to_owned(),
+        from: "plans".to_owned(),
+        filter: "entry.a".to_owned(),
+        sort: None,
+        order: None,
+        limit: Some(0),
+    });
+    assert!(message.contains("at least 1"), "{message}");
+}
+
+#[test]
+fn allocation_resolves_refuse_query_edits() {
+    let message = apply_err(EditOperation::SetQuery {
+        variable: "cta_copy".to_owned(),
+        from: "plans".to_owned(),
+        filter: "entry.a".to_owned(),
+        sort: None,
+        order: None,
+        limit: None,
+    });
+    assert!(message.contains("resolves by allocation"), "{message}");
+
+    let message = apply_err(EditOperation::ClearQuery {
+        variable: "cta_copy".to_owned(),
+    });
+    assert!(message.contains("does not resolve by query"), "{message}");
 }
 
 #[test]
