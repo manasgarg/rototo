@@ -29,6 +29,7 @@ export type AddressStep = { class: string; id: string };
 
 export type PackageView =
     | { kind: "overview" }
+    | { kind: "diagnostics" }
     | { kind: "address"; steps: AddressStep[] }
     | { kind: "surfaces"; surfaceId: string | null }
     | { kind: "files"; file: string | null }
@@ -154,6 +155,9 @@ function parseTail(tail: string): PackageView {
     if (tail === "history") {
         return { kind: "history" };
     }
+    if (tail === "diagnostics") {
+        return { kind: "diagnostics" };
+    }
     const steps = parseAddress(tail);
     return steps === null ? { kind: "overview" } : { kind: "address", steps };
 }
@@ -234,7 +238,9 @@ export function packageUrl(
                   ? view.file === null
                       ? "/files"
                       : `/files/${view.file}`
-                  : "/history";
+                  : view.kind === "diagnostics"
+                    ? "/diagnostics"
+                    : "/history";
     return `/trees/${treeId}${packageSegments}/-${tail}${formatState(state)}`;
 }
 

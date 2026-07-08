@@ -55,13 +55,13 @@ import {
     syntheticLabel,
     type ChosenContext,
 } from "@/components/context-picker";
+import { DiagnosticsPanel, LintStatusPill } from "@/components/diagnostics";
 import { entityLabel, entitySteps } from "@/components/entity-link";
 import {
     CompositionPanel,
     FleetPanel,
     HistoryPanel,
     UpcomingPanel,
-    ValidityPanel,
 } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
 import { TracePreview } from "@/components/trace-preview";
@@ -388,6 +388,12 @@ export function WorkbenchPage({
                               : `${listing.ref} @ ${listing.pin.slice(0, 10)}`}
                     </p>
                 </div>
+                {detail !== null ? (
+                    <LintStatusPill
+                        diagnostics={detail.lint.diagnostics}
+                        href={hrefView({ kind: "diagnostics" })}
+                    />
+                ) : null}
             </div>
 
             <EditingStrip
@@ -456,6 +462,12 @@ export function WorkbenchPage({
                 />
             ) : detail === null ? (
                 <p className="muted">Loading package…</p>
+            ) : view.kind === "diagnostics" ? (
+                <DiagnosticsPanel
+                    diagnostics={detail.lint.diagnostics}
+                    hrefEntity={hrefEntity}
+                    hrefFile={hrefFile}
+                />
             ) : view.kind === "files" ? (
                 view.file === null ? (
                     <FileList
@@ -722,11 +734,6 @@ function EntityLists({
                     label: entry.id,
                     href: entityHref("evaluation-context", entry.id),
                 }))}
-            />
-
-            <ValidityPanel
-                diagnostics={detail.lint.diagnostics}
-                hrefFile={hrefFile}
             />
 
             <CompositionPanel

@@ -141,6 +141,7 @@ test("page-noun tails round-trip", () => {
         file: "variables/active_plan.toml",
     });
     roundTrip("examples/billing", { kind: "history" });
+    roundTrip("examples/billing", { kind: "diagnostics" });
 });
 
 test("view state rides the query and round-trips", () => {

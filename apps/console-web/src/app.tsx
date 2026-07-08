@@ -218,6 +218,11 @@ export function App() {
                         on={view?.kind === "history"}
                         to={packageHref({ kind: "history" })}
                     />
+                    <NavItem
+                        label="Diagnostics"
+                        on={view?.kind === "diagnostics"}
+                        to={packageHref({ kind: "diagnostics" })}
+                    />
                 </>
             ) : null}
             {treeId !== null ? (
@@ -549,6 +554,8 @@ function crumbsFor(
             }
         } else if (view.kind === "history") {
             parts.push({ label: "History", to: null });
+        } else if (view.kind === "diagnostics") {
+            parts.push({ label: "Diagnostics", to: null });
         } else if (view.kind === "address") {
             view.steps.forEach((step, index) => {
                 if (index === 0) {

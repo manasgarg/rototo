@@ -116,7 +116,12 @@ export type LintDiagnostic = {
     severity: string;
     rule?: string;
     message: string;
-    location?: { path?: string };
+    help?: string;
+    stage?: string;
+    location?: { path?: string; range?: { start?: { line: number } } };
+    // SemanticTarget from src/diagnostics.rs: snake_case entity kinds with
+    // per-kind id fields (variable {id}, catalog_entry {catalog, key}, …).
+    target?: { entity?: { kind?: string } & Record<string, unknown> };
 };
 
 export type PackageLint = {
