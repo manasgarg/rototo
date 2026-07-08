@@ -30,7 +30,7 @@ pub struct PackageSemanticModel {
     pub layers: Vec<LayerModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
-    pub enums: Vec<EnumModel>,
+    pub lists: Vec<ListModel>,
     pub evaluation_contexts: Vec<EvaluationContextModel>,
     pub evaluation_context_samples: Vec<EvaluationContextSampleModel>,
     pub linters: Vec<LinterModel>,
@@ -243,7 +243,7 @@ pub struct CatalogEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EnumModel {
+pub struct ListModel {
     pub id: String,
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -602,10 +602,10 @@ impl PackageLintSnapshot {
             _ => Vec::new(),
         };
 
-        let enums = index
-            .enums
+        let lists = index
+            .lists
             .values()
-            .map(|node| EnumModel {
+            .map(|node| ListModel {
                 id: node.id.clone(),
                 location: model_location(&node.location),
                 description: present_string(&node.description),
@@ -699,7 +699,7 @@ impl PackageLintSnapshot {
             layers,
             catalogs,
             catalog_entries,
-            enums,
+            lists,
             evaluation_contexts,
             evaluation_context_samples,
             linters,

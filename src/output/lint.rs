@@ -107,7 +107,7 @@ pub(super) fn semantic_entity_label(entity: &SemanticEntity) -> String {
     match entity {
         SemanticEntity::Package => "package".to_owned(),
         SemanticEntity::Manifest => "manifest".to_owned(),
-        SemanticEntity::Enum { id } => format!("enum:{id}"),
+        SemanticEntity::List { id } => format!("list:{id}"),
         SemanticEntity::Layer { id } => format!("layer:{id}"),
         SemanticEntity::Governance => "governance".to_owned(),
         SemanticEntity::Variable { id } => format!("variable:{id}"),
@@ -174,7 +174,7 @@ pub(super) fn severity_label(severity: &Severity) -> &'static str {
 pub(super) fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
     match entity {
         DiagnosticEntity::Package => "package",
-        DiagnosticEntity::Enum => "enum",
+        DiagnosticEntity::List => "list",
         DiagnosticEntity::Layer => "layer",
         DiagnosticEntity::Governance => "governance",
         DiagnosticEntity::Variable => "variable",

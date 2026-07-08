@@ -67,7 +67,7 @@ impl SiblingBases<'_> {
 }
 
 /// The entity one projected file belongs to, for sibling-base conflict
-/// detection: every file of an enum (declaration, members), evaluation
+/// detection: every file of a list (declaration, members), evaluation
 /// context (schema, samples), variable, or layer maps to that entity's key.
 /// Catalogs are finer-grained so siblings can share one additively: the
 /// schema is one key, and each entry (with its markers) is its own key, so
@@ -95,10 +95,10 @@ pub(super) fn sibling_entity_key(relative: &Path) -> String {
                 .or_else(|| stem(file, ".toml"))
                 .map(|entry| format!("catalog {catalog} entry {entry}"))
         }
-        ["enums", .., file] if file.ends_with(".update.toml") => {
-            namespaced(&components[1..], ".update.toml").map(|id| format!("enum {id}"))
+        ["lists", .., file] if file.ends_with(".update.toml") => {
+            namespaced(&components[1..], ".update.toml").map(|id| format!("list {id}"))
         }
-        ["enums", ..] => namespaced(&components[1..], ".toml").map(|id| format!("enum {id}")),
+        ["lists", ..] => namespaced(&components[1..], ".toml").map(|id| format!("list {id}")),
         ["model", "context", .., samples, sample_file] if samples.ends_with("-samples") => {
             namespaced(&components[2..components.len() - 1], "-samples").map(|id| {
                 // Samples are additive the way catalog entries are: two

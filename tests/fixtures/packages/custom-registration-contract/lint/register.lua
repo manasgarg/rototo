@@ -27,7 +27,7 @@ function register(lint)
     id = "policy/declared",
     title = "Declared custom registration rule",
     help = "Use this rule for registration contract checks.",
-    target = "enum=tier",
+    target = "list=tier",
     handler = "check",
   })
 end

@@ -33,7 +33,7 @@ node in the right map, keyed by the id its path encodes.
 |---|---|---|---|
 | D1 | `rototo-package.toml` with `[[trace]]` policies | one `ManifestNode` with the trace policies in order and `extends` state (`Missing` when the key is absent) | `every_package_file_kind_projects_to_exactly_one_node` |
 | D2 | `variables/<id>.toml`, including nested `variables/acme/in_trial.toml` | a `VariableNode` per file, keyed `flag` and `acme/in_trial`: directories are namespaces | `every_package_file_kind_projects_to_exactly_one_node` |
-| D3 | `enums/<id>.toml`, including namespaced ids | one `EnumNode` holding type and members together | `every_package_file_kind_projects_to_exactly_one_node` |
+| D3 | `lists/<id>.toml`, including namespaced ids | one `ListNode` holding type and members together | `every_package_file_kind_projects_to_exactly_one_node` |
 | D4 | `model/catalogs/<id>.schema.json` plus `data/catalogs/<id>/**.toml` | a `CatalogNode` with a compiled validator and a `CatalogEntryNode` per entry file keyed by its namespaced path; a subtree that is a longer catalog id belongs to that catalog (`a_longer_catalog_id_owns_its_data_subtree`), and the overlap is `rototo/catalog-id-overlap` | `every_package_file_kind_projects_to_exactly_one_node` |
 | D5 | `model/context/<id>.schema.json` plus `model/context/<id>-samples/**.json` | an `EvaluationContextNode` and a sample node per file keyed by its namespaced path; files inside a `-samples/` directory are never read as schemas | `every_package_file_kind_projects_to_exactly_one_node` |
 | D6 | `layers/<id>.toml` with `[[allocation]]` and `[[allocation.arm]]` | a `LayerNode` with allocations and arms in declaration order | `every_package_file_kind_projects_to_exactly_one_node` |
@@ -53,7 +53,7 @@ index, or every feature dies while the author is mid-keystroke.
 |---|---|---|---|
 | I1 | fails to parse as TOML | that file gets no node and a parse diagnostic; sibling files keep their nodes untouched | `a_broken_file_never_drops_sibling_nodes` |
 | I2 | parses but a field has the wrong shape (`type = 5`, missing `[resolve]`) | the node survives with typed error states (`TypeSourceNode::Invalid`, `ResolveNode::Missing`) instead of vanishing | `parseable_files_with_wrong_shapes_keep_their_nodes_with_error_states` |
-| I3 | is an enum members file whose `members` is not an array | the `EnumMembersNode` survives with `ProjectField::Invalid`, carrying the location for diagnostics | `parseable_files_with_wrong_shapes_keep_their_nodes_with_error_states` |
+| I3 | is a list members file whose `members` is not an array | the `ListMembersNode` survives with `ProjectField::Invalid`, carrying the location for diagnostics | `parseable_files_with_wrong_shapes_keep_their_nodes_with_error_states` |
 | I4 | is a catalog schema that is not valid JSON | the `CatalogNode` survives with `json: None`, no validator, and a syntax-stage diagnostic points at the file | `parseable_files_with_wrong_shapes_keep_their_nodes_with_error_states` |
 | I5 | is a catalog schema that parses but does not compile as JSON Schema | the node keeps the JSON and records the compile failure in `invalid_message` | `parseable_files_with_wrong_shapes_keep_their_nodes_with_error_states` |
 | I6 | is a broken variable or Lua file in a real fixture package | the failure surfaces as a source-backed diagnostic on the right path, from the index-backed pipeline | `snapshot_records_source_backed_failure_diagnostics` (`src/lint/engine.rs`) |
@@ -67,7 +67,7 @@ Positions are zero-based lines and characters.
 |---|---|---|---|
 | L1 | a variable file | the node's location names the file; the `type` field's location starts on the declaring line | `node_and_field_locations_span_their_declaring_lines` |
 | L2 | a `[resolve]` block with a default and a rule | the default and the rule's `when` each carry a range starting on their own line | `node_and_field_locations_span_their_declaring_lines` |
-| L3 | catalog entries, samples, and enum members files | each node's location names its own file, and projected fields carry ranges | `node_and_field_locations_span_their_declaring_lines` |
+| L3 | catalog entries, samples, and list members files | each node's location names its own file, and projected fields carry ranges | `node_and_field_locations_span_their_declaring_lines` |
 | L4 | a diagnostic produced from an indexed expression reference | the diagnostic's range covers exactly the reference span (line and character precise) | `snapshot_diagnostic_ranges_cover_references` (`src/lint/engine.rs`) |
 | L5 | an overlay document with a version | diagnostics computed from the index carry the overlay's document version, and ranges are correct against the overlay text, not the disk text | `snapshot_lints_overlay_without_writing_to_disk_and_groups_empty_documents` (`src/lint/engine.rs`) |
 

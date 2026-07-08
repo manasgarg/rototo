@@ -4,8 +4,8 @@
   "title": "Delivery provider",
   "properties": {
     "name": { "type": "string" },
-    "channel": { "type": "string", "x-rototo-ref": "enum=channels" },
-    "jurisdiction": { "type": "string", "x-rototo-ref": "enum=jurisdictions" },
+    "channel": { "type": "string", "x-rototo-ref": "list=channels" },
+    "jurisdiction": { "type": "string", "x-rototo-ref": "list=jurisdictions" },
     "priority": { "type": "integer", "minimum": 0 },
     "status": { "type": "string", "enum": ["active", "disabled"] }
   },

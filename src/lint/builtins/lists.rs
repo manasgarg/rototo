@@ -11,14 +11,14 @@ const MEMBER_TYPES: &[&str] = &["string", "int", "number", "bool"];
 pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
-    for declaration in ctx.index.enums.values() {
+    for declaration in ctx.index.lists.values() {
         if !integer_field_is(&declaration.schema_version, 1) {
             push_project_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::EnumSchemaVersion,
+                RototoRuleId::ListSchemaVersion,
                 declaration.target(),
                 declaration.schema_version.location(),
-                "enum must declare schema_version = 1",
+                "list must declare schema_version = 1",
             );
         }
         let member_type = match &declaration.member_type {
@@ -30,11 +30,11 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             ProjectField::Present(member_type) => {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumShape,
+                    RototoRuleId::ListShape,
                     declaration.target(),
                     member_type.location.clone(),
                     format!(
-                        "enum declares unsupported member type: {}",
+                        "list declares unsupported member type: {}",
                         member_type.value
                     ),
                 );
@@ -43,10 +43,10 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             ProjectField::Invalid { location } | ProjectField::Missing { location } => {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumShape,
+                    RototoRuleId::ListShape,
                     declaration.target(),
                     location.clone(),
-                    "enum must declare type as one of string, int, number, or bool",
+                    "list must declare type as one of string, int, number, or bool",
                 );
                 None
             }
@@ -55,11 +55,11 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
         if let Some(location) = &declaration.deleted {
             push_project_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::EnumShape,
+                RototoRuleId::ListShape,
                 declaration.target(),
                 location.clone(),
-                "deleted enum members apply to a base package through an \
-                 enums/<id>.update.toml marker; this package has no base \
+                "deleted list members apply to a base package through an \
+                 lists/<id>.update.toml marker; this package has no base \
                  member set for them to remove from",
             );
         }
@@ -69,10 +69,10 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             ProjectField::Invalid { location } | ProjectField::Missing { location } => {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumShape,
+                    RototoRuleId::ListShape,
                     declaration.target(),
                     location.clone(),
-                    "enum must declare members as an array",
+                    "list must declare members as an array",
                 );
                 continue;
             }
@@ -80,10 +80,10 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
         if values.value.is_empty() {
             push_project_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::EnumShape,
+                RototoRuleId::ListShape,
                 declaration.target(),
                 values.location.clone(),
-                "enum must declare at least one member",
+                "list must declare at least one member",
             );
             continue;
         }
@@ -94,11 +94,11 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumShape,
+                    RototoRuleId::ListShape,
                     declaration.target(),
                     member.location.clone(),
                     format!(
-                        "enum member does not match declared type {member_type}: {}",
+                        "list member does not match declared type {member_type}: {}",
                         member.value
                     ),
                 );
@@ -106,10 +106,10 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             if seen.contains(&&member.value) {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumShape,
+                    RototoRuleId::ListShape,
                     declaration.target(),
                     member.location.clone(),
-                    format!("enum member is duplicated: {}", member.value),
+                    format!("list member is duplicated: {}", member.value),
                 );
             }
             seen.push(&member.value);

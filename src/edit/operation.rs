@@ -51,7 +51,7 @@ pub enum EditOperation {
         target: String,
     },
     /// Sets or clears a description. The target is `variable=<id>` or
-    /// `enum=<id>`; absent text clears it.
+    /// `list=<id>`; absent text clears it.
     SetDescription {
         target: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,13 +108,13 @@ pub enum EditOperation {
         target: String,
     },
     AddMember {
-        #[serde(rename = "enum")]
-        enum_id: String,
+        #[serde(rename = "list")]
+        list_id: String,
         value: JsonValue,
     },
     RemoveMember {
-        #[serde(rename = "enum")]
-        enum_id: String,
+        #[serde(rename = "list")]
+        list_id: String,
         value: JsonValue,
     },
     /// Arms and their bucket ranges are defined together.

@@ -62,14 +62,14 @@ default = false
 "#,
         ),
         (
-            "enums/tier.toml",
+            "lists/tier.toml",
             r#"schema_version = 1
 type = "string"
 members = ["basic", "premium"]
 "#,
         ),
         (
-            "enums/acme/plan.toml",
+            "lists/acme/plan.toml",
             r#"schema_version = 1
 type = "string"
 members = ["trial"]
@@ -187,10 +187,10 @@ async fn every_package_file_kind_projects_to_exactly_one_node() {
     }
 
     assert_eq!(
-        index.enums.keys().cloned().collect::<Vec<_>>(),
+        index.lists.keys().cloned().collect::<Vec<_>>(),
         vec!["acme/plan", "tier"]
     );
-    match &index.enums["tier"].members {
+    match &index.lists["tier"].members {
         ProjectField::Present(members) => assert_eq!(members.value.len(), 2),
         _ => panic!("tier members should project"),
     }
@@ -260,12 +260,12 @@ async fn unclaimed_files_produce_no_nodes_and_a_discover_warning() {
     )];
     files.push(("variables/readme.md", "not a variable\n"));
     files.push(("data/catalogs/orphan/entry.toml", "message = \"lost\"\n"));
-    files.push(("model/enums/tier.json", "{}\n"));
+    files.push(("model/lists/tier.json", "{}\n"));
     let (_tempdir, snapshot) = scratch_snapshot(&files).await;
 
     assert!(snapshot.index.variables.is_empty());
     assert!(snapshot.index.catalog_entries.is_empty());
-    assert!(snapshot.index.enums.is_empty());
+    assert!(snapshot.index.lists.is_empty());
 
     let unrecognized = snapshot
         .lint
@@ -277,7 +277,7 @@ async fn unclaimed_files_produce_no_nodes_and_a_discover_warning() {
     for expected in [
         "variables/readme.md",
         "data/catalogs/orphan/entry.toml",
-        "model/enums/tier.json",
+        "model/lists/tier.json",
     ] {
         assert!(
             unrecognized.iter().any(|path| path == expected),
@@ -330,7 +330,7 @@ type = 5
 "#,
         ),
         (
-            "enums/tier.toml",
+            "lists/tier.toml",
             "schema_version = 1\ntype = \"string\"\nmembers = \"nope\"\n",
         ),
         ("model/catalogs/bad.schema.json", "{ \"type\": [ }\n"),
@@ -346,7 +346,7 @@ type = 5
     assert!(matches!(odd.type_source, TypeSourceNode::Invalid { .. }));
     assert!(matches!(odd.resolve, ResolveNode::Missing { .. }));
 
-    let members = index.enums.get("tier").expect("tier keeps a node");
+    let members = index.lists.get("tier").expect("tier keeps a node");
     assert!(matches!(members.members, ProjectField::Invalid { .. }));
 
     // A schema that fails to parse as JSON keeps its node with no compiled
@@ -405,8 +405,8 @@ async fn node_and_field_locations_span_their_declaring_lines() {
         sample.location.path,
         "model/context/request-samples/basic.json"
     );
-    let members = &index.enums["tier"];
-    assert_eq!(members.location.path, "enums/tier.toml");
+    let members = &index.lists["tier"];
+    assert_eq!(members.location.path, "lists/tier.toml");
     assert!(members.members.location().range.is_some());
 }
 

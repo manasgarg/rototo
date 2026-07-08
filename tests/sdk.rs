@@ -2005,12 +2005,12 @@ async fn billing_entitlements_follow_through_the_lookup_surface() {
     assert_eq!(feature["name"], serde_json::json!("Single sign-on"));
 }
 
-/// Enum reflection: contract and members through one read.
+/// List reflection: contract and members through one read.
 #[tokio::test]
 async fn reflection_reads_enums() {
     let package = Package::load("examples/billing").await.unwrap();
-    let enums = package.list_enums().unwrap();
-    assert!(enums.contains(&"plan_tiers".to_owned()), "{enums:?}");
+    let lists = package.list_enums().unwrap();
+    assert!(lists.contains(&"plan_tiers".to_owned()), "{lists:?}");
     let plan_tiers = package.read_enum("plan_tiers").unwrap();
     assert_eq!(plan_tiers.member_type, "string");
     assert!(plan_tiers.members.contains(&serde_json::json!("business")));

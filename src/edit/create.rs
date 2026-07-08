@@ -7,8 +7,8 @@ use crate::error::{Result, RototoError};
 use super::engine::WorkingTree;
 use super::operation::ChangeRecord;
 use super::paths::{
-    catalog_data_dir, catalog_schema_path, checked_id, context_schema_path, entry_path, enum_path,
-    layer_path, sample_path, samples_dir, variable_path,
+    catalog_data_dir, catalog_schema_path, checked_id, context_schema_path, entry_path, layer_path,
+    list_path, sample_path, samples_dir, variable_path,
 };
 use super::value::{json_from_table, toml_item_from_json, toml_value_from_json};
 
@@ -120,12 +120,12 @@ pub(super) fn create_enum(
     members: &[JsonValue],
     description: Option<&str>,
 ) -> Result<ChangeRecord> {
-    checked_id("enum", id)?;
+    checked_id("list", id)?;
     if member_type.trim().is_empty() {
         return Err(RototoError::new("type must not be empty"));
     }
     if members.is_empty() {
-        return Err(RototoError::new("an enum needs at least one member"));
+        return Err(RototoError::new("a list needs at least one member"));
     }
     let mut member_values = toml_edit::Array::new();
     for (index, member) in members.iter().enumerate() {
@@ -134,7 +134,7 @@ pub(super) fn create_enum(
             JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_)
         ) {
             return Err(RototoError::new(
-                "enum members are scalar values (string, int, number, or bool)",
+                "list members are scalar values (string, int, number, or bool)",
             ));
         }
         if members[..index].contains(member) {
@@ -144,8 +144,8 @@ pub(super) fn create_enum(
         }
         member_values.push(toml_value_from_json(member)?);
     }
-    let path = enum_path(id);
-    ensure_absent(work, &path, &format!("enum `{id}`"))?;
+    let path = list_path(id);
+    ensure_absent(work, &path, &format!("list `{id}`"))?;
 
     let mut document = DocumentMut::new();
     document["schema_version"] = Item::Value(Value::from(1));
@@ -160,7 +160,7 @@ pub(super) fn create_enum(
     work.write(path, document.to_string());
     Ok(ChangeRecord {
         operation: "create_enum",
-        address: format!("enum={id}"),
+        address: format!("list={id}"),
         before: None,
         after: Some(after),
     })
@@ -321,12 +321,12 @@ pub(super) fn delete(work: &mut WorkingTree<'_>, address: &Address) -> Result<Ve
                 format!("variable={id}"),
             )?])
         }
-        [step] if step.class == EntityClass::Enum => {
+        [step] if step.class == EntityClass::List => {
             let id = entity_id(step)?;
             Ok(vec![delete_toml_document(
                 work,
-                &enum_path(&id),
-                format!("enum={id}"),
+                &list_path(&id),
+                format!("list={id}"),
             )?])
         }
         [step] if step.class == EntityClass::Layer => {
@@ -412,7 +412,7 @@ pub(super) fn delete(work: &mut WorkingTree<'_>, address: &Address) -> Result<Ve
             )?])
         }
         _ => Err(RototoError::new(
-            "delete supports variables, catalogs, entries, enums, evaluation contexts, \
+            "delete supports variables, catalogs, entries, lists, evaluation contexts, \
              samples, and layers; everything else is edited as source",
         )),
     }

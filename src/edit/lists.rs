@@ -5,19 +5,19 @@ use crate::error::{Result, RototoError};
 
 use super::engine::WorkingTree;
 use super::operation::ChangeRecord;
-use super::paths::{checked_id, enum_path};
+use super::paths::{checked_id, list_path};
 use super::value::{json_from_toml_value, toml_value_from_json};
 
 pub(super) fn add_member(
     work: &mut WorkingTree<'_>,
-    enum_id: &str,
+    list_id: &str,
     value: &JsonValue,
 ) -> Result<ChangeRecord> {
-    checked_id("enum", enum_id)?;
+    checked_id("list", list_id)?;
     checked_member(value)?;
     let new_member = toml_value_from_json(value)?;
-    let path = enum_path(enum_id);
-    let mut document = work.parse_existing(&path, &format!("enum `{enum_id}`"))?;
+    let path = list_path(list_id);
+    let mut document = work.parse_existing(&path, &format!("list `{list_id}`"))?;
     let members = members_mut(&mut document, &path)?;
     let before = members_json(members);
     if members
@@ -25,7 +25,7 @@ pub(super) fn add_member(
         .any(|member| json_from_toml_value(member) == *value)
     {
         return Err(RototoError::new(format!(
-            "{value} is already a member of enum `{enum_id}`"
+            "{value} is already a member of list `{list_id}`"
         )));
     }
     members.push(new_member);
@@ -33,7 +33,7 @@ pub(super) fn add_member(
     work.write(path, document.to_string());
     Ok(ChangeRecord {
         operation: "add_member",
-        address: format!("enum={enum_id}#/members"),
+        address: format!("list={list_id}#/members"),
         before: Some(before),
         after: Some(after),
     })
@@ -41,12 +41,12 @@ pub(super) fn add_member(
 
 pub(super) fn remove_member(
     work: &mut WorkingTree<'_>,
-    enum_id: &str,
+    list_id: &str,
     value: &JsonValue,
 ) -> Result<ChangeRecord> {
-    checked_id("enum", enum_id)?;
-    let path = enum_path(enum_id);
-    let mut document = work.parse_existing(&path, &format!("enum `{enum_id}`"))?;
+    checked_id("list", list_id)?;
+    let path = list_path(list_id);
+    let mut document = work.parse_existing(&path, &format!("list `{list_id}`"))?;
     let members = members_mut(&mut document, &path)?;
     let before = members_json(members);
     let Some(index) = members
@@ -54,7 +54,7 @@ pub(super) fn remove_member(
         .position(|member| json_from_toml_value(member) == *value)
     else {
         return Err(RototoError::new(format!(
-            "{value} is not a member of enum `{enum_id}`"
+            "{value} is not a member of list `{list_id}`"
         )));
     };
     // The first element usually has no leading space while its successors
@@ -73,7 +73,7 @@ pub(super) fn remove_member(
     work.write(path, document.to_string());
     Ok(ChangeRecord {
         operation: "remove_member",
-        address: format!("enum={enum_id}#/members"),
+        address: format!("list={list_id}#/members"),
         before: Some(before),
         after: Some(after),
     })
@@ -83,7 +83,7 @@ fn checked_member(value: &JsonValue) -> Result<()> {
     match value {
         JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
         _ => Err(RototoError::new(
-            "enum members are scalar values (string, int, number, or bool)",
+            "list members are scalar values (string, int, number, or bool)",
         )),
     }
 }

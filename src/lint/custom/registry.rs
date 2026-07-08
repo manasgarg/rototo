@@ -228,7 +228,7 @@ fn validate_custom_registration(
 }
 
 /// The entity classes a lint target's leaf step may name today. The other
-/// classes (enum, layer, linter, manifest, governance) become targetable
+/// classes (list, layer, linter, manifest, governance) become targetable
 /// when their handler data marshalling exists.
 const TARGETABLE_LEAF_CLASSES: &[EntityClass] = &[
     EntityClass::Package,
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn untargetable_classes_are_rejected_with_the_class_named() {
         for (target, class) in [
-            ("enum=tier", "enum="),
+            ("list=tier", "list="),
             ("layer=rollout", "layer="),
             ("linter=budget", "linter="),
             ("manifest=", "manifest="),

@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Log verbosity"
-type = "enum=log_levels"
+type = "list=log_levels"
 
 [resolve]
 method = "rules"

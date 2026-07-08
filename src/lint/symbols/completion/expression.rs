@@ -99,8 +99,8 @@ pub(super) fn expression_completion_items(
         return Some(items);
     }
 
-    if cursor.token.starts_with("enums.") {
-        let mut items = enum_reference_completion_items(&snapshot.index);
+    if cursor.token.starts_with("lists.") {
+        let mut items = list_reference_completion_items(&snapshot.index);
         stamp_replace_range(&mut items, token_range(&cursor.token));
         return Some(items);
     }
@@ -226,7 +226,7 @@ pub(super) fn expression_ends_with_word_operator(prefix: &str, operator: &str) -
 }
 
 pub(super) fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {
-    let mut roots = vec!["context.", "env.", "enums."];
+    let mut roots = vec!["context.", "env.", "lists."];
     if include_entry {
         roots.push("entry.");
     }
@@ -242,25 +242,25 @@ pub(super) fn expression_root_completion_items(include_entry: bool) -> Vec<Packa
         .collect()
 }
 
-/// The declared enums, referenced through the `enums` root as their member
+/// The declared lists, referenced through the `lists` root as their member
 /// lists. Namespaced ids need the bracket spelling; plain ids read as dot
 /// access.
-pub(super) fn enum_reference_completion_items(
+pub(super) fn list_reference_completion_items(
     index: &crate::lint::index::SemanticIndex,
 ) -> Vec<PackageCompletionItem> {
     index
-        .enums
+        .lists
         .keys()
         .map(|id| {
             let label = if id.contains('/') {
-                format!("enums[\"{id}\"]")
+                format!("lists[\"{id}\"]")
             } else {
-                format!("enums.{id}")
+                format!("lists.{id}")
             };
             PackageCompletionItem::new(
                 label,
                 PackageCompletionItemKind::FieldSelector,
-                "enum members",
+                "list members",
             )
         })
         .collect()

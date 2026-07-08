@@ -9,7 +9,7 @@ type = "catalog=plans"
 # (plan_entitlements, seat_limit), but query projection is not implemented yet;
 # see the hard-parts section of the README.
 # No default: an account with an unknown tier is a hard error, and the tier
-# enum on the context schema catches it before the query runs.
+# list on the context schema catches it before the query runs.
 [resolve]
 method = "query"
 from = "plans"

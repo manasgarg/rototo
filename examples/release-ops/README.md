@@ -40,7 +40,7 @@ Covered by `tests/examples.rs` and `tests/package_lint.rs`:
   only `env.now`, so the flip needs no human present).
 - The package stays lint-clean; the shape lints this package relies on
   (overlapping bucket ranges, an assign referencing an unknown arm, an arm
-  value outside the variable's enum) are covered by the failure fixture at
+  value outside the variable's list) are covered by the failure fixture at
   `tests/fixtures/packages/lint-failures`.
 
 ## Hard parts

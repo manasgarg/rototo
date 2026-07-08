@@ -560,10 +560,10 @@ fn reports_project_stage_variable_when_failures() {
 }
 
 #[test]
-fn enums_declare_members_and_type_variables() {
+fn lists_declare_members_and_type_variables() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("enums")).unwrap();
+    std::fs::create_dir_all(root.join("lists")).unwrap();
     std::fs::create_dir_all(root.join("variables")).unwrap();
     std::fs::create_dir_all(root.join("model/context")).unwrap();
     std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
@@ -573,14 +573,14 @@ fn enums_declare_members_and_type_variables() {
     )
     .unwrap();
     std::fs::write(
-        root.join("enums/plan_tiers.toml"),
+        root.join("lists/plan_tiers.toml"),
         "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\nmembers = [\"free\", \"team\", \"business\"]\n",
     )
     .unwrap();
     std::fs::write(
         root.join("variables/plan_tier.toml"),
         r#"schema_version = 1
-type = "enum=plan_tiers"
+type = "list=plan_tiers"
 
 [resolve]
 default = "free"
@@ -592,14 +592,14 @@ value = "team"
     )
     .unwrap();
 
-    // Schema-level enum references: a catalog entry field and a context field
-    // both pin their values to the enum with x-rototo-ref.
+    // Schema-level list references: a catalog entry field and a context field
+    // both pin their values to the list with x-rototo-ref.
     std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
     std::fs::create_dir_all(root.join("data/catalogs/plans")).unwrap();
     std::fs::create_dir_all(root.join("model/context/request-samples")).unwrap();
     std::fs::write(
         root.join("model/catalogs/plans.schema.json"),
-        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum=plan_tiers"}}}"#,
+        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"list=plan_tiers"}}}"#,
     )
     .unwrap();
     std::fs::write(
@@ -632,12 +632,12 @@ value = "team"
     );
     std::fs::remove_file(root.join("data/catalogs/plans/bogus.toml")).unwrap();
 
-    // A value outside the member set is rejected, an unknown enum is rejected,
-    // and both halves of the enum must exist.
+    // A value outside the member set is rejected, an unknown list is rejected,
+    // and both halves of the list must exist.
     std::fs::write(
         root.join("variables/bad_tier.toml"),
         r#"schema_version = 1
-type = "enum=plan_tiers"
+type = "list=plan_tiers"
 
 [resolve]
 default = "platinum"
@@ -647,18 +647,18 @@ default = "platinum"
     std::fs::write(
         root.join("variables/unknown_enum.toml"),
         r#"schema_version = 1
-type = "enum=missing"
+type = "list=missing"
 
 [resolve]
 default = "anything"
 "#,
     )
     .unwrap();
-    // A single-file enum that forgets its members is an enum-shape error;
+    // A single-file list that forgets its members is an list-shape error;
     // the declaration/members split (and its missing/undeclared rules) is
     // gone.
     std::fs::write(
-        root.join("enums/memberless.toml"),
+        root.join("lists/memberless.toml"),
         "schema_version = 1\ntype = \"string\"\n",
     )
     .unwrap();
@@ -670,10 +670,10 @@ default = "anything"
         "{lint:#}"
     );
     assert!(
-        rules.contains(&"rototo/variable-unknown-enum".to_owned()),
+        rules.contains(&"rototo/variable-unknown-list".to_owned()),
         "{lint:#}"
     );
-    let shape_messages = diagnostic_messages_for_rule(&lint, "rototo/enum-shape");
+    let shape_messages = diagnostic_messages_for_rule(&lint, "rototo/list-shape");
     assert!(
         shape_messages
             .iter()
@@ -683,25 +683,25 @@ default = "anything"
 }
 
 #[test]
-fn enum_member_deletes_need_a_layer_below() {
+fn list_member_deletes_need_a_layer_below() {
     // `deleted` composes against a base through extends and is consumed when
     // layers flatten; in a package with no base it has nothing to remove from.
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("enums")).unwrap();
+    std::fs::create_dir_all(root.join("lists")).unwrap();
     std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
     std::fs::write(
-        root.join("enums/plan_tiers.toml"),
+        root.join("lists/plan_tiers.toml"),
         "schema_version = 1\ntype = \"string\"\nmembers = [\"basic\", \"pro\"]\ndeleted = [\"basic\"]\n",
     )
     .unwrap();
 
     let lint = lint_json(root.to_str().unwrap(), false);
-    let messages = diagnostic_messages_for_rule(&lint, "rototo/enum-shape");
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/list-shape");
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("deleted enum members apply to a base package")),
+            .any(|message| message.contains("deleted list members apply to a base package")),
         "{lint:#}"
     );
 }
@@ -1132,7 +1132,7 @@ fn reports_custom_registration_contract_failures() {
          address grammar, for example package=, variable=<id>, or catalog=<id>:entry=<key>",
         "custom lint registration has unsupported target: \
          variable=message#/resolve/default; # pointer targets are not supported yet",
-        "custom lint registration has unsupported target: enum=tier; enum= entities \
+        "custom lint registration has unsupported target: list=tier; list= entities \
          cannot be targeted yet",
     ] {
         assert!(
@@ -1499,7 +1499,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Discover,
                 entity: ExpectedEntity::Package,
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "enums/typo/tier.tml",
+                    path: "lists/typo/tier.tml",
                     range: None,
                 },
                 related: &[],
@@ -1929,10 +1929,10 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::ExpressionUnknownEnum,
-            package: "tests/fixtures/packages/rules/project/expression-unknown-enum",
+            package: "tests/fixtures/packages/rules/project/expression-unknown-list",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/expression-unknown-enum",
+                rule: "rototo/expression-unknown-list",
                 severity: "error",
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Rule {
@@ -2270,13 +2270,13 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumParseFailed,
+            rule: RototoRuleId::ListParseFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumSchemaVersion,
+            rule: RototoRuleId::ListSchemaVersion,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumShape,
+            rule: RototoRuleId::ListShape,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownEnum,
@@ -2573,7 +2573,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
-        "rototo/expression-unknown-enum",
+        "rototo/expression-unknown-list",
         "rototo/governance-shape",
         "rototo/governance-unknown-target",
         "rototo/layer-bucket-overlap",
@@ -2690,25 +2690,25 @@ fn pending_rules_fire_from_scratch_packages() {
     );
     let cases: &[(&str, &[(&str, &str)])] = &[
         (
-            "rototo/enum-parse-failed",
-            &[manifest, ("enums/tier.toml", "= not toml\n")],
+            "rototo/list-parse-failed",
+            &[manifest, ("lists/tier.toml", "= not toml\n")],
         ),
         (
-            "rototo/enum-schema-version",
+            "rototo/list-schema-version",
             &[
                 manifest,
                 (
-                    "enums/tier.toml",
+                    "lists/tier.toml",
                     "schema_version = 2\ntype = \"string\"\nmembers = [\"a\"]\n",
                 ),
             ],
         ),
         (
-            "rototo/enum-shape",
+            "rototo/list-shape",
             &[
                 manifest,
                 (
-                    "enums/tier.toml",
+                    "lists/tier.toml",
                     "schema_version = 1\ntype = \"object\"\nmembers = [\"a\"]\n",
                 ),
             ],
@@ -2902,7 +2902,7 @@ fn retired_colon_bindings_get_the_equals_hint() {
         r#"{
   "type": "object",
   "properties": {
-    "tier": { "type": "string", "x-rototo-ref": "enum:tier" }
+    "tier": { "type": "string", "x-rototo-ref": "list:tier" }
   }
 }"#,
     )
@@ -2925,7 +2925,7 @@ fn retired_colon_bindings_get_the_equals_hint() {
     assert!(
         all_messages
             .iter()
-            .any(|message| message.contains("binder is `=` now: write enum=tier")),
+            .any(|message| message.contains("binder is `=` now: write list=tier")),
         "{all_messages:#?}"
     );
 }

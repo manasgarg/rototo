@@ -23,7 +23,7 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
             target(),
             kind.location.clone(),
             format!(
-                "governance blocks are keyed [<kind>.<id>] with kind one of catalog, enum, \
+                "governance blocks are keyed [<kind>.<id>] with kind one of catalog, list, \
                  variable, evaluation_context, or layer, or the top-level [defaults] block: {}",
                 kind.value
             ),
@@ -209,7 +209,7 @@ fn lint_policy(
 fn governed_target_exists(ctx: &LintContext, kind: &str, id: &str) -> bool {
     match kind {
         "catalog" => ctx.index.catalogs.contains_key(id),
-        "enum" => ctx.index.enums.contains_key(id),
+        "list" => ctx.index.lists.contains_key(id),
         "variable" => ctx.index.variables.contains_key(id),
         "evaluation_context" => ctx.index.evaluation_contexts.contains_key(id),
         "layer" => ctx.index.layers.contains_key(id),

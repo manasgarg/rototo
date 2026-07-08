@@ -137,7 +137,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
 }
 
 /// Discovery composes each package's declared `extends` edges into the
-/// composition tree, and enums are first-class entities in the model.
+/// composition tree, and lists are first-class entities in the model.
 #[tokio::test]
 async fn semantic_model_projects_extends_edges_and_enums() {
     let overlay = package_semantic_model(Path::new("examples/acme-overlay"))
@@ -162,11 +162,11 @@ async fn semantic_model_projects_extends_edges_and_enums() {
         .await
         .expect("examples/release-ops should produce a semantic model");
     let log_levels = release_ops
-        .enums
+        .lists
         .iter()
         .find(|entry| entry.id == "log_levels")
-        .expect("log_levels enum");
-    assert!(log_levels.location.path.ends_with("enums/log_levels.toml"));
+        .expect("log_levels list");
+    assert!(log_levels.location.path.ends_with("lists/log_levels.toml"));
     assert_eq!(log_levels.member_type.value.as_deref(), Some("string"));
     assert_eq!(
         log_levels

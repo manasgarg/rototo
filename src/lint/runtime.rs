@@ -18,7 +18,7 @@ pub(crate) struct RuntimePackage {
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
-    pub(crate) enums: BTreeMap<String, RuntimeEnum>,
+    pub(crate) lists: BTreeMap<String, RuntimeEnum>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
     /// Which layer's `[resolve]` block each variable carries, read from the
@@ -239,7 +239,7 @@ impl<'a> RuntimeCompiler<'a> {
         let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
-        let enums = Self::compile_enums(index);
+        let lists = Self::compile_enums(index);
         let variables = self.compile_variables(index)?;
         let trace_policies = Self::compile_trace_policies(manifest)?;
 
@@ -248,7 +248,7 @@ impl<'a> RuntimeCompiler<'a> {
             variable_evaluation_contexts: compatibility.variables,
             catalog_schemas,
             catalog_entries,
-            enums,
+            lists,
             variables,
             trace_policies,
             resolve_provenance: BTreeMap::new(),
@@ -257,7 +257,7 @@ impl<'a> RuntimeCompiler<'a> {
 
     fn compile_enums(index: &SemanticIndex) -> BTreeMap<String, RuntimeEnum> {
         index
-            .enums
+            .lists
             .values()
             .map(|declaration| {
                 let member_type = match &declaration.member_type {
@@ -413,9 +413,9 @@ fn validate_variable_type_kind(index: &SemanticIndex, type_kind: &VariableTypeKi
         VariableTypeKind::Catalog(catalog) => Err(RototoError::new(format!(
             "variable references unknown catalog: {catalog}"
         ))),
-        VariableTypeKind::Enum(id) if index.enums.contains_key(id) => Ok(()),
-        VariableTypeKind::Enum(id) => Err(RototoError::new(format!(
-            "variable references unknown enum: {id}"
+        VariableTypeKind::List(id) if index.lists.contains_key(id) => Ok(()),
+        VariableTypeKind::List(id) => Err(RototoError::new(format!(
+            "variable references unknown list: {id}"
         ))),
         VariableTypeKind::Array(item) => validate_variable_type_kind(index, item),
     }
@@ -779,7 +779,7 @@ impl<'a> RuntimeCompiler<'a> {
         value: &JsonValue,
     ) -> Result<RuntimeSelectedValue> {
         match type_kind {
-            VariableTypeKind::Enum(_) => Ok(RuntimeSelectedValue::Literal(value.clone())),
+            VariableTypeKind::List(_) => Ok(RuntimeSelectedValue::Literal(value.clone())),
             VariableTypeKind::Catalog(catalog) => {
                 let name = value.as_str().ok_or_else(|| {
                     RototoError::new(format!(

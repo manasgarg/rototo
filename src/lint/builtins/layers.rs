@@ -303,14 +303,14 @@ fn lint_layer_expression(
             issue.describe(),
         );
     }
-    for enum_id in &references.enums {
-        if !index.enums.contains_key(enum_id) {
+    for list_id in &references.lists {
+        if !index.lists.contains_key(list_id) {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::LayerShape,
                 layer.target(),
                 expression.location.clone(),
-                format!("expression references unknown enum: {enum_id}"),
+                format!("expression references unknown list: {list_id}"),
             );
         }
     }

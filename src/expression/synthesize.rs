@@ -9,17 +9,17 @@ impl Expression {
     ///
     /// `variable` resolves a referenced bool variable to a context that makes
     /// it evaluate to the requested boolean; the caller owns cycle detection.
-    /// `enums` resolves a referenced enum id to its member list, for inverting
-    /// `context.<path> in enums.<id>` memberships; a caller without enum data
+    /// `lists` resolves a referenced list id to its member list, for inverting
+    /// `context.<path> in lists.<id>` memberships; a caller without list data
     /// returns `None` and the membership stays uninvertible.
     /// Returns `None` for expression shapes synthesis cannot invert.
     pub(crate) fn synthesize_context(
         &self,
         want: bool,
         variable: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
-        enums: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
+        lists: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
     ) -> Option<JsonValue> {
-        synthesize_bool(&self.cel_ast, want, variable, enums)
+        synthesize_bool(&self.cel_ast, want, variable, lists)
     }
 }
 
@@ -27,7 +27,7 @@ pub(super) fn synthesize_bool(
     expr: &IdedExpr,
     want: bool,
     variable: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
-    enums: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
+    lists: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
 ) -> Option<JsonValue> {
     if let Some(Reference::Variable(id)) = cel_reference(expr) {
         return variable(&id, want);
@@ -38,7 +38,7 @@ pub(super) fn synthesize_bool(
     }
     match &expr.expr {
         Expr::Literal(LiteralValue::Boolean(value)) => (**value == want).then(empty_context),
-        Expr::Call(call) => synthesize_call(call, want, variable, enums),
+        Expr::Call(call) => synthesize_call(call, want, variable, lists),
         _ => None,
     }
 }
@@ -47,19 +47,19 @@ pub(super) fn synthesize_call(
     call: &cel::common::ast::CallExpr,
     want: bool,
     variable: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
-    enums: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
+    lists: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
 ) -> Option<JsonValue> {
     match call.func_name.as_str() {
-        operators::LOGICAL_NOT => synthesize_bool(call.args.first()?, !want, variable, enums),
-        operators::LOGICAL_AND => synthesize_junction(&call.args, want, true, variable, enums),
-        operators::LOGICAL_OR => synthesize_junction(&call.args, want, false, variable, enums),
+        operators::LOGICAL_NOT => synthesize_bool(call.args.first()?, !want, variable, lists),
+        operators::LOGICAL_AND => synthesize_junction(&call.args, want, true, variable, lists),
+        operators::LOGICAL_OR => synthesize_junction(&call.args, want, false, variable, lists),
         operators::EQUALS => synthesize_equality(&call.args, want, true),
         operators::NOT_EQUALS => synthesize_equality(&call.args, want, false),
         operators::LESS => synthesize_ordering(&call.args, false, false, want),
         operators::LESS_EQUALS => synthesize_ordering(&call.args, false, true, want),
         operators::GREATER => synthesize_ordering(&call.args, true, false, want),
         operators::GREATER_EQUALS => synthesize_ordering(&call.args, true, true, want),
-        operators::IN => synthesize_membership(&call.args, want, enums),
+        operators::IN => synthesize_membership(&call.args, want, lists),
         "bucket" => synthesize_bucket(call, want),
         _ => None,
     }
@@ -74,17 +74,17 @@ pub(super) fn synthesize_junction(
     want: bool,
     is_and: bool,
     variable: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
-    enums: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
+    lists: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
 ) -> Option<JsonValue> {
     if want == is_and {
         let mut context = empty_context();
         for arg in args {
-            merge_context(&mut context, synthesize_bool(arg, want, variable, enums)?)?;
+            merge_context(&mut context, synthesize_bool(arg, want, variable, lists)?)?;
         }
         Some(context)
     } else {
         args.iter()
-            .find_map(|arg| synthesize_bool(arg, want, variable, enums))
+            .find_map(|arg| synthesize_bool(arg, want, variable, lists))
     }
 }
 
@@ -127,13 +127,13 @@ pub(super) fn synthesize_ordering(
     context_with_path(&path, value)
 }
 
-/// Invert `context.path in [a, b, ...]` or `context.path in enums.<id>`: pick
-/// a listed value (or enum member) to match, or a value outside the set to
+/// Invert `context.path in [a, b, ...]` or `context.path in lists.<id>`: pick
+/// a listed value (or list member) to match, or a value outside the set to
 /// miss.
 pub(super) fn synthesize_membership(
     args: &[IdedExpr],
     want: bool,
-    enums: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
+    lists: &mut dyn FnMut(&str) -> Option<Vec<JsonValue>>,
 ) -> Option<JsonValue> {
     if args.len() != 2 {
         return None;
@@ -142,7 +142,7 @@ pub(super) fn synthesize_membership(
     let elements: Vec<JsonValue> = match &args[1].expr {
         Expr::List(list) => list.elements.iter().filter_map(cel_literal_json).collect(),
         _ => match cel_reference(&args[1]) {
-            Some(Reference::Enum(id)) => enums(&id)?,
+            Some(Reference::List(id)) => lists(&id)?,
             _ => return None,
         },
     };

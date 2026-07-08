@@ -1,8 +1,8 @@
 schema_version = 1
 description = "Toolbar arrangement, under an A/B test"
-type = "enum=toolbar_layouts"
+type = "list=toolbar_layouts"
 
-# An experiment whose values are enum members, so a typo in an arm's value is a
+# An experiment whose values are list members, so a typo in an arm's value is a
 # lint failure. `default` is what the unenrolled see: the holdback and the users
 # in the rollout's buckets. Control deliberately equals default: control must BE
 # the baseline or the experiment measures the wrong thing.

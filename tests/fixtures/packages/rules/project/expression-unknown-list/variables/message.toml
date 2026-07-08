@@ -6,5 +6,5 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'context.tier in enums.plan_tiers'
+when = 'context.tier in lists.plan_tiers'
 value = "welcome"

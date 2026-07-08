@@ -60,14 +60,14 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                             issue.describe(),
                         );
                     }
-                    for enum_id in &expression.value.references().enums {
-                        if !ctx.index.enums.contains_key(enum_id) {
+                    for list_id in &expression.value.references().lists {
+                        if !ctx.index.lists.contains_key(list_id) {
                             push_project_diagnostic(
                                 diagnostics,
                                 RototoRuleId::ExpressionUnknownEnum,
                                 rule.field_target(&variable.id, field.clone()),
                                 expression.location.clone(),
-                                format!("expression references unknown enum: {enum_id}"),
+                                format!("expression references unknown list: {list_id}"),
                             );
                         }
                     }
@@ -103,14 +103,14 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                         issue.describe(),
                     );
                 }
-                for enum_id in &expression.value.references().enums {
-                    if !ctx.index.enums.contains_key(enum_id) {
+                for list_id in &expression.value.references().lists {
+                    if !ctx.index.lists.contains_key(list_id) {
                         push_project_diagnostic(
                             diagnostics,
                             RototoRuleId::ExpressionUnknownEnum,
                             variable.field_target(field.clone()),
                             expression.location.clone(),
-                            format!("expression references unknown enum: {enum_id}"),
+                            format!("expression references unknown list: {list_id}"),
                         );
                     }
                 }
@@ -781,7 +781,7 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
                 lint_primitive_resolve_values(&mut diagnostics, variable, primitive);
             }
             VariableTypeKind::Catalog(_) => lint_catalog_resolve_values(&mut diagnostics, variable),
-            VariableTypeKind::Enum(id) => {
+            VariableTypeKind::List(id) => {
                 lint_enum_resolve_values(&mut diagnostics, ctx, variable, &type_kind.location, id);
             }
             VariableTypeKind::Array(item) => {
@@ -823,7 +823,7 @@ fn lint_primitive_type(
     primitive
 }
 
-/// Detects the retired `catalog:<id>` / `enum:<id>` colon spelling and
+/// Detects the retired `catalog:<id>` / `list:<id>` colon spelling and
 /// returns the `=` form to write instead.
 fn retired_colon_binding(type_name: &str) -> Option<String> {
     let (class, id) = type_name.split_once(':')?;
@@ -849,7 +849,7 @@ fn lint_list_resolve_values(
             };
             lint_primitive_list_resolve_values(diagnostics, variable, primitive);
         }
-        VariableTypeKind::Enum(id) => {
+        VariableTypeKind::List(id) => {
             lint_enum_list_resolve_values(diagnostics, ctx, variable, location, id);
         }
         VariableTypeKind::Array(_) => push_value_diagnostic(
@@ -862,14 +862,14 @@ fn lint_list_resolve_values(
     }
 }
 
-/// The declared members of an enum, when both halves are present and valid.
-/// Missing pieces are reported by the enum lints, so value validation simply
+/// The declared members of a list, when both halves are present and valid.
+/// Missing pieces are reported by the list lints, so value validation simply
 /// skips when it cannot know the member set.
-fn enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
-    if !ctx.index.enums.contains_key(id) {
+fn list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.lists.contains_key(id) {
         return None;
     }
-    let members = ctx.index.enums.get(id)?;
+    let members = ctx.index.lists.get(id)?;
     let ProjectField::Present(members) = &members.members else {
         return None;
     };
@@ -883,17 +883,17 @@ fn lint_enum_resolve_values(
     location: &crate::diagnostics::DiagnosticLocation,
     id: &str,
 ) {
-    if !ctx.index.enums.contains_key(id) {
+    if !ctx.index.lists.contains_key(id) {
         push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownEnum,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
-            format!("variable references unknown enum: {id}"),
+            format!("variable references unknown list: {id}"),
         );
         return;
     }
-    let Some(members) = enum_member_values(ctx, id) else {
+    let Some(members) = list_member_values(ctx, id) else {
         return;
     };
     for_each_resolve_value(variable, |target, value, value_location, label| {
@@ -904,7 +904,7 @@ fn lint_enum_resolve_values(
                 target,
                 value_location.clone(),
                 format!(
-                    "{label} is not a member of enum {id}: {}",
+                    "{label} is not a member of list {id}: {}",
                     value_label(value)
                 ),
             );
@@ -919,17 +919,17 @@ fn lint_enum_list_resolve_values(
     location: &crate::diagnostics::DiagnosticLocation,
     id: &str,
 ) {
-    if !ctx.index.enums.contains_key(id) {
+    if !ctx.index.lists.contains_key(id) {
         push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownEnum,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
-            format!("variable references unknown enum: {id}"),
+            format!("variable references unknown list: {id}"),
         );
         return;
     }
-    let Some(members) = enum_member_values(ctx, id) else {
+    let Some(members) = list_member_values(ctx, id) else {
         return;
     };
     for_each_resolve_value(variable, |target, value, value_location, label| {
@@ -939,7 +939,7 @@ fn lint_enum_list_resolve_values(
                 RototoRuleId::VariableValueTypeMismatch,
                 target,
                 value_location.clone(),
-                format!("{label} for array<enum> variable must be an array"),
+                format!("{label} for array<list> variable must be an array"),
             );
             return;
         };
@@ -951,7 +951,7 @@ fn lint_enum_list_resolve_values(
                     variable.field_target(SemanticField::VariableResolveDefault),
                     value_location.clone(),
                     format!(
-                        "{label} is not a member of enum {id}: {}",
+                        "{label} is not a member of list {id}: {}",
                         value_label(value)
                     ),
                 );

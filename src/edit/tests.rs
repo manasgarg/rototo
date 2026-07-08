@@ -63,7 +63,7 @@ fn tree() -> EditTree {
     EditTree::from_files([
         ("rototo-package.toml", "schema_version = 1\n"),
         ("variables/checkout_redesign.toml", CHECKOUT),
-        ("enums/plan_tiers.toml", PLAN_TIERS),
+        ("lists/plan_tiers.toml", PLAN_TIERS),
         (
             "model/catalogs/plans.schema.json",
             "{\"type\": \"object\"}\n",
@@ -391,12 +391,12 @@ fn field_operations_demand_a_pointer_and_an_entry_target() {
 }
 
 #[test]
-fn enum_members_add_and_remove_in_place() {
+fn list_members_add_and_remove_in_place() {
     let outcome = apply_one(EditOperation::AddMember {
-        enum_id: "plan_tiers".to_owned(),
+        list_id: "plan_tiers".to_owned(),
         value: json!("enterprise"),
     });
-    let content = written(&outcome, "enums/plan_tiers.toml");
+    let content = written(&outcome, "lists/plan_tiers.toml");
     assert!(
         content.contains(
             "members = [\"free\", \"team\", \"business\", \"enterprise\"] # ordered cheapest first"
@@ -409,10 +409,10 @@ fn enum_members_add_and_remove_in_place() {
     );
 
     let outcome = apply_one(EditOperation::RemoveMember {
-        enum_id: "plan_tiers".to_owned(),
+        list_id: "plan_tiers".to_owned(),
         value: json!("free"),
     });
-    let content = written(&outcome, "enums/plan_tiers.toml");
+    let content = written(&outcome, "lists/plan_tiers.toml");
     assert!(
         content.contains("members = [\"team\", \"business\"] # ordered cheapest first"),
         "{content}"
@@ -422,13 +422,13 @@ fn enum_members_add_and_remove_in_place() {
 #[test]
 fn duplicate_and_missing_members_are_refused() {
     let message = apply_err(EditOperation::AddMember {
-        enum_id: "plan_tiers".to_owned(),
+        list_id: "plan_tiers".to_owned(),
         value: json!("team"),
     });
     assert!(message.contains("already a member"), "{message}");
 
     let message = apply_err(EditOperation::RemoveMember {
-        enum_id: "plan_tiers".to_owned(),
+        list_id: "plan_tiers".to_owned(),
         value: json!("platinum"),
     });
     assert!(message.contains("not a member"), "{message}");
@@ -571,7 +571,7 @@ fn create_enum_and_layer_write_their_skeletons() {
         },
     ]);
     assert_eq!(
-        written(&outcome, "enums/regions.toml"),
+        written(&outcome, "lists/regions.toml"),
         "schema_version = 1\ntype = \"string\"\n\nmembers = [\"eu\", \"us\"]\n"
     );
     assert_eq!(

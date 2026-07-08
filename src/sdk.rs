@@ -11,7 +11,7 @@ use crate::lint::{
     LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
 use crate::model::{
-    EnumConfig, PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace,
+    ListConfig, PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace,
 };
 use crate::package::inspect_package;
 use crate::source::{
@@ -316,20 +316,20 @@ impl Package {
         })
     }
 
-    /// Every enum id in the loaded package.
+    /// Every list id in the loaded package.
     pub fn list_enums(&self) -> Result<Vec<String>> {
-        Ok(self.runtime()?.enums.keys().cloned().collect())
+        Ok(self.runtime()?.lists.keys().cloned().collect())
     }
 
-    /// One enum, contract and members together.
-    pub fn read_enum(&self, id: impl AsRef<str>) -> Result<EnumConfig> {
+    /// One list, contract and members together.
+    pub fn read_enum(&self, id: impl AsRef<str>) -> Result<ListConfig> {
         let id = id.as_ref();
         let declaration = self
             .runtime()?
-            .enums
+            .lists
             .get(id)
-            .ok_or_else(|| RototoError::new(format!("enum not found: enum={id}")))?;
-        Ok(EnumConfig {
+            .ok_or_else(|| RototoError::new(format!("list not found: list={id}")))?;
+        Ok(ListConfig {
             id: id.to_owned(),
             description: declaration.description.clone(),
             member_type: declaration.member_type.clone(),

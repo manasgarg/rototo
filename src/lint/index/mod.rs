@@ -8,7 +8,7 @@ mod tests;
 use std::collections::BTreeMap;
 
 pub(super) use ids::{
-    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, LayerId, ValueKey,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, LayerId, ListId, ValueKey,
     VariableId,
 };
 pub(crate) use nodes::parse_arm_buckets;
@@ -18,7 +18,7 @@ pub(super) use targets::RegisteredLintSelector;
 #[derive(Default)]
 pub(super) struct SemanticIndex {
     pub(super) manifest: Option<ManifestNode>,
-    pub(super) enums: BTreeMap<EnumId, EnumNode>,
+    pub(super) lists: BTreeMap<ListId, ListNode>,
     pub(super) layers: BTreeMap<LayerId, LayerNode>,
     pub(super) governance: Option<GovernanceNode>,
     pub(super) variables: BTreeMap<VariableId, VariableNode>,

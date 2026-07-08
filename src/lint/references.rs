@@ -28,7 +28,7 @@ pub(super) struct ReferenceEdge {
 // The variants share the `Variable` prefix deliberately: each names the
 // variable-owned field a reference comes from, and other entity kinds may
 // grow sources here again.
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::list_variant_names)]
 pub(super) enum ReferenceSource {
     VariableCatalog { variable: String },
     VariableResolveDefault { variable: String },

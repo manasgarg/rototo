@@ -262,8 +262,8 @@ fn check_ui_hint(
         .unwrap_or(false);
     if requires_enum {
         let has_enum = node
-            .get("enum")
-            .or_else(|| node.get("items").and_then(|items| items.get("enum")))
+            .get("list")
+            .or_else(|| node.get("items").and_then(|items| items.get("list")))
             .and_then(JsonValue::as_array)
             .is_some_and(|values| !values.is_empty());
         if !has_enum {
@@ -271,7 +271,7 @@ fn check_ui_hint(
                 diagnostics,
                 RototoRuleId::SchemaUiWidgetParams,
                 format!(
-                    "{widget_name} widget at {pointer} requires an enum on the property or its items"
+                    "{widget_name} widget at {pointer} requires a list on the property or its items"
                 ),
             );
         }

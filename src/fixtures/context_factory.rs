@@ -110,7 +110,7 @@ impl Conditions {
             rule.synthesize_context(
                 want,
                 &mut |nested, nested_want| self.synthesize(nested, nested_want, stack),
-                // The inspect report does not carry enum members, so enum
+                // The inspect report does not carry list members, so list
                 // memberships stay uninvertible here; the candidate is simply
                 // dropped by trace verification.
                 &mut |_| None,

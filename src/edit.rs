@@ -29,8 +29,8 @@ use crate::error::{Result, RototoError};
 mod create;
 mod engine;
 mod entry;
-mod enums;
 mod layer;
+mod lists;
 mod operation;
 mod paths;
 #[cfg(test)]

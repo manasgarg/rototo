@@ -3,8 +3,8 @@
   "type": "object",
   "title": "Price",
   "properties": {
-    "plan_tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" },
-    "currency": { "type": "string", "x-rototo-ref": "enum=currencies" },
+    "plan_tier": { "type": "string", "x-rototo-ref": "list=plan_tiers" },
+    "currency": { "type": "string", "x-rototo-ref": "list=currencies" },
     "monthly_amount": { "type": "number", "minimum": 0 },
     "effective_from": { "type": "string", "format": "date-time" }
   },

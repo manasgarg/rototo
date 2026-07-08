@@ -7,7 +7,7 @@ use crate::error::{Result, RototoError};
 /// snapshot to package files and out of `.git`, build output, and whatever
 /// else shares the directory.
 const TREE_FILES: &[&str] = &["rototo-package.toml", "governance.toml"];
-const TREE_DIRS: &[&str] = &["variables", "enums", "layers", "model", "data", "lint"];
+const TREE_DIRS: &[&str] = &["variables", "lists", "layers", "model", "data", "lint"];
 
 /// An in-memory snapshot of a staged package: package-relative paths (with
 /// forward slashes) to file contents. The engine edits this shape, so the

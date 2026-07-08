@@ -1,9 +1,9 @@
 mod catalog;
-mod enums;
 mod evaluation_context;
 mod fields;
 mod governance;
 mod layers;
+mod lists;
 mod manifest;
 mod variable;
 
@@ -32,13 +32,13 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     .variables
                     .insert(id.clone(), variable::project_variable(document, toml, id));
             }
-            DocumentKind::Enum { id } => {
+            DocumentKind::List { id } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
                 };
                 index
-                    .enums
-                    .insert(id.clone(), enums::project_enum(document, toml, id));
+                    .lists
+                    .insert(id.clone(), lists::project_enum(document, toml, id));
             }
             DocumentKind::Governance => {
                 let Some(toml) = syntax.toml.get(&document.id) else {

@@ -31,13 +31,13 @@ pub(crate) struct ExpressionReferences {
     /// resolved value is bound in place, so expressions compose over other
     /// variables.
     pub(crate) variables: BTreeSet<String>,
-    /// Enum ids referenced through the `enums` root (`enums.some_id` /
-    /// `enums["some_id"]`). The reference binds the enum's member list, so
+    /// List ids referenced through the `lists` root (`lists.some_id` /
+    /// `lists["some_id"]`). The reference binds the list's member list, so
     /// membership tests can name the set instead of restating its literals.
-    pub(crate) enums: BTreeSet<String>,
-    /// Enum memberships per context path (`context.<path> in enums.<id>`).
+    pub(crate) lists: BTreeSet<String>,
+    /// List memberships per context path (`context.<path> in lists.<id>`).
     /// The member type is not known at parse; lint refines the path's expected
-    /// scalar family from the declared enum.
+    /// scalar family from the declared list.
     pub(crate) context_path_enums: BTreeMap<String, BTreeSet<String>>,
     /// Scalar types a context path is compared against, inferred from how the
     /// expression uses it. A path can carry more than one expectation when it is
@@ -56,7 +56,7 @@ pub(crate) struct ExpressionReferences {
 
 /// A reference to a root identifier that is not part of rototo's evaluation
 /// environment. The expression environment exposes exactly `context`, `entry`
-/// (in queries), `variables`, `enums`, and `env` (with member `now`).
+/// (in queries), `variables`, `lists`, and `env` (with member `now`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ExpressionRootIssue {
     /// The retired qualifier roots (`qualifier["<id>"]` and
@@ -263,8 +263,8 @@ impl Expression {
 /// adapters at call sites that cannot or must not resolve references.
 pub(crate) trait RefResolver {
     fn variable_value(&mut self, id: &str) -> Result<JsonValue>;
-    /// The member list of a referenced enum (`enums.<id>`), as a JSON array.
-    fn enum_members(&mut self, id: &str) -> Result<JsonValue>;
+    /// The member list of a referenced list (`lists.<id>`), as a JSON array.
+    fn list_members(&mut self, id: &str) -> Result<JsonValue>;
 }
 
 /// The entity being resolved, exposed to a `[[trace]]` policy `when` as
@@ -314,10 +314,10 @@ mod tests {
         variables: &'a [(&'a str, JsonValue)],
     }
 
-    /// A [`RefResolver`] with an enum table alongside the variable table.
+    /// A [`RefResolver`] with a list table alongside the variable table.
     struct TestRefsWithEnums<'a> {
         variables: &'a [(&'a str, JsonValue)],
-        enums: &'a [(&'a str, JsonValue)],
+        lists: &'a [(&'a str, JsonValue)],
     }
 
     impl RefResolver for TestRefs<'_> {
@@ -329,8 +329,8 @@ mod tests {
                 .ok_or_else(|| RototoError::new(format!("unknown variable: {id}")))
         }
 
-        fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
-            Err(RototoError::new(format!("unknown enum: {id}")))
+        fn list_members(&mut self, id: &str) -> Result<JsonValue> {
+            Err(RototoError::new(format!("unknown list: {id}")))
         }
     }
 
@@ -343,12 +343,12 @@ mod tests {
                 .ok_or_else(|| RototoError::new(format!("unknown variable: {id}")))
         }
 
-        fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
-            self.enums
+        fn list_members(&mut self, id: &str) -> Result<JsonValue> {
+            self.lists
                 .iter()
-                .find(|(enum_id, _)| *enum_id == id)
+                .find(|(list_id, _)| *list_id == id)
                 .map(|(_, members)| members.clone())
-                .ok_or_else(|| RototoError::new(format!("unknown enum: {id}")))
+                .ok_or_else(|| RototoError::new(format!("unknown list: {id}")))
         }
     }
 
@@ -618,7 +618,7 @@ mod tests {
         // Valid roots produce no issues.
         let ok = Expression::parse(
             r#"variables["x"] && env.now == "" && context.a == 1 && entry.b == 2
-               && context.tier in enums.plan_tiers"#,
+               && context.tier in lists.plan_tiers"#,
         )
         .unwrap();
         assert!(ok.references().invalid_roots.is_empty());
@@ -627,16 +627,16 @@ mod tests {
     #[test]
     fn tracks_enum_references_in_both_spellings() {
         let expr = Expression::parse(
-            r#"context.tier in enums.plan_tiers && context.region in enums["geo/regions"]"#,
+            r#"context.tier in lists.plan_tiers && context.region in lists["geo/regions"]"#,
         )
         .unwrap();
         assert!(expr.references().invalid_roots.is_empty());
         assert_eq!(
-            expr.references().enums,
+            expr.references().lists,
             string_set(&["plan_tiers", "geo/regions"])
         );
-        // The membership pairs the context path with the enum whose members
-        // constrain it; lint refines the path's expected type from the enum.
+        // The membership pairs the context path with the list whose members
+        // constrain it; lint refines the path's expected type from the list.
         assert_eq!(
             expr.references().context_path_enums.get("tier"),
             Some(&string_set(&["plan_tiers"]))
@@ -650,12 +650,12 @@ mod tests {
     #[test]
     fn evaluates_enum_membership() {
         let context = serde_json::json!({ "tier": "team" });
-        let expr = Expression::parse(r#"context.tier in enums.plan_tiers"#).unwrap();
+        let expr = Expression::parse(r#"context.tier in lists.plan_tiers"#).unwrap();
         let members = serde_json::json!(["free", "team", "business"]);
 
         let mut refs = TestRefsWithEnums {
             variables: &[],
-            enums: &[("plan_tiers", members.clone())],
+            lists: &[("plan_tiers", members.clone())],
         };
         assert!(
             expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
@@ -665,7 +665,7 @@ mod tests {
         let outside = serde_json::json!({ "tier": "trial" });
         let mut refs = TestRefsWithEnums {
             variables: &[],
-            enums: &[("plan_tiers", members.clone())],
+            lists: &[("plan_tiers", members.clone())],
         };
         assert!(
             !expr
@@ -675,30 +675,30 @@ mod tests {
 
         // The member list is an ordinary CEL list value, so size() and
         // comprehensions compose with it.
-        let size = Expression::parse("size(enums.plan_tiers) == 3").unwrap();
+        let size = Expression::parse("size(lists.plan_tiers) == 3").unwrap();
         let mut refs = TestRefsWithEnums {
             variables: &[],
-            enums: &[("plan_tiers", members)],
+            lists: &[("plan_tiers", members)],
         };
         assert!(
             size.evaluate_bool(&context, None, TEST_NOW, &mut refs)
                 .unwrap()
         );
 
-        // An unknown enum surfaces the resolver's error.
+        // An unknown list surfaces the resolver's error.
         let mut refs = TestRefsWithEnums {
             variables: &[],
-            enums: &[],
+            lists: &[],
         };
         let err = expr
             .evaluate_bool(&context, None, TEST_NOW, &mut refs)
             .unwrap_err();
-        assert!(err.to_string().contains("unknown enum: plan_tiers"));
+        assert!(err.to_string().contains("unknown list: plan_tiers"));
     }
 
     #[test]
     fn synthesizes_enum_membership() {
-        let source = r#"context.tier in enums.plan_tiers"#;
+        let source = r#"context.tier in lists.plan_tiers"#;
         let expr = Expression::parse(source).unwrap();
         let members = vec![
             serde_json::json!("free"),
@@ -712,10 +712,10 @@ mod tests {
                     assert_eq!(id, "plan_tiers");
                     Some(members.clone())
                 })
-                .expect("expected enum membership synthesis");
+                .expect("expected list membership synthesis");
             let mut refs = TestRefsWithEnums {
                 variables: &[],
-                enums: &[(
+                lists: &[(
                     "plan_tiers",
                     serde_json::json!(["free", "team", "business"]),
                 )],
@@ -728,7 +728,7 @@ mod tests {
             );
         }
 
-        // Without enum data the membership is honestly uninvertible.
+        // Without list data the membership is honestly uninvertible.
         assert!(
             expr.synthesize_context(true, &mut |_, _| None, &mut |_| None)
                 .is_none()

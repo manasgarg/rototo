@@ -14,7 +14,7 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
 
 ## The shape
 
-- `base/` carries the contract (schemas, enums, the variable set) AND production
+- `base/` carries the contract (schemas, lists, the variable set) AND production
   values. Prod is the environment that must never be wrong by omission, so it is
   the layer with no overlay to forget.
 - `dev/` and `staging/` extend the base and override values only. Same shape
@@ -36,7 +36,7 @@ Covered by `tests/examples.rs` and `tests/package_lint.rs`:
   stays closer to prod (no timeout override). `max_upload_mb` is untouched
   everywhere: an overlay only carries what differs.
 - A dev override whose value breaks the base's contract fails lint: the type
-  and enum stay with the base, so a dev `log_level` outside `log_levels` is a
+  and list stay with the base, so a dev `log_level` outside `log_levels` is a
   lint error.
 
 ## Findings (the point of this package)
@@ -56,7 +56,7 @@ Vertical layering mostly fits, and where it rubs, the friction is informative:
    (a values-less abstract base plus three overlays) means prod is an overlay
    that can drift or be forgotten. Safer to make prod the floor.
 4. **The contract is not fully lockable.** Overriding a variable is governed,
-   and an override cannot change the base's type or enum. But an overlay may
+   and an override cannot change the base's type or list. But an overlay may
    introduce a brand-new variable without any grant: the engine treats an
    entity a layer introduces as that layer's own. So "environments differ in
    values, never in contract" is convention plus review, not yet a hard

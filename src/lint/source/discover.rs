@@ -49,7 +49,7 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_enum_documents(&mut self) -> Result<()> {
-        let directory_path = self.root.join("enums");
+        let directory_path = self.root.join("lists");
         let entries = match sorted_directory_entries_recursive(&directory_path).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -68,8 +68,8 @@ impl SourceStore {
                 continue;
             };
             let relative_path =
-                PathBuf::from("enums").join(path.strip_prefix(&directory_path).unwrap());
-            self.add_disk_document(relative_path, DocumentKind::Enum { id })
+                PathBuf::from("lists").join(path.strip_prefix(&directory_path).unwrap());
+            self.add_disk_document(relative_path, DocumentKind::List { id })
                 .await;
         }
         Ok(())
@@ -394,7 +394,7 @@ impl SourceStore {
 /// The namespaced id a file under a collection directory names: the path
 /// relative to the collection root, separators normalized to `/`, with the
 /// given suffix stripped. Directories are namespaces for every rototo
-/// collection, so `model/enums/acme/tier.toml` is the enum `acme/tier`.
+/// collection, so `model/lists/acme/tier.toml` is the list `acme/tier`.
 fn namespaced_id(base: &Path, path: &Path, suffix: &str) -> Option<String> {
     let relative = path.strip_prefix(base).ok()?;
     let relative = relative.to_str()?.replace(std::path::MAIN_SEPARATOR, "/");
@@ -422,8 +422,8 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
             let _ = rest;
             joined(&parts[1..], ".toml").map(|id| DocumentKind::Variable { id })
         }
-        ["enums", .., file] if file.ends_with(".toml") && !file.ends_with(".update.toml") => {
-            joined(&parts[1..], ".toml").map(|id| DocumentKind::Enum { id })
+        ["lists", .., file] if file.ends_with(".toml") && !file.ends_with(".update.toml") => {
+            joined(&parts[1..], ".toml").map(|id| DocumentKind::List { id })
         }
         ["model", "catalogs", .., file] if file.ends_with(".schema.json") => {
             joined(&parts[2..], ".schema.json").map(|id| DocumentKind::Catalog { id })

@@ -6,7 +6,7 @@ use serde::{Serialize, Serializer};
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticEntity {
     Package,
-    Enum,
+    List,
     Layer,
     Governance,
     Variable,
@@ -184,27 +184,27 @@ rototo_rules! {
         help: "rototo-recognized ids appear in TOML tables and CEL expressions, where a hyphen is the minus operator; use lowercase letters, digits, and underscores, with / for namespacing.",
     },
     VariableUnknownEnum => {
-        id: "variable-unknown-enum",
+        id: "variable-unknown-list",
         entity: Variable,
-        title: "Variable references an unknown enum",
-        help: "Declare the enum under model/enums/<id>.toml or fix the enum=<id> type.",
+        title: "Variable references an unknown list",
+        help: "Declare the list under lists/<id>.toml or fix the list=<id> type.",
     },
-    EnumParseFailed => {
-        id: "enum-parse-failed",
-        entity: Enum,
-        title: "Enum TOML file could not be parsed",
-        help: "Fix the TOML syntax error in the enum file.",
+    ListParseFailed => {
+        id: "list-parse-failed",
+        entity: List,
+        title: "List TOML file could not be parsed",
+        help: "Fix the TOML syntax error in the list file.",
     },
-    EnumSchemaVersion => {
-        id: "enum-schema-version",
-        entity: Enum,
-        title: "Enum schema version is missing or unsupported",
-        help: "Declare schema_version = 1 in the enum declaration.",
+    ListSchemaVersion => {
+        id: "list-schema-version",
+        entity: List,
+        title: "List schema version is missing or unsupported",
+        help: "Declare schema_version = 1 in the list declaration.",
     },
-    EnumShape => {
-        id: "enum-shape",
-        entity: Enum,
-        title: "Enum declaration is invalid",
+    ListShape => {
+        id: "list-shape",
+        entity: List,
+        title: "List declaration is invalid",
         help: "Declare type as one of string, int, number, or bool.",
     },
     VariableUnknownValue => {
@@ -277,7 +277,7 @@ rototo_rules! {
         id: "governance-shape",
         entity: Governance,
         title: "Governance contract is invalid",
-        help: "governance.toml declares [<kind>.<id>] blocks (catalog, enum, variable, evaluation_context, or layer) with allowed_operations/denied_operations drawn from add, update, and delete, plus update_policy/delete_policy tables whose allowed_*/denied_* lists name entries and fields. Policies exist only for update and delete; an allowlist must not be empty.",
+        help: "governance.toml declares [<kind>.<id>] blocks (catalog, list, variable, evaluation_context, or layer) with allowed_operations/denied_operations drawn from add, update, and delete, plus update_policy/delete_policy tables whose allowed_*/denied_* lists name entries and fields. Policies exist only for update and delete; an allowlist must not be empty.",
     },
     GovernanceUnknownTarget => {
         id: "governance-unknown-target",
@@ -347,10 +347,10 @@ rototo_rules! {
         help: "Create the referenced variable or fix the variables[\"<id>\"] reference.",
     },
     ExpressionUnknownEnum => {
-        id: "expression-unknown-enum",
+        id: "expression-unknown-list",
         entity: Variable,
-        title: "Expression references an unknown enum",
-        help: "Declare the enum under enums/<id>.toml or fix the enums.<id> reference.",
+        title: "Expression references an unknown list",
+        help: "Declare the list under lists/<id>.toml or fix the lists.<id> reference.",
     },
     VariableReferenceCycle => {
         id: "variable-reference-cycle",
@@ -368,7 +368,7 @@ rototo_rules! {
         id: "variable-rule-invalid-reference",
         entity: Rule,
         title: "Variable rule references an identifier rototo does not provide",
-        help: "Expressions read context.<path>, entry.<path> (in queries), variables[\"<id>\"], enums.<id>, and env.now. Reference other variables as variables[\"<id>\"].",
+        help: "Expressions read context.<path>, entry.<path> (in queries), variables[\"<id>\"], lists.<id>, and env.now. Reference other variables as variables[\"<id>\"].",
     },
     VariableRuleContextPathTypeMismatch => {
         id: "variable-rule-context-path-type-mismatch",
@@ -666,7 +666,7 @@ pub enum SemanticEntity {
     Variable {
         id: String,
     },
-    Enum {
+    List {
         id: String,
     },
     Layer {

@@ -37,9 +37,9 @@ pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
-/// Context schema fields may pin their values to an enum with
-/// `x-rototo-ref: "enum=<id>"`. Context facts are caller data, so catalog
-/// targets are rejected here; enums are the only referenceable set.
+/// Context schema fields may pin their values to a list with
+/// `x-rototo-ref: "list=<id>"`. Context facts are caller data, so catalog
+/// targets are rejected here; lists are the only referenceable set.
 fn lint_context_enum_ref_shapes(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
@@ -49,13 +49,13 @@ fn lint_context_enum_ref_shapes(
 ) {
     if let Some(target) = schema.get("x-rototo-ref") {
         match target.as_str().map(context_enum_ref_target) {
-            Some(Ok(id)) if ctx.index.enums.contains_key(&id) => {}
+            Some(Ok(id)) if ctx.index.lists.contains_key(&id) => {}
             Some(Ok(id)) => push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::EvaluationContextSchemaInvalid,
                 evaluation_context.field_target(SemanticField::SchemaJson),
                 evaluation_context.location.clone(),
-                format!("x-rototo-ref references unknown enum {id} at {pointer}"),
+                format!("x-rototo-ref references unknown list {id} at {pointer}"),
             ),
             Some(Err(message)) => push_project_diagnostic(
                 diagnostics,
@@ -70,7 +70,7 @@ fn lint_context_enum_ref_shapes(
                 evaluation_context.field_target(SemanticField::SchemaJson),
                 evaluation_context.location.clone(),
                 format!(
-                    "x-rototo-ref in evaluation context schemas must target enum=<id> at {pointer}"
+                    "x-rototo-ref in evaluation context schemas must target list=<id> at {pointer}"
                 ),
             ),
         }
@@ -116,13 +116,13 @@ fn lint_context_enum_ref_shapes(
 }
 
 fn context_enum_ref_target(target: &str) -> Result<String, String> {
-    if let Some(id) = target.strip_prefix("enum=") {
+    if let Some(id) = target.strip_prefix("list=") {
         if id.is_empty() {
-            return Err("x-rototo-ref enum id must not be empty".to_owned());
+            return Err("x-rototo-ref list id must not be empty".to_owned());
         }
         return Ok(id.to_owned());
     }
-    Err("x-rototo-ref in evaluation context schemas must target enum=<id>".to_owned())
+    Err("x-rototo-ref in evaluation context schemas must target list=<id>".to_owned())
 }
 
 pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
@@ -184,7 +184,7 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
 }
 
 /// Walk the context schema and the sample together, checking every field that
-/// pins its values with `x-rototo-ref: "enum=<id>"` against the enum's member
+/// pins its values with `x-rototo-ref: "list=<id>"` against the list's member
 /// set. Local `#/...` `$ref`s resolve against the schema root; anything else is
 /// out of scope for context schemas.
 #[allow(clippy::too_many_arguments)]
@@ -207,7 +207,7 @@ fn lint_sample_enum_refs(
     if let Some(id) = schema
         .get("x-rototo-ref")
         .and_then(JsonValue::as_str)
-        .and_then(|target| target.strip_prefix("enum="))
+        .and_then(|target| target.strip_prefix("list="))
         && let Some(members) = sample_enum_member_values(ctx, id)
         && !value.is_object()
         && !value.is_array()
@@ -219,7 +219,7 @@ fn lint_sample_enum_refs(
             entry.field_target(SemanticField::EvaluationContextSample),
             entry.location.clone(),
             format!(
-                "evaluation context sample {} field {path} is not a member of enum {id}: {}",
+                "evaluation context sample {} field {path} is not a member of list {id}: {}",
                 entry.key,
                 serde_json::to_string(value).unwrap_or_default()
             ),
@@ -269,10 +269,10 @@ fn lint_sample_enum_refs(
 }
 
 fn sample_enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
-    if !ctx.index.enums.contains_key(id) {
+    if !ctx.index.lists.contains_key(id) {
         return None;
     }
-    let members = ctx.index.enums.get(id)?;
+    let members = ctx.index.lists.get(id)?;
     let ProjectField::Present(members) = &members.members else {
         return None;
     };
@@ -372,7 +372,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                         );
                     }
                     for (path, expected) in
-                        enum_membership_mismatches(&ctx.index, expression.value.references())
+                        list_membership_mismatches(&ctx.index, expression.value.references())
                     {
                         push_graph_diagnostic(
                             &mut diagnostics,
@@ -380,7 +380,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                             rule.target(variable_id),
                             rule.location.clone(),
                             format!(
-                                "rule tests context path context.{path} against enum members \
+                                "rule tests context path context.{path} against list members \
                                  of type {expected}, which no evaluation context declares \
                                  with a matching type"
                             ),
@@ -406,7 +406,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                 );
             }
             for (path, expected) in
-                enum_membership_mismatches(&ctx.index, expression.value.references())
+                list_membership_mismatches(&ctx.index, expression.value.references())
             {
                 push_graph_diagnostic(
                     &mut diagnostics,
@@ -414,7 +414,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     variable.target(),
                     expression.location.clone(),
                     format!(
-                        "query tests context path context.{path} against enum members \
+                        "query tests context path context.{path} against list members \
                          of type {expected}, which no evaluation context declares \
                          with a matching type"
                     ),
@@ -437,7 +437,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     ),
                 );
             }
-            for (path, expected) in enum_membership_mismatches(&ctx.index, expression.references())
+            for (path, expected) in list_membership_mismatches(&ctx.index, expression.references())
             {
                 push_graph_diagnostic(
                     &mut diagnostics,
@@ -445,7 +445,7 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     variable.target(),
                     variable.resolve.location(),
                     format!(
-                        "allocation tests context path context.{path} against enum members \
+                        "allocation tests context path context.{path} against list members \
                          of type {expected}, which no evaluation context declares \
                          with a matching type"
                     ),
@@ -489,19 +489,19 @@ fn type_mismatch_label(
     (any_declared && !any_ok).then(|| expected_type_label(constraints))
 }
 
-/// Enum-membership refinements: `context.<path> in enums.<id>` pins the path
-/// to the declared enum's member type. Returns the same mismatch labels as
-/// [`type_mismatch_label`] does for literal constraints; unknown enums are
-/// skipped here because the unknown-enum rule owns them.
-fn enum_membership_mismatches(
+/// List-membership refinements: `context.<path> in lists.<id>` pins the path
+/// to the declared list's member type. Returns the same mismatch labels as
+/// [`type_mismatch_label`] does for literal constraints; unknown lists are
+/// skipped here because the unknown-list rule owns them.
+fn list_membership_mismatches(
     index: &SemanticIndex,
     references: &ExpressionReferences,
 ) -> Vec<(String, String)> {
     let mut mismatches = Vec::new();
-    for (path, enum_ids) in &references.context_path_enums {
+    for (path, list_ids) in &references.context_path_enums {
         let mut constraints = BTreeSet::new();
-        for enum_id in enum_ids {
-            let Some(declared) = index.enums.get(enum_id) else {
+        for list_id in list_ids {
+            let Some(declared) = index.lists.get(list_id) else {
                 continue;
             };
             let ProjectField::Present(member_type) = &declared.member_type else {

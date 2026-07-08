@@ -324,7 +324,7 @@ pub(in crate::lint) fn context_path_type_fit(
 }
 
 /// The JSON Schema scalar type tokens a field constrains its value to. A field
-/// can pin its type with `type`, but also implicitly through `const` or `enum`,
+/// can pin its type with `type`, but also implicitly through `const` or `list`,
 /// so those are honored too. Returns `None` when no scalar type is declared.
 fn schema_field_type_tokens(field: &serde_json::Value) -> Option<BTreeSet<String>> {
     if let Some(declared) = field.get("type") {
@@ -345,7 +345,7 @@ fn schema_field_type_tokens(field: &serde_json::Value) -> Option<BTreeSet<String
         return json_value_type_token(constant).map(|token| BTreeSet::from([token]));
     }
 
-    if let Some(serde_json::Value::Array(values)) = field.get("enum") {
+    if let Some(serde_json::Value::Array(values)) = field.get("list") {
         let set = values
             .iter()
             .filter_map(json_value_type_token)

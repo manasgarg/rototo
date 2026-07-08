@@ -2,7 +2,7 @@
 #
 # Environment overlays may replace VALUES but never the CONTRACT: every variable
 # grants update, nothing else grants anything, so dev and staging can differ in
-# values while schemas, enums, and the variable set stay identical everywhere.
+# values while schemas, lists, and the variable set stay identical everywhere.
 #
 # FRICTION FINDING (deliberately preserved): governance blocks are per-entity, so
 # "every variable is overridable" is five blocks today and a sixth the day one is

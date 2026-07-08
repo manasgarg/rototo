@@ -103,7 +103,7 @@ pub(super) fn path_completion_items(
 
 /// Value completions for the operand after a comparison: when the other side
 /// is a context or entry path pinned to a closed set (an `x-rototo-ref`
-/// `enum=<id>` or `catalog=<id>` annotation), the legal literals are known and
+/// `list=<id>` or `catalog=<id>` annotation), the legal literals are known and
 /// offered ahead of the generic roots.
 pub(super) fn typed_operand_completion_items(
     snapshot: &PackageLintSnapshot,
@@ -135,7 +135,7 @@ pub(super) fn typed_operand_completion_items(
         _ => None,
     };
     match pin {
-        Some(SchemaRefPin::Enum(id)) => enum_member_literal_items(&snapshot.index, &id),
+        Some(SchemaRefPin::List(id)) => list_member_literal_items(&snapshot.index, &id),
         Some(SchemaRefPin::Catalog(id)) => snapshot
             .index
             .catalog_entries
@@ -155,7 +155,7 @@ pub(super) fn typed_operand_completion_items(
 }
 
 pub(super) enum SchemaRefPin {
-    Enum(String),
+    List(String),
     Catalog(String),
 }
 
@@ -167,8 +167,8 @@ pub(super) fn schema_ref_pin(schema: &JsonValue, segments: &[&str]) -> Option<Sc
         current = properties.get(*segment)?;
     }
     let target = current.get("x-rototo-ref")?.as_str()?;
-    if let Some(id) = target.strip_prefix("enum=") {
-        return Some(SchemaRefPin::Enum(id.to_owned()));
+    if let Some(id) = target.strip_prefix("list=") {
+        return Some(SchemaRefPin::List(id.to_owned()));
     }
     if let Some(id) = target.strip_prefix("catalog=") {
         return Some(SchemaRefPin::Catalog(id.to_owned()));
@@ -176,13 +176,13 @@ pub(super) fn schema_ref_pin(schema: &JsonValue, segments: &[&str]) -> Option<Sc
     None
 }
 
-/// Enum members as ready-to-insert literals: strings arrive quoted, numbers
+/// List members as ready-to-insert literals: strings arrive quoted, numbers
 /// and booleans bare, exactly the spelling the expression needs.
-pub(super) fn enum_member_literal_items(
+pub(super) fn list_member_literal_items(
     index: &SemanticIndex,
     id: &str,
 ) -> Vec<PackageCompletionItem> {
-    let Some(ProjectField::Present(members)) = index.enums.get(id).map(|members| &members.members)
+    let Some(ProjectField::Present(members)) = index.lists.get(id).map(|members| &members.members)
     else {
         return Vec::new();
     };
@@ -193,7 +193,7 @@ pub(super) fn enum_member_literal_items(
             PackageCompletionItem::new(
                 member.value.to_string(),
                 PackageCompletionItemKind::Value,
-                "enum member",
+                "list member",
             )
         })
         .collect()
@@ -234,7 +234,7 @@ pub(super) fn current_variable_value_completion_items(
     };
 
     // The declared type pins the legal values: catalog-backed variables take
-    // entry ids, enum-typed variables take members.
+    // entry ids, list-typed variables take members.
     let type_kind = variable_type_kind(&variable.type_source).map(|kind| kind.value);
     let catalog_id = match &type_kind {
         Some(VariableTypeKind::Catalog(catalog)) => Some(catalog.clone()),
@@ -256,16 +256,16 @@ pub(super) fn current_variable_value_completion_items(
             })
             .collect();
     }
-    let enum_id = match &type_kind {
-        Some(VariableTypeKind::Enum(id)) => Some(id.clone()),
+    let list_id = match &type_kind {
+        Some(VariableTypeKind::List(id)) => Some(id.clone()),
         Some(VariableTypeKind::Array(item)) => match item.as_ref() {
-            VariableTypeKind::Enum(id) => Some(id.clone()),
+            VariableTypeKind::List(id) => Some(id.clone()),
             _ => None,
         },
         _ => None,
     };
-    if let Some(id) = enum_id {
-        return enum_member_literal_items(index, &id);
+    if let Some(id) = list_id {
+        return list_member_literal_items(index, &id);
     }
     match &variable.type_source {
         TypeSourceNode::Catalog(catalog) => index

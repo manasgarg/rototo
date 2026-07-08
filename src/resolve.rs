@@ -538,12 +538,12 @@ impl RefResolver for ResolutionState<'_> {
         self.resolve_variable_value(id)
     }
 
-    fn enum_members(&mut self, id: &str) -> Result<JsonValue> {
+    fn list_members(&mut self, id: &str) -> Result<JsonValue> {
         self.runtime
-            .enums
+            .lists
             .get(id)
             .map(|declared| JsonValue::Array(declared.members.clone()))
-            .ok_or_else(|| RototoError::new(format!("expression references unknown enum: {id}")))
+            .ok_or_else(|| RototoError::new(format!("expression references unknown list: {id}")))
     }
 }
 
@@ -1152,11 +1152,11 @@ value = true
     async fn resolves_enum_membership_in_when_and_query() {
         let package = package_with_conditions(&[(
             "known_tier",
-            condition(r#"context.tier in enums.plan_tiers"#),
+            condition(r#"context.tier in lists.plan_tiers"#),
         )]);
-        std::fs::create_dir_all(package.path().join("enums")).unwrap();
+        std::fs::create_dir_all(package.path().join("lists")).unwrap();
         std::fs::write(
-            package.path().join("enums/plan_tiers.toml"),
+            package.path().join("lists/plan_tiers.toml"),
             "schema_version = 1\ntype = \"string\"\nmembers = [\"free\", \"team\", \"business\"]\n",
         )
         .unwrap();
@@ -1192,7 +1192,7 @@ type = "array<catalog=plan>"
 [resolve]
 method = "query"
 from = "plan"
-filter = "entry.tier in enums.plan_tiers"
+filter = "entry.tier in lists.plan_tiers"
 "#,
         )
         .unwrap();

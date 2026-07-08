@@ -20,8 +20,8 @@ pub(super) fn variable_path(id: &str) -> String {
     format!("variables/{id}.toml")
 }
 
-pub(super) fn enum_path(id: &str) -> String {
-    format!("enums/{id}.toml")
+pub(super) fn list_path(id: &str) -> String {
+    format!("lists/{id}.toml")
 }
 
 pub(super) fn layer_path(id: &str) -> String {

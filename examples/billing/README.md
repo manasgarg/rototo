@@ -67,7 +67,7 @@ Open design questions this package is waiting on:
 - **Totality** (roadmap item 6). The real pricing invariant is not "at most one
   price per (tier, currency, date)" but "exactly one in-force price for EVERY
   cell of tier x currency". Today that is authoring discipline; a completeness
-  lint over enum cross-products is what would make a missing cell unreleasable.
+  lint over list cross-products is what would make a missing cell unreleasable.
 - **Grandfathering** (roadmap item 5). `signed_up_at` is in the context schema
   because the honest version of this package needs cohort-pinned pricing:
   accounts keep the price table as of when they signed up. Append-only entries

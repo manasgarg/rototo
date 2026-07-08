@@ -141,14 +141,14 @@ fn lint_catalog_ref_schema_node(
                     }
                 }
             }
-            Ok(CatalogRefSpec::Enum(id)) => {
-                if !ctx.index.enums.contains_key(&id) {
+            Ok(CatalogRefSpec::List(id)) => {
+                if !ctx.index.lists.contains_key(&id) {
                     push_project_diagnostic(
                         diagnostics,
                         RototoRuleId::CatalogSchemaInvalid,
                         catalog.field_target(SemanticField::SchemaJson),
                         catalog.location.clone(),
-                        format!("{CATALOG_REF_KEY} references unknown enum {id} at {pointer}"),
+                        format!("{CATALOG_REF_KEY} references unknown list {id} at {pointer}"),
                     );
                 }
             }
@@ -248,15 +248,15 @@ impl CatalogReferenceLint<'_> {
                         );
                     }
                 }
-                CatalogRefSpec::Enum(id) => {
-                    if let Some(members) = enum_member_values(self.ctx, &id)
+                CatalogRefSpec::List(id) => {
+                    if let Some(members) = list_member_values(self.ctx, &id)
                         && !members.contains(&value)
                     {
                         push_catalog_reference_diagnostic(
                             self.diagnostics,
                             self.entry,
                             format!(
-                                "{path} is not a member of enum {id}: {}",
+                                "{path} is not a member of list {id}: {}",
                                 serde_json::to_string(value).unwrap_or_default()
                             ),
                         );
@@ -315,11 +315,11 @@ impl CatalogReferenceLint<'_> {
 #[derive(Debug)]
 enum CatalogRefSpec {
     Compact(Vec<String>),
-    Enum(String),
+    List(String),
     Object,
 }
 
-/// Parse one reference target: `catalog=<id>` or `enum=<id>`. The class
+/// Parse one reference target: `catalog=<id>` or `list=<id>`. The class
 /// vocabulary is the address module's.
 fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
     use crate::address::EntityClass;
@@ -332,10 +332,10 @@ fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
             Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"))
         }
         Some(EntityClass::Catalog) => Ok(("catalog", id.to_owned())),
-        Some(EntityClass::Enum) if id.is_empty() => {
-            Err(format!("{CATALOG_REF_KEY} enum id must not be empty"))
+        Some(EntityClass::List) if id.is_empty() => {
+            Err(format!("{CATALOG_REF_KEY} list id must not be empty"))
         }
-        Some(EntityClass::Enum) => Ok(("enum", id.to_owned())),
+        Some(EntityClass::List) => Ok(("list", id.to_owned())),
         _ => match value
             .split_once(':')
             .and_then(|(class, id)| Some((EntityClass::parse_name(class)?, id)))
@@ -345,7 +345,7 @@ fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
                 class.as_str()
             )),
             _ => Err(format!(
-                "{CATALOG_REF_KEY} must name its target kind: catalog=<id> or enum=<id>"
+                "{CATALOG_REF_KEY} must name its target kind: catalog=<id> or list=<id>"
             )),
         },
     }
@@ -359,7 +359,7 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
     if let Some(target) = value.as_str() {
         return match parse_ref_target(target)? {
             ("catalog", id) => Ok(CatalogRefSpec::Compact(vec![id])),
-            (_, id) => Ok(CatalogRefSpec::Enum(id)),
+            (_, id) => Ok(CatalogRefSpec::List(id)),
         };
     }
 
@@ -387,16 +387,16 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
     }
 
     Err(format!(
-        "{CATALOG_REF_KEY} must be a catalog=<id> or enum=<id> string, a catalog=<id> array, or true"
+        "{CATALOG_REF_KEY} must be a catalog=<id> or list=<id> string, a catalog=<id> array, or true"
     ))
 }
 
-/// The declared members of an enum, when both halves are present and valid.
-fn enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
-    if !ctx.index.enums.contains_key(id) {
+/// The declared members of a list, when both halves are present and valid.
+fn list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.lists.contains_key(id) {
         return None;
     }
-    let members = ctx.index.enums.get(id)?;
+    let members = ctx.index.lists.get(id)?;
     let ProjectField::Present(members) = &members.members else {
         return None;
     };
@@ -701,8 +701,8 @@ fn schema_obviously_matches(schema: &JsonValue, value: &JsonValue) -> bool {
         return false;
     }
 
-    if let Some(enum_values) = object.get("enum").and_then(JsonValue::as_array)
-        && !enum_values.iter().any(|candidate| candidate == value)
+    if let Some(list_values) = object.get("list").and_then(JsonValue::as_array)
+        && !list_values.iter().any(|candidate| candidate == value)
     {
         return false;
     }
@@ -734,8 +734,8 @@ fn schema_obviously_matches(schema: &JsonValue, value: &JsonValue) -> bool {
             {
                 return false;
             }
-            if let Some(enum_values) = property_object.get("enum").and_then(JsonValue::as_array)
-                && !enum_values.iter().any(|candidate| candidate == child)
+            if let Some(list_values) = property_object.get("list").and_then(JsonValue::as_array)
+                && !list_values.iter().any(|candidate| candidate == child)
             {
                 return false;
             }

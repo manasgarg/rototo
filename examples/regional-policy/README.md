@@ -30,7 +30,7 @@ Covered by `tests/examples.rs` and `tests/package_lint.rs`:
   carries `model_id`, `prompt_version`, and parameters as one coherent value.
 - The same `account.id` always lands on the same side of the migration.
 - A provider entry with an unknown channel or jurisdiction is a lint failure
-  (the enum reference machinery is covered by the shared lint fixtures).
+  (the list reference machinery is covered by the shared lint fixtures).
 
 ## Hard parts
 

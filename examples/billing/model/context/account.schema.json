@@ -6,8 +6,8 @@
     "account": {
       "type": "object",
       "properties": {
-        "plan_tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" },
-        "currency": { "type": "string", "x-rototo-ref": "enum=currencies" },
+        "plan_tier": { "type": "string", "x-rototo-ref": "list=plan_tiers" },
+        "currency": { "type": "string", "x-rototo-ref": "list=currencies" },
         "seats": { "type": "integer", "minimum": 1 },
         "signed_up_at": { "type": "string", "format": "date-time" }
       },

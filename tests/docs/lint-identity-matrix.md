@@ -39,7 +39,7 @@ catalog metadata, fixtures, and tests are deleted outright (decided
 |---|---|---|
 | M1 | Every non-retired `RototoRuleId` is accounted for: it has a canonical fixture (with expected severity, stage, entity, and location asserted) or an explicit pending entry; nothing falls through silently | `canonical_rule_fixture_table_covers_every_rototo_rule` |
 | M2 | Each canonical fixture under `tests/fixtures/packages/rules/<stage>/<rule-id>/` fires exactly its expected diagnostics | `assert_canonical_fixture` over `canonical_rule_fixtures()` |
-| M3 | Every rule on the pending list that no other test fired now has a scratch-package firing test (enum parse/schema-version/shape/members-parse, unknown catalog, catalog entry parse, sample schema-mismatch/shape/parse) | `pending_rules_fire_from_scratch_packages` |
+| M3 | Every rule on the pending list that no other test fired now has a scratch-package firing test (list parse/schema-version/shape/members-parse, unknown catalog, catalog entry parse, sample schema-mismatch/shape/parse) | `pending_rules_fire_from_scratch_packages` |
 | M4 | The `lint-failures` fixture reports exactly its declared rule set: additions and regressions both fail the equality | `lint_failures_expected_rule_ids`, `lint_failures_fixture_reports_expected_rule_ids` |
 | M5 | Every TOML/JSON parse failure among the fixtures is intentional and listed; a fixture that rots into unparseability fails the ratchet | `package_fixture_parse_failures_are_intentional` |
 | M6 | The curated example packages stay lint-clean | `lints_curated_examples`, plus `examples.rs` loading each example through the SDK's lint gate |

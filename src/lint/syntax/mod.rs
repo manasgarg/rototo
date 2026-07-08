@@ -64,7 +64,7 @@ pub(super) fn parse_sources(
         match &document.kind {
             DocumentKind::Manifest
             | DocumentKind::Variable { .. }
-            | DocumentKind::Enum { .. }
+            | DocumentKind::List { .. }
             | DocumentKind::Layer { .. }
             | DocumentKind::Governance
             | DocumentKind::CatalogEntry { .. } => {

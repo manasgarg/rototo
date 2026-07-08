@@ -1,9 +1,9 @@
 mod catalog;
-mod enums;
 mod evaluation_context;
 mod governance;
 mod graph;
 mod layers;
+mod lists;
 mod naming;
 mod package;
 mod schema;
@@ -17,7 +17,7 @@ pub(super) fn run_project(ctx: &mut LintContext) {
     package::lint_trace_policies(ctx);
     evaluation_context::lint_evaluation_context_schemas(ctx);
     catalog::lint_catalog_shapes(ctx);
-    enums::lint_enum_shapes(ctx);
+    lists::lint_enum_shapes(ctx);
     layers::lint_layer_shapes(ctx);
     governance::lint_governance_shape(ctx);
     naming::lint_id_naming(ctx);

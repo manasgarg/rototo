@@ -10,7 +10,7 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, LayerId, PackagePath,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, LayerId, ListId, PackagePath,
     ValueKey, VariableId,
 };
 use super::targets::RegisteredLintSelector;
@@ -107,25 +107,25 @@ impl TypeSourceNode {
 pub(in crate::lint) enum VariableTypeKind {
     Primitive(String),
     Catalog(String),
-    Enum(String),
+    List(String),
     Array(Box<VariableTypeKind>),
 }
 
 impl VariableTypeKind {
     pub(in crate::lint) fn catalog_ids(&self) -> Vec<&str> {
         match self {
-            Self::Primitive(_) | Self::Enum(_) => Vec::new(),
+            Self::Primitive(_) | Self::List(_) => Vec::new(),
             Self::Catalog(catalog) => vec![catalog.as_str()],
             Self::Array(item) => item.catalog_ids(),
         }
     }
 
     #[allow(dead_code)]
-    pub(in crate::lint) fn enum_ids(&self) -> Vec<&str> {
+    pub(in crate::lint) fn list_ids(&self) -> Vec<&str> {
         match self {
             Self::Primitive(_) | Self::Catalog(_) => Vec::new(),
-            Self::Enum(id) => vec![id.as_str()],
-            Self::Array(item) => item.enum_ids(),
+            Self::List(id) => vec![id.as_str()],
+            Self::Array(item) => item.list_ids(),
         }
     }
 
@@ -174,8 +174,8 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
             Some(crate::address::EntityClass::Catalog) => {
                 (!id.is_empty()).then(|| VariableTypeKind::Catalog(id.to_owned()))
             }
-            Some(crate::address::EntityClass::Enum) => {
-                (!id.is_empty()).then(|| VariableTypeKind::Enum(id.to_owned()))
+            Some(crate::address::EntityClass::List) => {
+                (!id.is_empty()).then(|| VariableTypeKind::List(id.to_owned()))
             }
             // Any other binding is not a type; let the unknown-type rule name it.
             _ => Some(VariableTypeKind::Primitive(value.to_owned())),
@@ -184,13 +184,13 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
     Some(VariableTypeKind::Primitive(value.to_owned()))
 }
 
-/// A named enum under `enums/<id>.toml`: one file holding the contract
+/// A named list under `lists/<id>.toml`: one file holding the contract
 /// (the member scalar type) and the member set, like a variable holds its
 /// type and its resolution.
-pub(in crate::lint) struct EnumNode {
+pub(in crate::lint) struct ListNode {
     #[allow(dead_code)]
     pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) id: EnumId,
+    pub(in crate::lint) id: ListId,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) schema_version: ProjectField<i64>,
     #[allow(dead_code)]
@@ -203,9 +203,9 @@ pub(in crate::lint) struct EnumNode {
     pub(in crate::lint) deleted: Option<DiagnosticLocation>,
 }
 
-impl EnumNode {
+impl ListNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Enum {
+        SemanticEntity::List {
             id: self.id.clone(),
         }
         .into()
@@ -214,7 +214,7 @@ impl EnumNode {
     #[allow(dead_code)]
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::Enum {
+            SemanticEntity::List {
                 id: self.id.clone(),
             },
             field,

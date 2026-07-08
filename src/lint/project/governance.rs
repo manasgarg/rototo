@@ -4,7 +4,7 @@ use super::super::syntax::{ParsedToml, item_location, value_location};
 
 /// The entity kinds a governance block may govern.
 pub(crate) const GOVERNED_KINDS: &[&str] =
-    &["catalog", "enum", "variable", "evaluation_context", "layer"];
+    &["catalog", "list", "variable", "evaluation_context", "layer"];
 
 pub(crate) fn project_governance(document: &SourceDocument, toml: &ParsedToml) -> GovernanceNode {
     let location = document.document_location();

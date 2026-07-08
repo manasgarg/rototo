@@ -569,7 +569,7 @@ async fn directories_namespace_every_collection() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
-    // A base whose enum and catalog live under namespace directories: the
+    // A base whose list and catalog live under namespace directories: the
     // ids are acme/tier and acme/plans.
     write(&base, "rototo-package.toml", "schema_version = 1\n").await;
     write(
@@ -580,7 +580,7 @@ async fn directories_namespace_every_collection() {
     .await;
     write(
         &base,
-        "enums/acme/tier.toml",
+        "lists/acme/tier.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"standard\", \"premium\"]\n",
     )
     .await;
@@ -592,7 +592,7 @@ async fn directories_namespace_every_collection() {
   "type": "object",
   "properties": {
     "name": { "type": "string" },
-    "tier": { "type": "string", "x-rototo-ref": "enum=acme/tier" }
+    "tier": { "type": "string", "x-rototo-ref": "list=acme/tier" }
   },
   "required": ["name", "tier"],
   "additionalProperties": false
@@ -620,7 +620,7 @@ async fn directories_namespace_every_collection() {
     assert_eq!(resolution.value["name"], "Basic");
 
     // An overlay updates the namespaced catalog's entry through the marker
-    // and unions a member into the namespaced enum.
+    // and unions a member into the namespaced list.
     write(
         &overlay,
         "rototo-package.toml",
@@ -635,7 +635,7 @@ async fn directories_namespace_every_collection() {
     .await;
     write(
         &overlay,
-        "enums/acme/tier.update.toml",
+        "lists/acme/tier.update.toml",
         "members = [\"enterprise\"]\n",
     )
     .await;
@@ -643,7 +643,7 @@ async fn directories_namespace_every_collection() {
     let package = Package::load(overlay.to_string_lossy()).await.unwrap();
     let resolution = package.resolve_variable("plan", &context).unwrap();
     assert_eq!(resolution.value["name"], "Basic Plus");
-    let members = tokio::fs::read_to_string(package.root().join("enums/acme/tier.toml"))
+    let members = tokio::fs::read_to_string(package.root().join("lists/acme/tier.toml"))
         .await
         .unwrap();
     assert!(members.contains("enterprise"), "{members}");
@@ -892,7 +892,7 @@ async fn overlay_enum_members_union_with_the_base() {
     write_base(&base).await;
     write(
         &base,
-        "enums/regions.toml",
+        "lists/regions.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"us\", \"eu\"]\n",
     )
     .await;
@@ -906,7 +906,7 @@ async fn overlay_enum_members_union_with_the_base() {
     // stay.
     write(
         &overlay,
-        "enums/regions.update.toml",
+        "lists/regions.update.toml",
         "members = [\"apac\", \"eu\"]\n",
     )
     .await;
@@ -914,7 +914,7 @@ async fn overlay_enum_members_union_with_the_base() {
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum=regions"
+type = "list=regions"
 
 [resolve]
 default = "apac"
@@ -936,7 +936,7 @@ value = "us"
     assert_eq!(resolution.value, "us");
 }
 
-/// A base with an enum declared, ready for an overlay to compose member
+/// A base with a list declared, ready for an overlay to compose member
 /// deletes against through the update marker.
 async fn write_enum_base(root: &Path) {
     // Deny-by-default is unconditional; this base opens itself to its own
@@ -951,7 +951,7 @@ async fn write_enum_base(root: &Path) {
     write_base(root).await;
     write(
         root,
-        "enums/regions.toml",
+        "lists/regions.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"us\", \"eu\", \"legacy\"]\n",
     )
     .await;
@@ -973,7 +973,7 @@ async fn overlay_deletes_enum_members_from_the_base() {
     // member; the two keys compose independently.
     write(
         &overlay,
-        "enums/regions.update.toml",
+        "lists/regions.update.toml",
         "members = [\"apac\"]\ndeleted = [\"legacy\"]\n",
     )
     .await;
@@ -981,7 +981,7 @@ async fn overlay_deletes_enum_members_from_the_base() {
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum=regions"
+type = "list=regions"
 
 [resolve]
 default = "apac"
@@ -997,7 +997,7 @@ default = "apac"
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum=regions"
+type = "list=regions"
 
 [resolve]
 default = "legacy"
@@ -1012,7 +1012,7 @@ default = "legacy"
 
     // Inspecting without the lint gate shows the member really left the set.
     let staged = Package::inspect(overlay.to_string_lossy()).await.unwrap();
-    let flattened = tokio::fs::read_to_string(staged.root().join("enums/regions.toml"))
+    let flattened = tokio::fs::read_to_string(staged.root().join("lists/regions.toml"))
         .await
         .unwrap();
     assert!(
@@ -1041,32 +1041,32 @@ async fn orphan_enum_member_deletes_fail_loudly() {
     // about the base; fail the load instead of ignoring it.
     write(
         &overlay,
-        "enums/regions.update.toml",
+        "lists/regions.update.toml",
         "deleted = [\"atlantis\"]\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("deleted enum member is not in the base packages"),
+            .contains("deleted list member is not in the base packages"),
         "unexpected error: {err}"
     );
 
-    // A marker pointed at an enum no base package declares at all is an
+    // A marker pointed at a list no base package declares at all is an
     // orphan and fails the same way variables' orphan markers do.
-    tokio::fs::remove_file(overlay.join("enums/regions.update.toml"))
+    tokio::fs::remove_file(overlay.join("lists/regions.update.toml"))
         .await
         .unwrap();
     write(
         &overlay,
-        "enums/channels.update.toml",
+        "lists/channels.update.toml",
         "deleted = [\"email\"]\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("enum update has no base enum to update"),
+            .contains("list update has no base list to update"),
         "unexpected error: {err}"
     );
 }
@@ -1085,14 +1085,14 @@ async fn same_layer_enum_member_add_and_delete_conflict() {
     .await;
     write(
         &overlay,
-        "enums/regions.update.toml",
+        "lists/regions.update.toml",
         "members = [\"apac\"]\ndeleted = [\"apac\"]\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("package both adds enum member \"apac\" and deletes it"),
+            .contains("package both adds list member \"apac\" and deletes it"),
         "unexpected error: {err}"
     );
 }
@@ -1111,13 +1111,13 @@ async fn deleting_every_enum_member_fails_the_load() {
     .await;
     write(
         &overlay,
-        "enums/regions.update.toml",
+        "lists/regions.update.toml",
         "deleted = [\"us\", \"eu\", \"legacy\"]\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
-        err.to_string().contains("leaves the enum with no members"),
+        err.to_string().contains("leaves the list with no members"),
         "unexpected error: {err}"
     );
 }
@@ -1403,7 +1403,7 @@ async fn write_contract_base(root: &Path) {
     write(root, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         root,
-        "enums/tier.toml",
+        "lists/tier.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"standard\"]\n",
     )
     .await;
@@ -1437,39 +1437,39 @@ async fn governed_model_files_are_never_editable() {
     let base = temp.path().join("base");
     write_contract_base(&base).await;
 
-    // G9's single-file form: restating a base enum, type change included,
+    // G9's single-file form: restating a base list, type change included,
     // is rejected toward the update marker, and the marker itself may never
     // carry `type`.
-    let overlay = temp.path().join("overlay-enum");
+    let overlay = temp.path().join("overlay-list");
     write(&overlay, "rototo-package.toml", extends_manifest()).await;
     write(
         &overlay,
-        "enums/tier.toml",
+        "lists/tier.toml",
         "schema_version = 1\ntype = \"int\"\nmembers = [\"standard\"]\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("update it with enums/tier.update.toml"),
+            .contains("update it with lists/tier.update.toml"),
         "{err}"
     );
 
     // Even under an update grant, the marker may never carry `type`: the
-    // contract half of an enum is not updatable from above.
+    // contract half of a list is not updatable from above.
     write(
         &base,
         "governance.toml",
-        "[enum.tier]\nallowed_operations = [\"update\"]\n",
+        "[list.tier]\nallowed_operations = [\"update\"]\n",
     )
     .await;
-    let overlay = temp.path().join("overlay-enum-marker");
+    let overlay = temp.path().join("overlay-list-marker");
     write(&overlay, "rototo-package.toml", extends_manifest()).await;
-    write(&overlay, "enums/tier.update.toml", "type = \"int\"\n").await;
+    write(&overlay, "lists/tier.update.toml", "type = \"int\"\n").await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("an enum update may only update members, deleted, and"),
+            .contains("a list update may only update members, deleted, and"),
         "{err}"
     );
 
@@ -1524,35 +1524,35 @@ async fn governed_samples_reject_edits_but_admit_additions() {
 async fn governed_enum_members_check_update_and_add() {
     let temp = tempfile::TempDir::new().unwrap();
 
-    // G12: adjusting a base enum's members goes through the update marker,
-    // gated by the update grant on enum.<id>. (The old G13 dissolved with
-    // the single-file layout: an enum cannot be declared without members.)
+    // G12: adjusting a base list's members goes through the update marker,
+    // gated by the update grant on list.<id>. (The old G13 dissolved with
+    // the single-file layout: a list cannot be declared without members.)
     let base = temp.path().join("base");
     write_contract_base(&base).await;
     let overlay = temp.path().join("overlay-update");
     write(&overlay, "rototo-package.toml", extends_manifest()).await;
-    write(&overlay, "enums/tier.update.toml", "members = [\"gold\"]\n").await;
+    write(&overlay, "lists/tier.update.toml", "members = [\"gold\"]\n").await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("governance denies update on enum.tier"),
+            .contains("governance denies update on list.tier"),
         "{err}"
     );
     write(
         &base,
         "governance.toml",
-        "[enum.tier]\nallowed_operations = [\"update\"]\n",
+        "[list.tier]\nallowed_operations = [\"update\"]\n",
     )
     .await;
     Package::load(overlay.to_string_lossy()).await.unwrap();
 
-    // A brand-new enum id still mints freely: new ids are always the
+    // A brand-new list id still mints freely: new ids are always the
     // overlay's to declare, no grant needed.
     let overlay = temp.path().join("overlay-mint");
     write(&overlay, "rototo-package.toml", extends_manifest()).await;
     write(
         &overlay,
-        "enums/size.toml",
+        "lists/size.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"s\", \"m\"]\n",
     )
     .await;
@@ -1995,8 +1995,8 @@ async fn sibling_bases_conflict_on_the_same_lint_file() {
 
 #[tokio::test]
 async fn sibling_enum_declaration_and_members_conflict() {
-    // Two sibling bases declare the same enum id with different content.
-    // An enum belongs to one owner: siblings may not both declare it, so
+    // Two sibling bases declare the same list id with different content.
+    // A list belongs to one owner: siblings may not both declare it, so
     // this is a conflict, deliberately (the split-halves variant dissolved
     // with the single-file layout).
     let temp = tempfile::TempDir::new().unwrap();
@@ -2006,14 +2006,14 @@ async fn sibling_enum_declaration_and_members_conflict() {
     write(&left, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         &left,
-        "enums/tier.toml",
+        "lists/tier.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"silver\"]\n",
     )
     .await;
     write(&right, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         &right,
-        "enums/tier.toml",
+        "lists/tier.toml",
         "schema_version = 1\ntype = \"string\"\nmembers = [\"gold\"]\n",
     )
     .await;
@@ -2027,7 +2027,7 @@ async fn sibling_enum_declaration_and_members_conflict() {
     let err = Package::load(app.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("extends bases conflict on enum tier"),
+            .contains("extends bases conflict on list tier"),
         "{err}"
     );
 }

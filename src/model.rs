@@ -49,14 +49,14 @@ pub struct VariableConfig {
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
-pub struct EnumConfig {
+pub struct ListConfig {
     pub id: String,
     pub description: Option<String>,
     pub member_type: String,
     pub members: Vec<serde_json::Value>,
 }
 
-impl EnumConfig {
+impl ListConfig {
     /// The camelCase wire shape the SDK bindings hand to apps.
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
@@ -127,7 +127,7 @@ pub struct SourceDocumentSummary {
 pub enum SourceKind {
     Manifest,
     Variable,
-    Enum,
+    List,
     Layer,
     Governance,
     Catalog,

@@ -190,14 +190,14 @@ pub(super) enum LayerFileComposition {
     /// restatement is a no-op (diamond ancestry); anything else is an error
     /// pointing at the update marker.
     VariableRestate,
-    /// `data/enums/<id>.toml`: the member sets compose - the overlay's
+    /// `data/lists/<id>.toml`: the member sets compose - the overlay's
     /// `members` union into the base's and its `deleted` values are removed
-    /// from the result, keeping enum members tenant-adjustable data.
-    EnumUpdate,
-    /// `enums/<id>.toml` restating a base enum: byte-identical restatements
+    /// from the result, keeping list members tenant-adjustable data.
+    ListUpdate,
+    /// `lists/<id>.toml` restating a base list: byte-identical restatements
     /// compose as a no-op (diamond ancestry); anything else is an error,
     /// the update marker is the only spelling for changing one.
-    EnumRestate,
+    ListRestate,
 }
 
 /// Classify a layer file by its package-relative path. Composition is
@@ -232,9 +232,9 @@ pub(super) fn classify_layer_file(
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
             LayerFileComposition::VariableRestate
         }
-        ["enums", .., _] if file_name.ends_with(".update.toml") => LayerFileComposition::EnumUpdate,
-        ["enums", .., _] if target_exists && file_name.ends_with(".toml") => {
-            LayerFileComposition::EnumRestate
+        ["lists", .., _] if file_name.ends_with(".update.toml") => LayerFileComposition::ListUpdate,
+        ["lists", .., _] if target_exists && file_name.ends_with(".toml") => {
+            LayerFileComposition::ListRestate
         }
         _ => LayerFileComposition::Replace,
     }
@@ -357,9 +357,9 @@ pub(super) fn compose_package_layer_file(
             let id = variable_id_for_relative(relative).unwrap_or_default();
             Err(variable_restate_denied(&id))
         }
-        LayerFileComposition::EnumUpdate => {
-            // The marker file is enums/<id>.update.toml; it composes into
-            // the base's enums/<id>.toml and never lands in the projection.
+        LayerFileComposition::ListUpdate => {
+            // The marker file is lists/<id>.update.toml; it composes into
+            // the base's lists/<id>.toml and never lands in the projection.
             let base_path = target_path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -369,7 +369,7 @@ pub(super) fn compose_package_layer_file(
                 .unwrap_or_default();
             if !base_path.is_file() {
                 return Err(RototoError::new(format!(
-                    "enum update has no base enum to update: {}",
+                    "list update has no base list to update: {}",
                     relative.display()
                 )));
             }
@@ -378,7 +378,7 @@ pub(super) fn compose_package_layer_file(
                 for key in table.keys() {
                     if !matches!(key.as_str(), "members" | "deleted" | "description") {
                         return Err(RototoError::new(format!(
-                            "an enum update may only update members, deleted, and \
+                            "a list update may only update members, deleted, and \
                              description; {} sets `{key}`",
                             relative.display()
                         )));
@@ -395,20 +395,20 @@ pub(super) fn compose_package_layer_file(
             compose_enum_members(&mut base, overlay, relative)?;
             write_layer_toml(&base_path, &base)
         }
-        LayerFileComposition::EnumRestate => {
+        LayerFileComposition::ListRestate => {
             if file_identical(source_path, &target_path) {
                 return Ok(());
             }
             let id = relative
-                .strip_prefix("enums")
+                .strip_prefix("lists")
                 .ok()
                 .and_then(|rest| rest.to_str())
                 .and_then(|rest| rest.strip_suffix(".toml"))
                 .unwrap_or_default()
                 .replace(std::path::MAIN_SEPARATOR, "/");
             Err(RototoError::new(format!(
-                "enum {id} is declared in the base packages; update it with \
-                 enums/{id}.update.toml instead of restating the file"
+                "list {id} is declared in the base packages; update it with \
+                 lists/{id}.update.toml instead of restating the file"
             )))
         }
     }
@@ -487,7 +487,7 @@ pub(super) fn deep_merge_toml(base: &mut toml::Value, update: toml::Value) {
     }
 }
 
-/// Compose an overlay's enum member file into the base's. Members are a set:
+/// Compose an overlay's list member file into the base's. Members are a set:
 /// the overlay's `members` union in (base first, duplicates collapse) and its
 /// `deleted` values are removed from the result. Every deleted value has to
 /// name a member a layer below actually provides, a layer may not both add
@@ -509,7 +509,7 @@ pub(super) fn compose_enum_members(
         Some(toml::Value::Array(values)) => Some(values),
         Some(_) => {
             return Err(RototoError::new(format!(
-                "deleted enum members must be an array: {}",
+                "deleted list members must be an array: {}",
                 relative.display()
             )));
         }
@@ -517,7 +517,7 @@ pub(super) fn compose_enum_members(
     let Some(toml::Value::Array(base_members)) = base_table.get_mut("members") else {
         if deleted.is_some() {
             return Err(RototoError::new(format!(
-                "deleted enum members have no member set to remove in the base packages: {}",
+                "deleted list members have no member set to remove in the base packages: {}",
                 relative.display()
             )));
         }
@@ -537,13 +537,13 @@ pub(super) fn compose_enum_members(
         for value in deleted {
             if overlay_members.is_some_and(|members| members.contains(value)) {
                 return Err(RototoError::new(format!(
-                    "package both adds enum member {value} and deletes it: {}",
+                    "package both adds list member {value} and deletes it: {}",
                     relative.display()
                 )));
             }
             let Some(position) = base_members.iter().position(|member| member == value) else {
                 return Err(RototoError::new(format!(
-                    "deleted enum member is not in the base packages: {value} ({})",
+                    "deleted list member is not in the base packages: {value} ({})",
                     relative.display()
                 )));
             };
@@ -551,7 +551,7 @@ pub(super) fn compose_enum_members(
         }
         if base_members.is_empty() {
             return Err(RototoError::new(format!(
-                "deleting these members leaves the enum with no members: {}",
+                "deleting these members leaves the list with no members: {}",
                 relative.display()
             )));
         }

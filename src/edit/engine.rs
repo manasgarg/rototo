@@ -10,7 +10,7 @@ use super::operation::{
 };
 use super::tree::EditTree;
 use super::value::parse_toml_document;
-use super::{create, entry, enums, layer, paths, variable};
+use super::{create, entry, layer, lists, paths, variable};
 
 pub(super) fn apply(
     tree: &EditTree,
@@ -76,7 +76,7 @@ fn apply_operation(
             members,
             description,
         } => {
-            ensure_owned(options, &[format!("enum={id}")])?;
+            ensure_owned(options, &[format!("list={id}")])?;
             Ok(vec![create::create_enum(
                 work,
                 id,
@@ -177,13 +177,13 @@ fn apply_operation(
             ensure_owned(options, &target.ownership_addresses())?;
             Ok(vec![entry::unset_field(work, &target)?])
         }
-        EditOperation::AddMember { enum_id, value } => {
-            ensure_owned(options, &[format!("enum={enum_id}")])?;
-            Ok(vec![enums::add_member(work, enum_id, value)?])
+        EditOperation::AddMember { list_id, value } => {
+            ensure_owned(options, &[format!("list={list_id}")])?;
+            Ok(vec![lists::add_member(work, list_id, value)?])
         }
-        EditOperation::RemoveMember { enum_id, value } => {
-            ensure_owned(options, &[format!("enum={enum_id}")])?;
-            Ok(vec![enums::remove_member(work, enum_id, value)?])
+        EditOperation::RemoveMember { list_id, value } => {
+            ensure_owned(options, &[format!("list={list_id}")])?;
+            Ok(vec![lists::remove_member(work, list_id, value)?])
         }
         EditOperation::AddAllocation {
             layer: layer_id,
@@ -303,11 +303,11 @@ fn description_target(target: &str) -> Result<(String, String)> {
         (1, EntityClass::Variable, StepId::Entity(id)) => {
             Ok((paths::variable_path(id), format!("variable={id}")))
         }
-        (1, EntityClass::Enum, StepId::Entity(id)) => {
-            Ok((paths::enum_path(id), format!("enum={id}")))
+        (1, EntityClass::List, StepId::Entity(id)) => {
+            Ok((paths::list_path(id), format!("list={id}")))
         }
         _ => Err(RototoError::new(
-            "set_description takes a `variable=<id>` or `enum=<id>` target",
+            "set_description takes a `variable=<id>` or `list=<id>` target",
         )),
     }
 }

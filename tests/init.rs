@@ -304,7 +304,7 @@ value = "treatment"
       "properties": {
         "tier": {
           "type": "string",
-          "enum": ["standard", "premium"]
+          "list": ["standard", "premium"]
         }
       }
     },
@@ -351,7 +351,7 @@ value = "treatment"
         false
     );
     assert_eq!(
-        schema["properties"]["account"]["properties"]["tier"]["enum"][1],
+        schema["properties"]["account"]["properties"]["tier"]["list"][1],
         "premium"
     );
     assert_eq!(

@@ -11,7 +11,7 @@ use super::value::{
     set_value_preserving_decor, toml_value_from_json,
 };
 
-/// Shared by variables and enums: both keep a root-level `description`. The
+/// Shared by variables and lists: both keep a root-level `description`. The
 /// engine resolves the target to a file path and canonical address.
 pub(super) fn set_description(
     work: &mut WorkingTree<'_>,

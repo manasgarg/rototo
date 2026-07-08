@@ -47,12 +47,12 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
             "variable",
         );
     }
-    for declaration in ctx.index.enums.values() {
+    for declaration in ctx.index.lists.values() {
         check(
             &declaration.id,
             declaration.target(),
             declaration.location.clone(),
-            "enum",
+            "list",
         );
     }
     for layer in ctx.index.layers.values() {

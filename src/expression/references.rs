@@ -38,8 +38,8 @@ pub(super) fn collect_cel(
             references.variables.insert(id);
             return;
         }
-        Some(Reference::Enum(id)) => {
-            references.enums.insert(id);
+        Some(Reference::List(id)) => {
+            references.lists.insert(id);
             return;
         }
         Some(Reference::EnvNow) => {
@@ -120,9 +120,9 @@ pub(super) enum Reference {
     /// `variables.<id>` / `variables["<id>"]`; extra trailing segments select
     /// into the referenced variable's resolved value.
     Variable(String),
-    /// `enums.<id>` / `enums["<id>"]`; binds the enum's member list, so
-    /// membership tests read `context.path in enums.<id>`.
-    Enum(String),
+    /// `lists.<id>` / `lists["<id>"]`; binds the list's member list, so
+    /// membership tests read `context.path in lists.<id>`.
+    List(String),
     EnvNow,
     ResolvingVariable,
 }
@@ -136,7 +136,7 @@ pub(super) fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
         "context" => Some(Reference::Context(segments.join("."))),
         "entry" => Some(Reference::Entry(segments.join("."))),
         "variables" => Some(Reference::Variable(segments[0].clone())),
-        "enums" => Some(Reference::Enum(segments[0].clone())),
+        "lists" => Some(Reference::List(segments[0].clone())),
         "env" => match segments.as_slice() {
             [member] if member == "now" => Some(Reference::EnvNow),
             [first, second] if first == "resolving" && second == "variable" => {
@@ -148,9 +148,9 @@ pub(super) fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
     }
 }
 
-/// Record `context.<path> in enums.<id>` memberships. The parse layer cannot
-/// know the enum's member type; lint later refines the context path's expected
-/// scalar family from the declared enum, so the membership itself is what gets
+/// Record `context.<path> in lists.<id>` memberships. The parse layer cannot
+/// know the list's member type; lint later refines the context path's expected
+/// scalar family from the declared list, so the membership itself is what gets
 /// recorded here.
 pub(super) fn cel_enum_memberships(
     expr: &IdedExpr,
@@ -163,7 +163,7 @@ pub(super) fn cel_enum_memberships(
         return;
     }
     if let Some(path) = cel_context_path(&call.args[0])
-        && let Some(Reference::Enum(id)) = cel_reference(&call.args[1])
+        && let Some(Reference::List(id)) = cel_reference(&call.args[1])
     {
         memberships.entry(path).or_default().insert(id);
     }
@@ -178,7 +178,7 @@ pub(super) fn cel_root_issue(expr: &IdedExpr) -> Option<ExpressionRootIssue> {
         return None;
     }
     match root.as_str() {
-        "context" | "entry" | "variables" | "enums" => None,
+        "context" | "entry" | "variables" | "lists" => None,
         "env" => match segments.as_slice() {
             [member] if member == "now" => None,
             [first, _] if first == "qualifier" => Some(ExpressionRootIssue::LegacyQualifier),

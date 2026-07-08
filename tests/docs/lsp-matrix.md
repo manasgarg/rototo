@@ -44,7 +44,7 @@ property: its rows live in `tests/docs/semantic-index-matrix.md` section 6
 | # | Feature | Then | Coverage |
 |---|---|---|---|
 | F1 | document symbols | rooted at the entity id, children per section, from the snapshot index and unsaved overlays | `lsp_document_symbols_use_snapshot_index_and_unsaved_overlay` |
-| F2 | completion | every cursor situation is a data-driven scenario under `tests/fixtures/lsp/scenarios/completion/` (26 scenarios: TOML field positions, resolve/rule blocks, `when` expression contexts, context paths, enum and catalog operands, env members, bucket arguments, functions, operators, partial `&&`/`||`, multibyte text, namespaced refs in unsaved buffers, query entry paths, custom lint fields) | `completion_scenarios` via `src/lsp/scenario.rs` |
+| F2 | completion | every cursor situation is a data-driven scenario under `tests/fixtures/lsp/scenarios/completion/` (26 scenarios: TOML field positions, resolve/rule blocks, `when` expression contexts, context paths, list and catalog operands, env members, bucket arguments, functions, operators, partial `&&`/`||`, multibyte text, namespaced refs in unsaved buffers, query entry paths, custom lint fields) | `completion_scenarios` via `src/lsp/scenario.rs` |
 | F3 | hover | entity and field documentation from the snapshot, overlays included, query expressions included | `lsp_hover_uses_snapshot_index_and_unsaved_overlays`, `lsp_query_expressions_use_snapshot_index_and_unsaved_overlays` |
 | F4 | go-to-definition | reference sites resolve to declarations across files, overlays included | `lsp_definition_uses_snapshot_index_and_unsaved_overlays`; the walker/definition agreement is index matrix CC3 |
 | F5 | find-references | declaration sites list their reference locations, with and without the declaration | `lsp_references_use_snapshot_index_and_unsaved_overlays` |
@@ -60,7 +60,7 @@ property: its rows live in `tests/docs/semantic-index-matrix.md` section 6
 ## Explicitly not promised yet
 
 From the LSP roadmap, deferred by decision, not gaps: type-aware argument
-completion (completing enum members inside function arguments by declared
+completion (completing list members inside function arguments by declared
 type), concurrent request *execution* beyond the current intake model, and
 fully async diagnostics beyond the supersede behavior in G2. When one of
 these lands, it gets rows here first.

@@ -94,7 +94,7 @@ pub(super) fn check_governed_file(
             let declared_below = |kind: &str, id: &str| -> bool {
                 let path = match kind {
                     "catalog" => format!("model/catalogs/{id}.schema.json"),
-                    "enum" => format!("model/enums/{id}.toml"),
+                    "list" => format!("model/lists/{id}.toml"),
                     "variable" => format!("variables/{id}.toml"),
                     "evaluation_context" => format!("model/context/{id}.schema.json"),
                     "layer" => format!("layers/{id}.toml"),
@@ -135,19 +135,19 @@ pub(super) fn check_governed_file(
             }
             _ => Ok(()),
         },
-        ["enums", .., file] if file.ends_with(".update.toml") => {
-            // The marker updates a base enum; the fields it may carry are
+        ["lists", .., file] if file.ends_with(".update.toml") => {
+            // The marker updates a base list; the fields it may carry are
             // compose-checked (members, deleted, description; never type).
             match namespaced(&components[1..], ".update.toml") {
-                Some(id) if exists(Path::new(&format!("enums/{id}.toml"))) => {
-                    contract.check("enum", &id, Operation::Update, None, &[])
+                Some(id) if exists(Path::new(&format!("lists/{id}.toml"))) => {
+                    contract.check("list", &id, Operation::Update, None, &[])
                 }
                 _ => Ok(()),
             }
         }
-        ["enums", ..] => match namespaced(&components[1..], ".toml") {
-            // Restating a base enum is rejected in composition (the update
-            // marker is the only spelling); a brand-new enum id mints freely.
+        ["lists", ..] => match namespaced(&components[1..], ".toml") {
+            // Restating a base list is rejected in composition (the update
+            // marker is the only spelling); a brand-new list id mints freely.
             Some(_) if exists(relative) => Ok(()),
             _ => Ok(()),
         },

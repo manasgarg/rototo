@@ -1,6 +1,6 @@
-# After comparing a context path pinned to an enum, the legal literals are the
-# enum's members, quoted and ready to insert, offered ahead of the generic
-# expression roots. The pin and the enum both live in unsaved overlays.
+# After comparing a context path pinned to a list, the legal literals are the
+# list's members, quoted and ready to insert, offered ahead of the generic
+# expression roots. The pin and the list both live in unsaved overlays.
 package = "basic"
 file = "variables/message.toml"
 
@@ -17,7 +17,7 @@ value = "welcome"
 '''
 
 [[also_open]]
-file = "enums/plan_tiers.toml"
+file = "lists/plan_tiers.toml"
 text = '''
 schema_version = 1
 type = "string"
@@ -38,7 +38,7 @@ text = '''
       "properties": {
         "plan_tier": {
           "type": "string",
-          "x-rototo-ref": "enum=plan_tiers"
+          "x-rototo-ref": "list=plan_tiers"
         }
       }
     }
@@ -48,11 +48,11 @@ text = '''
 
 [[expect.includes]]
 label = '"free"'
-detail = "enum member"
+detail = "list member"
 
 [[expect.includes]]
 label = '"business"'
-detail = "enum member"
+detail = "list member"
 
 [[expect.includes]]
 label = "context."
