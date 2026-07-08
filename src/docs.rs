@@ -106,6 +106,11 @@ pub const DOCS: &[DocPage] = &[
         title: "The SDK",
         markdown: include_str!("../docs/src/sdk.md"),
     },
+    DocPage {
+        id: "console",
+        title: "The Console",
+        markdown: include_str!("../docs/src/console.md"),
+    },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
@@ -126,6 +131,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "expressions",
             "diagnostics",
             "sdk",
+            "console",
         ],
     },
 ];
@@ -422,7 +428,7 @@ value = "redesign"
       on your laptop with your own GitHub token, or host it for the team
       with GitHub OAuth and SSO.
     </p>
-    <p><a href="docs/concepts.html">Read the concepts →</a></p>
+    <p><a href="docs/console.html">Run the console →</a></p>
   </section>
 
   <footer class="home-footer">
