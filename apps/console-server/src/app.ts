@@ -338,6 +338,7 @@ export function buildApp(deps: AppDeps): App {
         owner: tree.owner,
         name: tree.name,
         defaultBranch: tree.defaultBranch,
+        status: tree.status,
         resource: resourceString({
             kind: "source-tree",
             sourceTree: tree.id,
@@ -596,6 +597,23 @@ export function buildApp(deps: AppDeps): App {
                 defaultBranch = facts?.defaultBranch ?? null;
             }
         }
+        // (kind, owner, name) is the tree's identity: registering it again
+        // reactivates the existing row (and its merged history) instead of
+        // minting a second identity for the same repository.
+        const existing = store.findSourceTree("github", body.owner, body.name);
+        if (existing !== null) {
+            store.setSourceTreeStatus(existing.id, "active");
+            if (defaultBranch !== null) {
+                store.setSourceTreeDefaultBranch(existing.id, defaultBranch);
+            }
+            return c.json(
+                await treePayload(
+                    subject,
+                    store.getSourceTree(existing.id) as SourceTreeRow,
+                ),
+                200,
+            );
+        }
         const tree = store.insertSourceTree({
             kind: "github",
             owner: body.owner,
@@ -604,6 +622,87 @@ export function buildApp(deps: AppDeps): App {
             createdBy: subject.kind === "principal" ? subject.id : "local",
         });
         return c.json(await treePayload(subject, tree), 201);
+    });
+
+    // The default branch is the one updatable fact about a registered tree;
+    // owner and name are its identity.
+    app.post("/api/source-trees/:id/default-branch", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        const verdict = await decision.decide(subject, "administer", {
+            kind: "deployment",
+        });
+        if (!verdict.allow) {
+            return c.json({ error: { message: verdict.reason } }, 403);
+        }
+        const tree = store.getSourceTree(c.req.param("id"));
+        if (tree === null) {
+            return c.json({ error: { message: "no such source tree" } }, 404);
+        }
+        const body = (await c.req.json().catch(() => null)) as {
+            defaultBranch?: string;
+        } | null;
+        if (
+            body === null ||
+            typeof body.defaultBranch !== "string" ||
+            body.defaultBranch.trim() === ""
+        ) {
+            return c.json(
+                { error: { message: "expected { defaultBranch }" } },
+                400,
+            );
+        }
+        store.setSourceTreeDefaultBranch(tree.id, body.defaultBranch.trim());
+        return c.json(
+            await treePayload(
+                subject,
+                store.getSourceTree(tree.id) as SourceTreeRow,
+            ),
+        );
+    });
+
+    // Deregistering is a soft status: the row and its merged history stay
+    // for audit, and the store rebuilds from GitHub anyway, so a hard
+    // delete would not even stay deleted. Open change sets block it.
+    app.post("/api/source-trees/:id/deregister", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        const verdict = await decision.decide(subject, "administer", {
+            kind: "deployment",
+        });
+        if (!verdict.allow) {
+            return c.json({ error: { message: verdict.reason } }, 403);
+        }
+        const tree = store.getSourceTree(c.req.param("id"));
+        if (tree === null) {
+            return c.json({ error: { message: "no such source tree" } }, 404);
+        }
+        const open = store
+            .listChangeSets(tree.id)
+            .filter((row) => row.state === "draft" || row.state === "proposed");
+        if (open.length > 0) {
+            return c.json(
+                {
+                    error: {
+                        message:
+                            `${open.length} open change set${open.length === 1 ? "" : "s"} ` +
+                            `(${open.map((row) => row.title).join(", ")}) must merge or abandon first`,
+                    },
+                },
+                409,
+            );
+        }
+        store.setSourceTreeStatus(tree.id, "deregistered");
+        return c.json(
+            await treePayload(
+                subject,
+                store.getSourceTree(tree.id) as SourceTreeRow,
+            ),
+        );
     });
 
     return { fetch: app.fetch, decision, reconciler };

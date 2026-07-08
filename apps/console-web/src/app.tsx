@@ -554,9 +554,9 @@ function Home({ me }: { me: MeResponse }) {
                 <h1>Nothing here yet</h1>
                 <p className="hint">
                     The shared home fills up as source trees are registered and
-                    packages are discovered. Register a GitHub repository
-                    through the API and it appears here with what you can do to
-                    it.
+                    packages are discovered. An administrator registers a GitHub
+                    repository from the Admin page (or through the API) and it
+                    appears here with what you can do to it.
                 </p>
             </div>
         );

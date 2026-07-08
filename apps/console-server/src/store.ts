@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export type PrincipalRow = {
     id: string;
@@ -49,6 +49,10 @@ export type SourceTreeRow = {
     owner: string | null;
     name: string | null;
     defaultBranch: string | null;
+    // Deregistering is a soft status, not a delete: the store rebuilds from
+    // GitHub, so a hard delete would not stay deleted, and merged history
+    // keeps pointing at the row (design/console-lifecycle.md).
+    status: "active" | "deregistered";
     createdBy: string | null;
     createdAt: string;
 };
@@ -222,6 +226,8 @@ export class Store {
                 owner TEXT,
                 name TEXT,
                 default_branch TEXT,
+                status TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'deregistered')),
                 created_by TEXT,
                 created_at TEXT NOT NULL,
                 UNIQUE (kind, owner, name)
@@ -505,17 +511,18 @@ export class Store {
     // Source trees: registration is a deployment-level act in hosted mode.
 
     insertSourceTree(
-        tree: Omit<SourceTreeRow, "id" | "createdAt">,
+        tree: Omit<SourceTreeRow, "id" | "createdAt" | "status">,
     ): SourceTreeRow {
         const row: SourceTreeRow = {
             ...tree,
             id: `st_${randomId()}`,
+            status: "active",
             createdAt: isoNow(),
         };
         this.db
             .prepare(
-                `INSERT INTO source_trees (id, kind, owner, name, default_branch, created_by, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO source_trees (id, kind, owner, name, default_branch, status, created_by, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
                 row.id,
@@ -523,6 +530,7 @@ export class Store {
                 row.owner,
                 row.name,
                 row.defaultBranch,
+                row.status,
                 row.createdBy,
                 row.createdAt,
             );
@@ -536,11 +544,46 @@ export class Store {
         return row === undefined ? null : sourceTreeFromRow(row);
     }
 
-    listSourceTrees(): SourceTreeRow[] {
+    // Re-registration reactivates the row this finds, because (kind, owner,
+    // name) is the tree's identity and stays unique across statuses.
+    findSourceTree(
+        kind: string,
+        owner: string | null,
+        name: string | null,
+    ): SourceTreeRow | null {
+        const row = this.db
+            .prepare(
+                "SELECT * FROM source_trees WHERE kind = ? AND owner IS ? AND name IS ?",
+            )
+            .get(kind, owner, name) as Record<string, unknown> | undefined;
+        return row === undefined ? null : sourceTreeFromRow(row);
+    }
+
+    // Listings show active trees; pass true where deregistered rows still
+    // matter (the admin surface, audit).
+    listSourceTrees(includeDeregistered = false): SourceTreeRow[] {
         const rows = this.db
-            .prepare("SELECT * FROM source_trees ORDER BY created_at")
+            .prepare(
+                includeDeregistered
+                    ? "SELECT * FROM source_trees ORDER BY created_at"
+                    : "SELECT * FROM source_trees WHERE status = 'active' ORDER BY created_at",
+            )
             .all() as Record<string, unknown>[];
         return rows.map(sourceTreeFromRow);
+    }
+
+    setSourceTreeStatus(id: string, status: "active" | "deregistered"): void {
+        this.db
+            .prepare("UPDATE source_trees SET status = ? WHERE id = ?")
+            .run(status, id);
+    }
+
+    // The default branch is the only updatable fact: owner and name are the
+    // tree's identity, and a renamed repository is a new registration.
+    setSourceTreeDefaultBranch(id: string, defaultBranch: string): void {
+        this.db
+            .prepare("UPDATE source_trees SET default_branch = ? WHERE id = ?")
+            .run(defaultBranch, id);
     }
 
     // Grants: allow-only (grantee, action, resource) triples. In C1 only the
@@ -1139,6 +1182,7 @@ function sourceTreeFromRow(row: Record<string, unknown>): SourceTreeRow {
         owner: row.owner as string | null,
         name: row.name as string | null,
         defaultBranch: row.default_branch as string | null,
+        status: row.status as "active" | "deregistered",
         createdBy: row.created_by as string | null,
         createdAt: row.created_at as string,
     };

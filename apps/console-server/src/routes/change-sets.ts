@@ -133,6 +133,12 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
     app.post("/source-trees/:tree/change-sets", async (c) => {
         const subject = subjectOf(c);
         const tree = treeOf(c.req.param("tree"));
+        if (tree.status === "deregistered") {
+            throw new ApiError(
+                409,
+                "this source tree is deregistered; re-register it to start new change sets",
+            );
+        }
         await decide(subject, "propose", tree);
         const input = await body(c);
         if (typeof input.title !== "string" || input.title.trim() === "") {

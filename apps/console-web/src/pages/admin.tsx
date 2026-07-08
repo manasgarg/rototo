@@ -16,11 +16,16 @@ import {
     adminPrincipals,
     adminRevokeGrant,
     adminSetPrincipalStatus,
+    adminSourceTrees,
+    deregisterSourceTree,
+    registerSourceTree,
+    setSourceTreeBranch,
     type AdminDiagnostic,
     type AdminGrant,
     type AdminGroup,
     type AdminInvitation,
     type AdminPrincipal,
+    type AdminSourceTree,
     type MeResponse,
 } from "@/lib/api";
 
@@ -29,6 +34,7 @@ export function AdminPage({ me }: { me: MeResponse }) {
     const [groups, setGroups] = useState<AdminGroup[]>([]);
     const [grants, setGrants] = useState<AdminGrant[]>([]);
     const [invitations, setInvitations] = useState<AdminInvitation[]>([]);
+    const [trees, setTrees] = useState<AdminSourceTree[]>([]);
     const [diagnostics, setDiagnostics] = useState<AdminDiagnostic[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -44,13 +50,15 @@ export function AdminPage({ me }: { me: MeResponse }) {
             adminGroups(),
             adminGrants(),
             adminInvitations(),
+            adminSourceTrees(),
             adminDiagnostics(),
         ]).then(
-            ([p, g, gr, inv, diag]) => {
+            ([p, g, gr, inv, st, diag]) => {
                 setPrincipals(p.principals);
                 setGroups(g.groups);
                 setGrants(gr.grants);
                 setInvitations(inv.invitations);
+                setTrees(st.sourceTrees);
                 setDiagnostics(diag.diagnostics);
                 setError(null);
             },
@@ -100,6 +108,68 @@ export function AdminPage({ me }: { me: MeResponse }) {
                     {diagnostic.message}
                 </div>
             ))}
+
+            <div className="card">
+                <h2>Source trees</h2>
+                <p className="hint">
+                    Deregistering hides a tree and blocks new change sets; its
+                    merged history stays, and registering the same repository
+                    again reactivates it.
+                </p>
+                <div className="row-list">
+                    {trees.map((tree) => (
+                        <div className="row row-static" key={tree.id}>
+                            <span className="row-text">
+                                <span className="row-title mono">
+                                    {tree.kind === "github"
+                                        ? `${tree.owner}/${tree.name}`
+                                        : tree.id}
+                                </span>
+                                <span className="row-sub mono">
+                                    {tree.defaultBranch ??
+                                        "default branch unknown"}
+                                </span>
+                            </span>
+                            <span className="row-side">
+                                {tree.status === "deregistered" ? (
+                                    <span className="pill pill-neutral">
+                                        deregistered
+                                    </span>
+                                ) : (
+                                    <>
+                                        <BranchEditor
+                                            tree={tree}
+                                            onSave={(branch) =>
+                                                act(
+                                                    setSourceTreeBranch(
+                                                        tree.id,
+                                                        branch,
+                                                    ),
+                                                )
+                                            }
+                                        />
+                                        <button
+                                            className="btn btn-ghost btn-sm"
+                                            onClick={() =>
+                                                act(
+                                                    deregisterSourceTree(
+                                                        tree.id,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            Deregister
+                                        </button>
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                <RegisterTreeForm
+                    onRegister={(input) => act(registerSourceTree(input))}
+                />
+            </div>
 
             <div className="card">
                 <h2>People</h2>
@@ -267,6 +337,113 @@ export function AdminPage({ me }: { me: MeResponse }) {
                     }}
                 />
             </div>
+        </div>
+    );
+}
+
+// The default branch is the one updatable fact; owner and name are the
+// tree's identity, so a renamed repository is a new registration.
+function BranchEditor({
+    tree,
+    onSave,
+}: {
+    tree: AdminSourceTree;
+    onSave: (branch: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [branch, setBranch] = useState(tree.defaultBranch ?? "");
+    if (!editing) {
+        return (
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                    setBranch(tree.defaultBranch ?? "");
+                    setEditing(true);
+                }}
+            >
+                Edit branch
+            </button>
+        );
+    }
+    return (
+        <span className="inline-form">
+            <input
+                autoFocus
+                className="input mono"
+                placeholder="main"
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={branch.trim() === ""}
+                onClick={() => {
+                    setEditing(false);
+                    onSave(branch.trim());
+                }}
+            >
+                Save
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setEditing(false)}
+            >
+                Cancel
+            </button>
+        </span>
+    );
+}
+
+function RegisterTreeForm({
+    onRegister,
+}: {
+    onRegister: (input: {
+        owner: string;
+        name: string;
+        defaultBranch?: string;
+    }) => void;
+}) {
+    const [owner, setOwner] = useState("");
+    const [name, setName] = useState("");
+    const [branch, setBranch] = useState("");
+    return (
+        <div className="inline-form">
+            <input
+                className="input mono"
+                placeholder="owner"
+                value={owner}
+                onChange={(event) => setOwner(event.target.value)}
+            />
+            <input
+                className="input mono"
+                placeholder="repository"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+            />
+            <input
+                className="input mono"
+                placeholder="branch (from GitHub if blank)"
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+            />
+            <button
+                className="btn btn-secondary btn-sm"
+                disabled={owner.trim() === "" || name.trim() === ""}
+                onClick={() => {
+                    onRegister({
+                        owner: owner.trim(),
+                        name: name.trim(),
+                        ...(branch.trim() === ""
+                            ? {}
+                            : { defaultBranch: branch.trim() }),
+                    });
+                    setOwner("");
+                    setName("");
+                    setBranch("");
+                }}
+            >
+                Register
+            </button>
         </div>
     );
 }

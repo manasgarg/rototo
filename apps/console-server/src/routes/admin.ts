@@ -69,6 +69,24 @@ export function adminRoutes(ctx: ConsoleContext): Hono {
         return parsed;
     };
 
+    // The admin's view of source trees keeps deregistered rows visible:
+    // they are audit, and re-registration reactivates them.
+    app.get("/admin/source-trees", async (c) => {
+        const subject = subjectOf(c);
+        await requireAdminister(subject, { kind: "deployment" });
+        return c.json({
+            sourceTrees: ctx.store.listSourceTrees(true).map((tree) => ({
+                id: tree.id,
+                kind: tree.kind,
+                owner: tree.owner,
+                name: tree.name,
+                defaultBranch: tree.defaultBranch,
+                status: tree.status,
+                createdAt: tree.createdAt,
+            })),
+        });
+    });
+
     app.get("/admin/principals", async (c) => {
         const subject = subjectOf(c);
         await requireAdminister(subject, { kind: "deployment" });

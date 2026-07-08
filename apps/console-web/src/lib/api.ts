@@ -865,6 +865,43 @@ export function withdrawApproval(
 
 // --- the admin surface ---
 
+export type AdminSourceTree = {
+    id: string;
+    kind: "github" | "local";
+    owner: string | null;
+    name: string | null;
+    defaultBranch: string | null;
+    status: "active" | "deregistered";
+    createdAt: string;
+};
+
+export function adminSourceTrees(): Promise<{
+    sourceTrees: AdminSourceTree[];
+}> {
+    return apiGet("/api/admin/source-trees");
+}
+
+export function registerSourceTree(input: {
+    owner: string;
+    name: string;
+    defaultBranch?: string;
+}): Promise<SourceTreeSummary> {
+    return apiPost("/api/source-trees", { kind: "github", ...input });
+}
+
+export function setSourceTreeBranch(
+    id: string,
+    defaultBranch: string,
+): Promise<SourceTreeSummary> {
+    return apiPost(`/api/source-trees/${id}/default-branch`, {
+        defaultBranch,
+    });
+}
+
+export function deregisterSourceTree(id: string): Promise<SourceTreeSummary> {
+    return apiPost(`/api/source-trees/${id}/deregister`, {});
+}
+
 export function adminPrincipals(): Promise<{ principals: AdminPrincipal[] }> {
     return apiGet("/api/admin/principals");
 }

@@ -418,6 +418,27 @@ test("withdrawing needs a recorded approval on a proposed change set", async () 
     assert.match((await json(nothing)).error.message, /have not approved/);
 });
 
+test("deregistering waits for open change sets", async () => {
+    await createChangeSet("Blocks deregistration");
+    harness.store.insertGrant({
+        granteeKind: "principal",
+        granteeId: dev.principalId,
+        action: "administer",
+        resource: "deployment",
+        createdBy: null,
+    });
+    const refused = await harness.post(
+        `/api/source-trees/${harness.tree.id}/deregister`,
+        {},
+        dev.headers,
+    );
+    assert.equal(refused.status, 409);
+    assert.match(
+        (await json(refused)).error.message,
+        /must merge or abandon first/,
+    );
+});
+
 test("creating a change set needs propose on the tree", async () => {
     const reader = harness.signIn({ login: "reader", token: "reader-token" });
     harness.github.grantRepo("reader-token", "acme/config", { pull: true });
