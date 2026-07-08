@@ -1255,8 +1255,15 @@ button.row:hover {
     white-space: nowrap;
 }
 
-/* stretched link: the whole card is the click target */
-.card-stretch::after {
+/* stretched link: the whole card is the click target. Anchors only — on
+   anything else the transparent overlay swallows clicks meant for the rest
+   of the page. The card must be the positioned ancestor. */
+.card:has(> a.card-stretch),
+.card:has(.card-head a.card-stretch) {
+    position: relative;
+}
+
+a.card-stretch::after {
     content: "";
     position: absolute;
     inset: 0;

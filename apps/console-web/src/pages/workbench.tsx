@@ -1318,7 +1318,7 @@ function CatalogPanel({
         (to) => to.kind === "catalog" && to.id === catalogId,
     );
     return (
-        <div className="card card-stretch">
+        <div className="card">
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{catalogId}</h2>
@@ -1514,7 +1514,7 @@ function ListPanel({
             .finally(() => setSaving(false));
     };
     return (
-        <div className="card card-stretch">
+        <div className="card">
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{listId}</h2>
@@ -1702,7 +1702,7 @@ function ContextDetailPanel({
     );
     const canEdit = editable && changeSet !== null;
     return (
-        <div className="card card-stretch">
+        <div className="card">
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{contextId}</h2>
@@ -2043,7 +2043,7 @@ function VariablePanel({
     };
 
     return (
-        <div className="card card-stretch">
+        <div className="card">
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{variable.id}</h2>
@@ -2658,7 +2658,7 @@ function FilePanel({
     };
 
     return (
-        <div className="card card-stretch">
+        <div className="card">
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{file}</h2>
