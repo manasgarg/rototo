@@ -159,6 +159,65 @@ A pricing manager and a platform developer open the same home; it is
 populated differently because their grants and audiences differ, not
 because the console branched.
 
+## Information hierarchy: URLs, nav, breadcrumbs
+
+Decided. The console shows one containment hierarchy three ways at once:
+the URL encodes it, the left nav mirrors it, the breadcrumbs render it as
+clickable prefixes. The organizing rule is the two-axis model above: the
+path is the ring axis (what you are looking at), the query is view state
+(how you are looking at it). View state never becomes a path segment.
+
+URLs reuse the addressing grammar (`design/addressing.md`) rather than
+inventing a second pointing scheme. A `-` segment ends the package path
+(package paths and ids both contain `/`, so a plain-noun scheme cannot be
+parsed); the tail after it is either a console page noun (`surfaces`,
+`files`, `history`) or an address. An address always contains `=`, a page
+noun never does, so parsing stays lexical:
+
+```text
+#/                                        home (the shared lens home)
+#/admin                                   deployment ring
+#/trees/st_7                              tree home (forwards when the
+                                          tree has exactly one package)
+#/trees/st_7/changes[/cs_42]              change sets live under their tree
+#/trees/st_7/examples/billing/-           package overview (ring 1)
+#/trees/st_7/examples/billing/-/variable=active_plan      ring 0
+#/trees/st_7/examples/billing/-/catalog=plans:entry=pro
+#/trees/st_7/examples/billing/-/variable=payments/        namespace subtree
+#/trees/st_7/examples/billing/-/surfaces/pricing          domain lens
+#/trees/st_7/examples/billing/-/files/variables/x.toml    escape hatch
+#/trees/st_7/examples/billing/-/history
+```
+
+Because change records, diagnostics, and grant scopes already carry these
+addresses, deep-linking them is string concatenation. Collectives
+(`variable=`) and subtree selections (`variable=payments/`) come free from
+the grammar and render as collection pages. Entity kinds without a
+structured editor (entries, lists, samples, manifest, governance, layers,
+linters) open as their defining file, so every address resolves to
+something honest. JSON-pointer suffixes cannot ride in a fragment; URLs
+stop at entity depth and field focus stays in-page.
+
+View state rides the query on every package URL: `cs` (the change set
+edits accumulate on), `pin` (a read-only historical instant), `ctx` (the
+chosen context, `sample:<key>` or `synthetic:<label>`; ad-hoc JSON stays
+session-local because it has no name to link to). The chosen-context
+carrier the execution facet requires is exactly this parameter. Moving
+between packages in a tree keeps `cs` and `pin` (tree-scoped) and drops
+`ctx` (package-scoped); changing trees drops everything.
+
+The nav names containers only, two levels deep: scope pickers (tree, then
+package when the tree holds several) above a Package section (Overview,
+Surfaces, Variables, Catalogs, Lists, Contexts, Files, History), a Tree
+section (Change sets), and a Console section (Admin, grant-gated).
+Instances live in page content and breadcrumbs, never in the nav. The
+shared lens home is unchanged; the lenses resolve to positions in this
+hierarchy (Domain -> package Surfaces, Model -> package Overview, Changes
+-> tree Change sets, Time -> History).
+
+Ring 2 slots in later without new grammar (a package-home section or an
+`overlays` page noun), and ring 3 already owns `#/`.
+
 ## Mechanics this adds to the layer specs
 
 Small and few:

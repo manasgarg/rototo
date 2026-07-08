@@ -160,6 +160,15 @@ export function WorkbenchPage({
         };
     }, [treeId, ref]);
 
+    // The package is a URL scope now, so a package switch arrives as a prop
+    // change; clear the previous package's views rather than showing them
+    // against the new scope while the fetches run. Pin moves (saves,
+    // history) keep the current render to avoid a loading flash.
+    useEffect(() => {
+        setDetail(null);
+        setInventory(null);
+    }, [treeId, packagePath]);
+
     const pin = state.pin ?? listing?.pin ?? null;
     useEffect(() => {
         if (pin === null) {
