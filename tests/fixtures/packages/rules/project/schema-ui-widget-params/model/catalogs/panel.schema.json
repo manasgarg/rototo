@@ -13,6 +13,19 @@
         "widget": "slider",
         "steps": 5
       }
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["light", "dark"],
+      "x-rototo-ui": {
+        "widget": "radio"
+      }
+    },
+    "channel": {
+      "type": "string",
+      "x-rototo-ui": {
+        "widget": "radio"
+      }
     }
   }
 }

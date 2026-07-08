@@ -400,11 +400,22 @@ fn reports_schema_ui_hint_rules() {
         true,
     );
     let params = diagnostic_messages_for_rule(&lint, "rototo/schema-ui-widget-params");
-    assert_eq!(params.len(), 1, "{lint:#}");
+    assert_eq!(params.len(), 2, "{lint:#}");
     assert!(
         params
             .iter()
             .any(|message| message.contains("unknown x-rototo-ui parameter steps")),
+        "{params:#?}"
+    );
+    // channel asks for a radio without a JSON Schema enum; mode pairs the same
+    // widget with an enum and must stay clean.
+    assert!(
+        params.iter().any(|message| message.contains("channel")
+            && message.contains("requires a JSON Schema enum")),
+        "{params:#?}"
+    );
+    assert!(
+        !params.iter().any(|message| message.contains("mode")),
         "{params:#?}"
     );
 }
@@ -1249,6 +1260,25 @@ fn enforces_json_schema_formats_on_catalog_entries() {
             .unwrap_or_default()
             .contains("date-time")),
         "expected a date-time format violation\n{lint:#}"
+    );
+}
+
+#[test]
+fn types_context_paths_declared_only_through_schema_enum_values() {
+    // A context path can pin its type with a bare JSON Schema `enum` instead of
+    // a `type` keyword. context.tier's string enum satisfies the string members
+    // of lists/plan_tiers, so it must not be flagged; context.level's integer
+    // enum makes the same membership test a real mismatch.
+    let lint = lint_json("tests/fixtures/packages/schema-enum-context-types", false);
+    let messages =
+        diagnostic_messages_for_rule(&lint, "rototo/variable-rule-context-path-type-mismatch");
+    assert_eq!(messages.len(), 1, "{lint:#}");
+    assert!(messages[0].contains("context.level"), "{messages:#?}");
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("context.tier")),
+        "{messages:#?}"
     );
 }
 
@@ -2252,17 +2282,32 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             rule: RototoRuleId::SchemaUiWidgetParams,
             package: "tests/fixtures/packages/rules/project/schema-ui-widget-params",
             success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/schema-ui-widget-params",
-                severity: "warning",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Catalog("panel"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "model/catalogs/panel.schema.json",
-                    range: None,
+            expected: &[
+                // The unknown slider parameter, and the radio widget on
+                // channel with no JSON Schema enum to offer as options.
+                ExpectedDiagnostic {
+                    rule: "rototo/schema-ui-widget-params",
+                    severity: "warning",
+                    stage: LintStage::Project,
+                    entity: ExpectedEntity::Catalog("panel"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "model/catalogs/panel.schema.json",
+                        range: None,
+                    },
+                    related: &[],
                 },
-                related: &[],
-            }],
+                ExpectedDiagnostic {
+                    rule: "rototo/schema-ui-widget-params",
+                    severity: "warning",
+                    stage: LintStage::Project,
+                    entity: ExpectedEntity::Catalog("panel"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "model/catalogs/panel.schema.json",
+                        range: None,
+                    },
+                    related: &[],
+                },
+            ],
         },
     ]
 }

@@ -1,0 +1,5 @@
+# welcome exists only in email_template. If the oneOf branches are not
+# narrowed by the kind enum, the sms branch also applies and flags this
+# reference against sms_template.
+kind = "email"
+template = "welcome"

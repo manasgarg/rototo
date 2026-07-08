@@ -1,0 +1,13 @@
+# context.level is declared only through a JSON Schema enum of integers, so
+# testing it against string list members is a real type mismatch.
+# Expect rototo/variable-rule-context-path-type-mismatch.
+schema_version = 1
+description = "Whether the request level names a real plan tier"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.level in lists.plan_tiers'
+value = true

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for routed notification values. The kind property's JSON Schema enum picks the oneOf branch, and each branch pins template to a different catalog, so reference lint must narrow to the matching branch.",
+  "$id": "rototo://catalogs/routed_notification.schema.json",
+  "type": "object",
+  "required": ["kind", "template"],
+  "properties": {
+    "kind": { "type": "string" },
+    "template": { "type": "string" }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "kind": { "enum": ["email"] },
+        "template": { "type": "string", "x-rototo-ref": "catalog=email_template" }
+      }
+    },
+    {
+      "properties": {
+        "kind": { "enum": ["sms"] },
+        "template": { "type": "string", "x-rototo-ref": "catalog=sms_template" }
+      }
+    }
+  ]
+}

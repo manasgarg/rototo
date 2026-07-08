@@ -1,0 +1,4 @@
+# sms_payment_failed exists only in sms_template; the mirror of
+# welcome_email.toml for the sms branch.
+kind = "sms"
+template = "sms_payment_failed"
