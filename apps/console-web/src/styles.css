@@ -983,10 +983,6 @@ button.row-link {
     gap: 14px;
 }
 
-.package-overview > :not(.graph-card) {
-    max-width: 1060px;
-}
-
 .section-header {
     display: flex;
     align-items: flex-end;
@@ -1819,7 +1815,7 @@ select.input {
     text-transform: uppercase;
 }
 
-.graph-isolated-kind[data-kind="qualifier"] {
+.graph-isolated-kind[data-kind="condition"] {
     color: var(--cyan-700);
 }
 
@@ -1884,28 +1880,30 @@ select.input {
 }
 
 .graph-preview-source {
+    display: grid;
     min-height: 0;
-    border: 0;
-    border-radius: 0;
+    grid-template-rows: auto minmax(0, 1fr);
 }
 
-.graph-preview-source .codehead {
-    border-top: 0;
+.graph-preview-file {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--line-1);
+    color: var(--ink-2);
+    font-size: 11px;
 }
 
-.graph-preview-source .code-editor-shell {
-    border: 0;
-    border-radius: 0;
-}
-
-.graph-preview-source .code-editor-shell .cm-editor {
+.graph-preview-code {
+    margin: 0;
     min-height: 260px;
-    font-size: 11.5px;
     max-height: min(56vh, 610px);
-}
-
-.graph-preview-source .code-editor-shell .cm-scroller {
     overflow: auto;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    line-height: 1.55;
 }
 
 .graph-preview-empty {
@@ -2977,7 +2975,7 @@ select.input {
         max-height: none;
     }
 
-    .graph-preview-source .code-editor-shell .cm-editor {
+    .graph-preview-code {
         max-height: 420px;
     }
 
@@ -3135,72 +3133,6 @@ select.input {
 
 .expr-link:hover {
     color: var(--sea-500);
-}
-
-.graph-scroll {
-    overflow-x: auto;
-    border: 1px solid var(--line-1);
-    border-radius: var(--radius-2);
-    background: var(--paper-1);
-    padding: 4px;
-}
-
-.lit-graph {
-    display: block;
-}
-
-.graph-node {
-    cursor: pointer;
-}
-
-.graph-node rect {
-    fill: var(--paper-0);
-    stroke: var(--line-strong);
-}
-
-.graph-node:hover rect {
-    stroke: var(--sea-500);
-}
-
-.graph-node-resolved rect {
-    stroke: var(--sea-400);
-}
-
-.graph-node-error rect {
-    stroke: var(--warn-500);
-    stroke-dasharray: 4 3;
-}
-
-.graph-node-id {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    fill: var(--ink-0);
-}
-
-.graph-node-value {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    fill: var(--sea-700);
-}
-
-.graph-node-error .graph-node-value {
-    fill: var(--warn-700);
-}
-
-.graph-edge {
-    fill: none;
-    stroke-width: 1.4;
-    color: var(--line-strong);
-    stroke: currentColor;
-}
-
-.graph-edge-fired {
-    color: var(--sea-500);
-    stroke-width: 2.2;
-}
-
-.graph-edge-dormant {
-    opacity: 0.25;
 }
 
 .row-static {

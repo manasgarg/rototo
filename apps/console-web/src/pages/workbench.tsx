@@ -63,7 +63,7 @@ import {
     UpcomingPanel,
     ValidityPanel,
 } from "@/components/insight";
-import { LitGraph } from "@/components/lit-graph";
+import { ReferenceGraph } from "@/components/reference-graph";
 import { TracePreview } from "@/components/trace-preview";
 import {
     changeSetUrl,
@@ -514,12 +514,6 @@ export function WorkbenchPage({
                             { ...state, context: null },
                         )}`
                     }
-                    onOpenVariable={(id) =>
-                        go({
-                            kind: "address",
-                            steps: [{ class: "variable", id }],
-                        })
-                    }
                 />
             )}
         </div>
@@ -642,7 +636,6 @@ function EntityLists({
     outcomes,
     hrefView,
     hrefPackage,
-    onOpenVariable,
 }: {
     treeId: string;
     detail: PackageDetail;
@@ -650,7 +643,6 @@ function EntityLists({
     outcomes: Map<string, TraceOutcome> | null;
     hrefView: (view: PackageView) => string;
     hrefPackage: (path: string) => string;
-    onOpenVariable: (id: string) => void;
 }) {
     const model = detail.model;
     const entityHref = (className: string, id: string): string =>
@@ -661,7 +653,7 @@ function EntityLists({
         hrefView({ kind: "files", file: path });
     return (
         <>
-            {model.variables.length > 1 ? (
+            {model.variables.length > 0 || model.catalogs.length > 0 ? (
                 <>
                     <div className="section-header-text">
                         <h2>
@@ -671,15 +663,21 @@ function EntityLists({
                         </h2>
                         <p className="hint">
                             {outcomes === null
-                                ? "Structure only; pick a context to light it up."
+                                ? "Structure only; pick a context to light it up. Hover an entity to preview its definition."
                                 : "Every variable resolved under the chosen context; bright paths fired, dim paths never ran."}
                         </p>
                     </div>
-                    <LitGraph
-                        model={model}
-                        outcomes={outcomes}
-                        onOpenVariable={onOpenVariable}
-                    />
+                    <div className="card graph-card">
+                        <ReferenceGraph
+                            key={detail.pin}
+                            model={model}
+                            outcomes={outcomes}
+                            treeId={treeId}
+                            packagePath={detail.path}
+                            pin={detail.pin}
+                            hrefFor={hrefEntity}
+                        />
+                    </div>
                 </>
             ) : null}
 
