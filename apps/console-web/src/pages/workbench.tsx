@@ -513,7 +513,7 @@ export function WorkbenchPage({
                     onError={saveFailed}
                 />
             ) : (
-                <EntityLists
+                <Overview
                     treeId={treeId}
                     detail={detail}
                     refName={ref}
@@ -642,7 +642,10 @@ export function EditingStrip({
     );
 }
 
-function EntityLists({
+// The package overview: the reference graph plus the insight panels. The
+// per-kind entity lists live on their collection pages (the nav's
+// Variables, Catalogs, Lists, Contexts, Files), not here.
+function Overview({
     treeId,
     detail,
     refName,
@@ -658,12 +661,8 @@ function EntityLists({
     hrefPackage: (path: string) => string;
 }) {
     const model = detail.model;
-    const entityHref = (className: string, id: string): string =>
-        hrefView({ kind: "address", steps: [{ class: className, id }] });
     const hrefEntity = (steps: AddressStep[]): string =>
         hrefView({ kind: "address", steps });
-    const hrefFile = (path: string): string =>
-        hrefView({ kind: "files", file: path });
     return (
         <>
             {model.variables.length > 0 || model.catalogs.length > 0 ? (
@@ -701,41 +700,6 @@ function EntityLists({
                 hrefEntity={hrefEntity}
             />
 
-            <div className="section-header-text">
-                <h2>Variables</h2>
-            </div>
-            <VariableRows
-                variables={model.variables}
-                outcomes={outcomes}
-                hrefFor={(id) => entityHref("variable", id)}
-            />
-
-            <Inventory
-                title="Catalogs"
-                items={model.catalogs.map((catalog) => ({
-                    label: `${catalog.id} (${
-                        model.catalogEntries.filter(
-                            (entry) => entry.catalog === catalog.id,
-                        ).length
-                    } entries)`,
-                    href: entityHref("catalog", catalog.id),
-                }))}
-            />
-            <Inventory
-                title="Lists"
-                items={model.lists.map((entry) => ({
-                    label: entry.id,
-                    href: entityHref("list", entry.id),
-                }))}
-            />
-            <Inventory
-                title="Evaluation contexts"
-                items={model.evaluationContexts.map((entry) => ({
-                    label: entry.id,
-                    href: entityHref("evaluation-context", entry.id),
-                }))}
-            />
-
             <CompositionPanel
                 treeId={treeId}
                 refName={refName}
@@ -749,8 +713,6 @@ function EntityLists({
                 hrefPackage={hrefPackage}
                 hrefEntity={hrefEntity}
             />
-
-            <FileList treeId={treeId} detail={detail} hrefFile={hrefFile} />
         </>
     );
 }
@@ -758,36 +720,6 @@ function EntityLists({
 function clipValue(value: unknown): string {
     const text = JSON.stringify(value) ?? "";
     return text.length > 20 ? `${text.slice(0, 20)}…` : text;
-}
-
-function Inventory({
-    title,
-    items,
-}: {
-    title: string;
-    items: { label: string; href: string }[];
-}) {
-    if (items.length === 0) {
-        return null;
-    }
-    return (
-        <>
-            <div className="section-header-text">
-                <h2>{title}</h2>
-            </div>
-            <div>
-                {items.map((item) => (
-                    <a
-                        className="pill pill-neutral mono"
-                        key={item.label}
-                        href={item.href}
-                    >
-                        {item.label}
-                    </a>
-                ))}
-            </div>
-        </>
-    );
 }
 
 function VariableRows({
