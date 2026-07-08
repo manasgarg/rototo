@@ -61,14 +61,24 @@ export type RuleModel = {
     value?: ModelValueField;
 };
 
+export type QueryModel = {
+    from?: ModelField;
+    filter?: ModelField;
+    sort?: ModelField;
+    order?: ModelField;
+    limit?: ModelField;
+};
+
 export type VariableModel = {
     id: string;
     location: ModelLocation;
     description?: string;
     declaration: { kind: string; value?: string; location: ModelLocation };
     resolve?: {
+        method?: ModelField;
         default?: ModelValueField;
         rules: RuleModel[];
+        query?: QueryModel;
     };
 };
 
@@ -91,7 +101,12 @@ export type SemanticModel = {
     variables: VariableModel[];
     catalogs: { id: string; path: string }[];
     catalogEntries: { catalog: string; key: string }[];
-    lists: { id: string }[];
+    lists: {
+        id: string;
+        description?: string;
+        memberType: ModelField;
+        members: ModelValueField[];
+    }[];
     evaluationContexts: { id: string; path: string }[];
     layers: { id: string }[];
     references: ReferenceModel[];

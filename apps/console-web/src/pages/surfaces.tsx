@@ -43,7 +43,7 @@ import {
     packageUrl,
     type ViewState,
 } from "@/lib/router";
-import { EditingStrip } from "@/pages/workbench";
+import { DeleteButton, EditingStrip } from "@/pages/workbench";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
 
@@ -555,9 +555,36 @@ function SurfacePanel({
                         <h2>{surface.title}</h2>
                         <p className="hint">{surface.description ?? ""}</p>
                     </div>
-                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                        Back
-                    </button>
+                    <span className="action-row">
+                        {editable && changeSet !== null ? (
+                            <DeleteButton
+                                label="Delete surface"
+                                warning={`This removes the "${surface.title}" surface entry; the configuration it binds stays untouched.`}
+                                onConfirm={() =>
+                                    saveEdit(changeSet.id, {
+                                        packagePath,
+                                        expectedPin: pin,
+                                        operations: [
+                                            {
+                                                op: "delete",
+                                                target: `catalog=console/surfaces:entry=${surfaceId}`,
+                                            },
+                                        ],
+                                        summary: `Delete surface ${surfaceId}`,
+                                    }).then((result) => {
+                                        onSaved(result);
+                                        onBack();
+                                    }, onError)
+                                }
+                            />
+                        ) : null}
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={onBack}
+                        >
+                            Back
+                        </button>
+                    </span>
                 </div>
                 {surface.caution !== null ? (
                     <div className="banner banner-warn">{surface.caution}</div>
@@ -850,13 +877,62 @@ function SurfaceItemView({
                                 />
                             </span>
                         ))}
+                        <span
+                            className="field-row"
+                            title="CEL eligibility; empty means everyone"
+                        >
+                            <span className="hint">eligible</span>
+                            <ControlInput
+                                control={{ control: "text" }}
+                                value={allocation.eligibility}
+                                disabled={!editable || allocation.id === null}
+                                onCommit={(value) => {
+                                    const when = String(value ?? "").trim();
+                                    onPropose(
+                                        [
+                                            {
+                                                op: "set_allocation_eligibility",
+                                                layer: item.id,
+                                                id: allocation.id,
+                                                ...(when === ""
+                                                    ? {}
+                                                    : { when }),
+                                            },
+                                        ],
+                                        `Set ${item.id}/${allocation.id} eligibility`,
+                                    );
+                                }}
+                            />
+                        </span>
                         {allocation.variables.length > 0 ? (
                             <span className="hint">
                                 drives {allocation.variables.join(", ")}
                             </span>
                         ) : null}
+                        <button
+                            className="btn btn-icon btn-sm btn-remove"
+                            disabled={!editable || allocation.id === null}
+                            title="Remove allocation: ends the experiment or rollout"
+                            onClick={() =>
+                                onPropose(
+                                    [
+                                        {
+                                            op: "remove_allocation",
+                                            layer: item.id,
+                                            id: allocation.id,
+                                        },
+                                    ],
+                                    `Remove ${item.id}/${allocation.id}`,
+                                )
+                            }
+                        >
+                            ×
+                        </button>
                     </div>
                 ))}
+                {editable ? (
+                    <AddAllocationForm layer={item.id} onPropose={onPropose} />
+                ) : null}
             </div>
         );
     }
@@ -968,6 +1044,95 @@ function EntryTable({
                     ))}
                 </tbody>
             </table>
+        </div>
+    );
+}
+
+// A new allocation on the floor: an id and its arms, defined together the
+// way the operation wants them. Arms parse from "control=0-499,
+// treatment=500-999"; the allocation starts as a draft.
+function AddAllocationForm({
+    layer,
+    onPropose,
+}: {
+    layer: string;
+    onPropose: (operations: EditOperation[], summary: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [id, setId] = useState("");
+    const [armsText, setArmsText] = useState("");
+    if (!open) {
+        return (
+            <div className="action-row">
+                <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setOpen(true)}
+                >
+                    Add allocation
+                </button>
+            </div>
+        );
+    }
+    const arms = armsText
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => part !== "")
+        .map((part) => {
+            const [name, buckets] = part.split("=").map((half) => half.trim());
+            return name !== undefined &&
+                name !== "" &&
+                buckets !== undefined &&
+                buckets !== ""
+                ? { name, buckets }
+                : null;
+        });
+    const parsed = arms.every((arm) => arm !== null) ? arms : null;
+    return (
+        <div className="inline-form">
+            <input
+                autoFocus
+                className="input mono"
+                placeholder="allocation_id"
+                value={id}
+                onChange={(event) => setId(event.target.value)}
+            />
+            <input
+                className="input mono"
+                placeholder="control=0-499, treatment=500-999"
+                value={armsText}
+                onChange={(event) => setArmsText(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={
+                    id.trim() === "" || parsed === null || parsed.length === 0
+                }
+                onClick={() => {
+                    if (parsed === null) {
+                        return;
+                    }
+                    setOpen(false);
+                    onPropose(
+                        [
+                            {
+                                op: "add_allocation",
+                                layer,
+                                id: id.trim(),
+                                arms: parsed,
+                            },
+                        ],
+                        `Add ${layer}/${id.trim()}`,
+                    );
+                }}
+            >
+                Create
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setOpen(false)}
+            >
+                Cancel
+            </button>
         </div>
     );
 }

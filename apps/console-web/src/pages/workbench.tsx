@@ -39,8 +39,10 @@ import {
     type EditResponse,
     type LspServerMessage,
     type MeResponse,
+    type ModelEntityRef,
     type PackageDetail,
     type PackageListing,
+    type QueryModel,
     type RuleModel,
     type SemanticModel,
     type SynthesizedContext,
@@ -440,7 +442,11 @@ export function WorkbenchPage({
                     <FileList
                         treeId={treeId}
                         detail={detail}
+                        changeSet={active}
+                        editable={editable}
                         onOpenFile={(path) => go({ kind: "files", file: path })}
+                        onSaved={afterSave}
+                        onError={saveFailed}
                     />
                 ) : (
                     <FilePanel
@@ -450,6 +456,7 @@ export function WorkbenchPage({
                         file={view.file}
                         editable={editable}
                         changeSet={active}
+                        onDeleted={() => go({ kind: "files", file: null })}
                         onBack={() => go({ kind: "files", file: null })}
                         onSaved={afterSave}
                         onError={saveFailed}
@@ -832,7 +839,7 @@ function AddressView({
     const child = steps[1];
     const openAddress = (next: AddressStep[]) =>
         go({ kind: "address", steps: next });
-    const file = (path: string, onBack: () => void) => (
+    const file = (path: string, onBack: () => void, deleteAs?: string) => (
         <FilePanel
             key={`${path}@${detail.pin}`}
             treeId={treeId}
@@ -840,11 +847,14 @@ function AddressView({
             file={path}
             editable={editable}
             changeSet={changeSet}
+            deleteAs={deleteAs}
+            onDeleted={onBack}
             onBack={onBack}
             onSaved={onSaved}
             onError={onError}
         />
     );
+    const creating = { detail, changeSet, onSaved, onError };
 
     if (head.class === "variable") {
         if (isCollective(head)) {
@@ -857,6 +867,16 @@ function AddressView({
                     prefix={head.id}
                     count={variables.length}
                     empty="No variables in this package yet."
+                    action={
+                        editable ? (
+                            <NewVariableForm
+                                {...creating}
+                                onCreated={(id) =>
+                                    openAddress([{ class: "variable", id }])
+                                }
+                            />
+                        ) : null
+                    }
                 >
                     <VariableRows
                         variables={variables}
@@ -896,6 +916,16 @@ function AddressView({
                     prefix={head.id}
                     count={catalogs.length}
                     empty="No catalogs in this package yet."
+                    action={
+                        editable ? (
+                            <NewCatalogForm
+                                {...creating}
+                                onCreated={(id) =>
+                                    openAddress([{ class: "catalog", id }])
+                                }
+                            />
+                        ) : null
+                    }
                 >
                     <div className="row-list">
                         {catalogs.map((catalog) => {
@@ -933,15 +963,19 @@ function AddressView({
             );
         }
         if (child !== undefined && !isCollective(child)) {
-            return file(`data/catalogs/${head.id}/${child.id}.toml`, () =>
-                openAddress([{ class: "catalog", id: head.id }]),
+            return file(
+                `data/catalogs/${head.id}/${child.id}.toml`,
+                () => openAddress([{ class: "catalog", id: head.id }]),
+                `catalog=${head.id}:entry=${child.id}`,
             );
         }
         return (
             <CatalogPanel
+                {...creating}
                 model={model}
                 catalogId={head.id}
                 entryPrefix={child?.id ?? ""}
+                editable={editable}
                 onOpenEntry={(key) =>
                     openAddress([
                         { class: "catalog", id: head.id },
@@ -950,6 +984,7 @@ function AddressView({
                 }
                 onOpenSchema={(path) => go({ kind: "files", file: path })}
                 onBack={() => openAddress([{ class: "catalog", id: "" }])}
+                onDeleted={() => openAddress([{ class: "catalog", id: "" }])}
             />
         );
     }
@@ -964,6 +999,16 @@ function AddressView({
                     prefix={head.id}
                     count={lists.length}
                     empty="No lists in this package yet."
+                    action={
+                        editable ? (
+                            <NewListForm
+                                {...creating}
+                                onCreated={(id) =>
+                                    openAddress([{ class: "list", id }])
+                                }
+                            />
+                        ) : null
+                    }
                 >
                     <div className="row-list">
                         {lists.map((list) => (
@@ -987,8 +1032,17 @@ function AddressView({
                 </CollectionPage>
             );
         }
-        return file(`lists/${head.id}.toml`, () =>
-            openAddress([{ class: "list", id: "" }]),
+        return (
+            <ListPanel
+                key={`${head.id}@${detail.pin}`}
+                {...creating}
+                model={model}
+                listId={head.id}
+                editable={editable}
+                onOpenFile={(path) => go({ kind: "files", file: path })}
+                onBack={() => openAddress([{ class: "list", id: "" }])}
+                onDeleted={() => openAddress([{ class: "list", id: "" }])}
+            />
         );
     }
     if (head.class === "evaluation-context") {
@@ -1002,6 +1056,18 @@ function AddressView({
                     prefix={head.id}
                     count={contexts.length}
                     empty="No evaluation contexts in this package yet."
+                    action={
+                        editable ? (
+                            <NewContextForm
+                                {...creating}
+                                onCreated={(id) =>
+                                    openAddress([
+                                        { class: "evaluation-context", id },
+                                    ])
+                                }
+                            />
+                        ) : null
+                    }
                 >
                     <div className="row-list">
                         {contexts.map((context) => (
@@ -1036,13 +1102,16 @@ function AddressView({
                 `model/context/${head.id}-samples/${child.id}.json`,
                 () =>
                     openAddress([{ class: "evaluation-context", id: head.id }]),
+                `evaluation-context=${head.id}:sample=${child.id}`,
             );
         }
         return (
             <ContextDetailPanel
+                {...creating}
                 model={model}
                 contextId={head.id}
                 inventory={inventory}
+                editable={editable}
                 onOpenSample={(key) =>
                     openAddress([
                         { class: "evaluation-context", id: head.id },
@@ -1051,6 +1120,9 @@ function AddressView({
                 }
                 onOpenSchema={(path) => go({ kind: "files", file: path })}
                 onBack={() =>
+                    openAddress([{ class: "evaluation-context", id: "" }])
+                }
+                onDeleted={() =>
                     openAddress([{ class: "evaluation-context", id: "" }])
                 }
             />
@@ -1063,7 +1135,11 @@ function AddressView({
         return file("governance.toml", () => go({ kind: "overview" }));
     }
     if (head.class === "layer" && !isCollective(head)) {
-        return file(`layers/${head.id}.toml`, () => go({ kind: "overview" }));
+        return file(
+            `layers/${head.id}.toml`,
+            () => go({ kind: "overview" }),
+            `layer=${head.id}`,
+        );
     }
     if (head.class === "linter" && !isCollective(head)) {
         return file(`lint/${head.id}.lua`, () => go({ kind: "overview" }));
@@ -1086,12 +1162,14 @@ function CollectionPage({
     prefix,
     count,
     empty,
+    action,
     children,
 }: {
     title: string;
     prefix: string;
     count: number;
     empty: string;
+    action?: ReactNode;
     children: ReactNode;
 }) {
     return (
@@ -1104,6 +1182,9 @@ function CollectionPage({
                     ) : null}
                 </h2>
             </div>
+            {action !== undefined && action !== null ? (
+                <div className="action-row">{action}</div>
+            ) : null}
             {count === 0 ? <p className="hint">{empty}</p> : children}
         </>
     );
@@ -1113,16 +1194,28 @@ function CatalogPanel({
     model,
     catalogId,
     entryPrefix,
+    editable,
+    changeSet,
+    detail,
     onOpenEntry,
     onOpenSchema,
     onBack,
+    onDeleted,
+    onSaved,
+    onError,
 }: {
     model: SemanticModel;
     catalogId: string;
     entryPrefix: string;
+    editable: boolean;
+    changeSet: ChangeSet | null;
+    detail: PackageDetail;
     onOpenEntry: (key: string) => void;
     onOpenSchema: (path: string) => void;
     onBack: () => void;
+    onDeleted: () => void;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
 }) {
     const catalog = model.catalogs.find(
         (candidate) => candidate.id === catalogId,
@@ -1140,6 +1233,13 @@ function CatalogPanel({
     const entries = model.catalogEntries.filter(
         (entry) =>
             entry.catalog === catalogId && entry.key.startsWith(entryPrefix),
+    );
+    const allEntries = model.catalogEntries.filter(
+        (entry) => entry.catalog === catalogId,
+    ).length;
+    const inbound = referenceLabels(
+        model,
+        (to) => to.kind === "catalog" && to.id === catalogId,
     );
     return (
         <div className="card card-stretch">
@@ -1159,11 +1259,60 @@ function CatalogPanel({
                     >
                         Schema
                     </button>
+                    {editable && changeSet !== null ? (
+                        <DeleteButton
+                            label="Delete catalog"
+                            warning={blastWarning(
+                                `the schema and ${allEntries === 1 ? "its 1 entry" : `all ${allEntries} entries`}`,
+                                inbound,
+                            )}
+                            onConfirm={() =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    operations: [
+                                        {
+                                            op: "delete",
+                                            target: `catalog=${catalogId}`,
+                                        },
+                                    ],
+                                    summary: `Delete catalog ${catalogId}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onDeleted();
+                                }, onError)
+                            }
+                        />
+                    ) : null}
                     <button className="btn btn-ghost btn-sm" onClick={onBack}>
                         Back
                     </button>
                 </span>
             </div>
+            {editable && changeSet !== null ? (
+                <NewIdForm
+                    label="New entry"
+                    placeholder="entry_key"
+                    onSubmit={(key) =>
+                        saveEdit(changeSet.id, {
+                            packagePath: detail.path,
+                            expectedPin: detail.pin,
+                            operations: [
+                                {
+                                    op: "create_entry",
+                                    catalog: catalogId,
+                                    key,
+                                    fields: {},
+                                },
+                            ],
+                            summary: `Create entry ${key} in ${catalogId}`,
+                        }).then((result) => {
+                            onSaved(result);
+                            onOpenEntry(key);
+                        }, onError)
+                    }
+                />
+            ) : null}
             {entries.length === 0 ? (
                 <p className="hint">
                     No entries
@@ -1196,20 +1345,208 @@ function CatalogPanel({
     );
 }
 
+// A structured list editor: members change through add_member/remove_member,
+// so an inherited list can later compile to update markers instead of a
+// whole-file rewrite.
+function ListPanel({
+    model,
+    listId,
+    editable,
+    changeSet,
+    detail,
+    onOpenFile,
+    onBack,
+    onDeleted,
+    onSaved,
+    onError,
+}: {
+    model: SemanticModel;
+    listId: string;
+    editable: boolean;
+    changeSet: ChangeSet | null;
+    detail: PackageDetail;
+    onOpenFile: (path: string) => void;
+    onBack: () => void;
+    onDeleted: () => void;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
+}) {
+    const list = model.lists.find((candidate) => candidate.id === listId);
+    const [adding, setAdding] = useState("");
+    const [saving, setSaving] = useState(false);
+    if (list === undefined) {
+        return (
+            <div className="card">
+                <p className="hint">No such list at this pin.</p>
+                <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                    Back
+                </button>
+            </div>
+        );
+    }
+    const memberType = list.memberType.value ?? "string";
+    const path = `lists/${listId}.toml`;
+    const canEdit = editable && changeSet !== null;
+    const oneOp = (
+        operation: EditOperation,
+        summary: string,
+        after?: () => void,
+    ) => {
+        if (changeSet === null) {
+            return;
+        }
+        setSaving(true);
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            operations: [operation],
+            summary,
+        })
+            .then((result) => {
+                onSaved(result);
+                after?.();
+            }, onError)
+            .finally(() => setSaving(false));
+    };
+    return (
+        <div className="card card-stretch">
+            <div className="card-head">
+                <div className="card-head-text">
+                    <h2 className="mono">{listId}</h2>
+                    <p className="hint">
+                        list of {memberType} · {list.members.length} member
+                        {list.members.length === 1 ? "" : "s"}
+                        {list.description !== undefined
+                            ? ` — ${list.description}`
+                            : ""}
+                    </p>
+                </div>
+                <span className="action-row">
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => onOpenFile(path)}
+                    >
+                        Raw file
+                    </button>
+                    {canEdit ? (
+                        <DeleteButton
+                            label="Delete list"
+                            warning={blastWarning(
+                                `lists/${listId}.toml`,
+                                listReferrers(model, listId),
+                            )}
+                            onConfirm={() =>
+                                oneOp(
+                                    { op: "delete", target: `list=${listId}` },
+                                    `Delete list ${listId}`,
+                                    onDeleted,
+                                )
+                            }
+                        />
+                    ) : null}
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </span>
+            </div>
+            <div className="row-list">
+                {list.members.map((member, index) => (
+                    <div className="row" key={index}>
+                        <span className="row-text">
+                            <span className="row-title mono">
+                                {memberType === "string"
+                                    ? String(member.value)
+                                    : JSON.stringify(member.value)}
+                            </span>
+                        </span>
+                        {canEdit ? (
+                            <span className="row-side">
+                                <button
+                                    className="btn btn-icon btn-sm btn-remove"
+                                    title="Remove member"
+                                    disabled={saving}
+                                    onClick={() =>
+                                        oneOp(
+                                            {
+                                                op: "remove_member",
+                                                list: listId,
+                                                value: member.value,
+                                            },
+                                            `Remove ${String(member.value)} from ${listId}`,
+                                        )
+                                    }
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+            {canEdit ? (
+                <div className="action-row">
+                    <input
+                        className="input mono"
+                        placeholder={`new ${memberType} member`}
+                        value={adding}
+                        onChange={(event) => setAdding(event.target.value)}
+                    />
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={saving || adding.trim() === ""}
+                        onClick={() => {
+                            let value: unknown;
+                            try {
+                                value = textToValue(adding.trim(), memberType);
+                            } catch (error) {
+                                onError(error);
+                                return;
+                            }
+                            oneOp(
+                                { op: "add_member", list: listId, value },
+                                `Add ${adding.trim()} to ${listId}`,
+                                () => setAdding(""),
+                            );
+                        }}
+                    >
+                        Add member
+                    </button>
+                </div>
+            ) : (
+                <p className="hint">
+                    Start or pick a change set above to edit.
+                </p>
+            )}
+        </div>
+    );
+}
+
 function ContextDetailPanel({
     model,
     contextId,
     inventory,
+    editable,
+    changeSet,
+    detail,
     onOpenSample,
     onOpenSchema,
     onBack,
+    onDeleted,
+    onSaved,
+    onError,
 }: {
     model: SemanticModel;
     contextId: string;
     inventory: ContextInventory | null;
+    editable: boolean;
+    changeSet: ChangeSet | null;
+    detail: PackageDetail;
     onOpenSample: (key: string) => void;
     onOpenSchema: (path: string) => void;
     onBack: () => void;
+    onDeleted: () => void;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
 }) {
     const context = model.evaluationContexts.find(
         (candidate) => candidate.id === contextId,
@@ -1227,6 +1564,7 @@ function ContextDetailPanel({
     const samples = (inventory?.samples ?? []).filter(
         (sample) => sample.evaluationContext === contextId,
     );
+    const canEdit = editable && changeSet !== null;
     return (
         <div className="card card-stretch">
             <div className="card-head">
@@ -1241,11 +1579,63 @@ function ContextDetailPanel({
                     >
                         Schema
                     </button>
+                    {canEdit && changeSet !== null ? (
+                        <DeleteButton
+                            label="Delete context"
+                            warning={blastWarning(
+                                `the schema and ${samples.length === 1 ? "its 1 sample" : `all ${samples.length} samples`}`,
+                                [],
+                            )}
+                            onConfirm={() =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    operations: [
+                                        {
+                                            op: "delete",
+                                            target: `evaluation-context=${contextId}`,
+                                        },
+                                    ],
+                                    summary: `Delete context ${contextId}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onDeleted();
+                                }, onError)
+                            }
+                        />
+                    ) : null}
                     <button className="btn btn-ghost btn-sm" onClick={onBack}>
                         Back
                     </button>
                 </span>
             </div>
+            {canEdit && changeSet !== null ? (
+                <NewIdForm
+                    label="New sample"
+                    placeholder="sample_key"
+                    onSubmit={(key) =>
+                        saveEdit(changeSet.id, {
+                            packagePath: detail.path,
+                            expectedPin: detail.pin,
+                            operations: [
+                                {
+                                    op: "create_sample",
+                                    context: contextId,
+                                    key,
+                                    content:
+                                        samples[0]?.context != null
+                                            ? samples[0].context
+                                            : {},
+                                },
+                            ],
+                            summary: `Create sample ${key} for ${contextId}`,
+                        }).then((result) => {
+                            onSaved(result);
+                            onOpenSample(key);
+                        }, onError)
+                    }
+                />
+            ) : null}
             {inventory === null ? (
                 <p className="muted">Loading samples…</p>
             ) : samples.length === 0 ? (
@@ -1274,11 +1664,19 @@ function ContextDetailPanel({
 function FileList({
     treeId,
     detail,
+    changeSet,
+    editable,
     onOpenFile,
+    onSaved,
+    onError,
 }: {
     treeId: string;
     detail: PackageDetail;
+    changeSet?: ChangeSet | null;
+    editable?: boolean;
     onOpenFile: (path: string) => void;
+    onSaved?: (result: EditResponse) => void;
+    onError?: (error: unknown) => void;
 }) {
     const [files, setFiles] = useState<string[] | null>(null);
     useEffect(() => {
@@ -1307,6 +1705,26 @@ function FileList({
                     The raw-text escape hatch: every file, structured or not.
                 </p>
             </div>
+            {editable === true &&
+            changeSet != null &&
+            onSaved !== undefined &&
+            onError !== undefined ? (
+                <NewIdForm
+                    label="New file"
+                    placeholder="path/in/package.toml"
+                    onSubmit={(path) =>
+                        saveEdit(changeSet.id, {
+                            packagePath: detail.path,
+                            expectedPin: detail.pin,
+                            files: [{ path, content: "" }],
+                            summary: `Create ${path}`,
+                        }).then((result) => {
+                            onSaved(result);
+                            onOpenFile(path);
+                        }, onError)
+                    }
+                />
+            ) : null}
             <div className="row-list">
                 {(files ?? []).map((file) => (
                     <button
@@ -1357,17 +1775,21 @@ function VariablePanel({
         (candidate) => candidate.id === variableId,
     );
     const type = variable?.declaration.value ?? "string";
-    const original = useMemo(
+    const original = useMemo<VariableDraft>(
         () => ({
             description: variable?.description ?? "",
             defaultText: valueToText(variable?.resolve?.default?.value, type),
             rules: (variable?.resolve?.rules ?? []).map(ruleToDraft(type)),
+            method: methodOf(variable),
+            query: queryToDraft(variable?.resolve?.query),
         }),
         [variable, type],
     );
     const [description, setDescription] = useState(original.description);
     const [defaultText, setDefaultText] = useState(original.defaultText);
     const [rules, setRules] = useState<RuleDraft[]>(original.rules);
+    const [method, setMethod] = useState(original.method);
+    const [query, setQuery] = useState<QueryDraft>(original.query);
     const [saving, setSaving] = useState(false);
 
     if (variable === undefined) {
@@ -1391,6 +1813,8 @@ function VariablePanel({
                 description,
                 defaultText,
                 rules,
+                method,
+                query,
             });
         } catch (error) {
             onError(error);
@@ -1450,9 +1874,44 @@ function VariablePanel({
                         {type} · {variable.location.path}
                     </p>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <span className="action-row">
+                    {editable && changeSet !== null ? (
+                        <DeleteButton
+                            label="Delete variable"
+                            warning={blastWarning(
+                                `variables/${variableId}.toml`,
+                                referenceLabels(
+                                    detail.model,
+                                    (to) =>
+                                        to.kind === "variable" &&
+                                        to.id === variableId,
+                                ).filter(
+                                    (label) =>
+                                        label !== `variable ${variableId}`,
+                                ),
+                            )}
+                            onConfirm={() =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    operations: [
+                                        {
+                                            op: "delete",
+                                            target: `variable=${variableId}`,
+                                        },
+                                    ],
+                                    summary: `Delete ${variableId}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onBack();
+                                }, onError)
+                            }
+                        />
+                    ) : null}
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </span>
             </div>
 
             <TracePreview
@@ -1485,101 +1944,141 @@ function VariablePanel({
                     />
                 </div>
 
-                <div className="section-header-text">
-                    <h3>Rules</h3>
-                    <p className="hint">
-                        First match wins; the default answers when none do.
-                    </p>
-                </div>
-                {rules.map((rule, index) => (
-                    <div className="rule-row" key={index}>
-                        <span className="rule-word label">when</span>
-                        <input
-                            className="input mono"
-                            disabled={!editable}
-                            value={rule.when}
-                            onChange={(event) =>
-                                setRules(
-                                    replaceAt(rules, index, {
-                                        ...rule,
-                                        when: event.target.value,
-                                    }),
-                                )
-                            }
-                        />
-                        <span className="rule-word label">value</span>
-                        <ValueInput
-                            type={type}
-                            disabled={!editable}
-                            value={rule.valueText}
-                            onChange={(valueText) =>
-                                setRules(
-                                    replaceAt(rules, index, {
-                                        ...rule,
-                                        valueText,
-                                    }),
-                                )
-                            }
-                        />
+                {method === "allocation" ? (
+                    <div className="section-header-text">
+                        <h3>Allocation</h3>
+                        <p className="hint">
+                            This variable resolves by allocation; adjust the
+                            rollout on its layer, or edit the raw file.
+                        </p>
+                    </div>
+                ) : method === "query" ? (
+                    <QueryFields
+                        editable={editable}
+                        query={query}
+                        onChange={setQuery}
+                        onUseRules={() => setMethod("rules")}
+                    />
+                ) : (
+                    <>
+                        <div className="section-header-text">
+                            <h3>Rules</h3>
+                            <p className="hint">
+                                First match wins; the default answers when none
+                                do.
+                            </p>
+                        </div>
+                        {rules.map((rule, index) => (
+                            <div className="rule-row" key={index}>
+                                <span className="rule-word label">when</span>
+                                <input
+                                    className="input mono"
+                                    disabled={!editable}
+                                    value={rule.when}
+                                    onChange={(event) =>
+                                        setRules(
+                                            replaceAt(rules, index, {
+                                                ...rule,
+                                                when: event.target.value,
+                                            }),
+                                        )
+                                    }
+                                />
+                                <span className="rule-word label">value</span>
+                                <ValueInput
+                                    type={type}
+                                    disabled={!editable}
+                                    value={rule.valueText}
+                                    onChange={(valueText) =>
+                                        setRules(
+                                            replaceAt(rules, index, {
+                                                ...rule,
+                                                valueText,
+                                            }),
+                                        )
+                                    }
+                                />
+                                {editable ? (
+                                    <span className="action-row">
+                                        <button
+                                            className="btn btn-icon btn-sm"
+                                            disabled={index === 0}
+                                            title="Move up"
+                                            onClick={() =>
+                                                setRules(
+                                                    moveRule(
+                                                        rules,
+                                                        index,
+                                                        index - 1,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            ↑
+                                        </button>
+                                        <button
+                                            className="btn btn-icon btn-sm"
+                                            disabled={
+                                                index === rules.length - 1
+                                            }
+                                            title="Move down"
+                                            onClick={() =>
+                                                setRules(
+                                                    moveRule(
+                                                        rules,
+                                                        index,
+                                                        index + 1,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            ↓
+                                        </button>
+                                        <button
+                                            className="btn btn-icon btn-sm btn-remove"
+                                            title="Remove rule"
+                                            onClick={() =>
+                                                setRules(
+                                                    rules.filter(
+                                                        (_, i) => i !== index,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ) : null}
+                            </div>
+                        ))}
                         {editable ? (
-                            <span className="action-row">
+                            <div className="action-row">
                                 <button
-                                    className="btn btn-icon btn-sm"
-                                    disabled={index === 0}
-                                    title="Move up"
+                                    className="btn btn-secondary btn-sm"
                                     onClick={() =>
-                                        setRules(
-                                            moveRule(rules, index, index - 1),
-                                        )
+                                        setRules([
+                                            ...rules,
+                                            {
+                                                when: "",
+                                                valueText:
+                                                    defaultRuleValue(type),
+                                            },
+                                        ])
                                     }
                                 >
-                                    ↑
+                                    Add rule
                                 </button>
                                 <button
-                                    className="btn btn-icon btn-sm"
-                                    disabled={index === rules.length - 1}
-                                    title="Move down"
-                                    onClick={() =>
-                                        setRules(
-                                            moveRule(rules, index, index + 1),
-                                        )
-                                    }
+                                    className="btn btn-ghost btn-sm"
+                                    title="Select the value with one catalog query instead of rules"
+                                    onClick={() => setMethod("query")}
                                 >
-                                    ↓
+                                    Use a query instead
                                 </button>
-                                <button
-                                    className="btn btn-icon btn-sm btn-remove"
-                                    title="Remove rule"
-                                    onClick={() =>
-                                        setRules(
-                                            rules.filter((_, i) => i !== index),
-                                        )
-                                    }
-                                >
-                                    ×
-                                </button>
-                            </span>
+                            </div>
                         ) : null}
-                    </div>
-                ))}
-                {editable ? (
-                    <div className="action-row">
-                        <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() =>
-                                setRules([
-                                    ...rules,
-                                    {
-                                        when: "",
-                                        valueText: defaultRuleValue(type),
-                                    },
-                                ])
-                            }
-                        >
-                            Add rule
-                        </button>
-                    </div>
-                ) : null}
+                    </>
+                )}
             </div>
 
             <div className="card-actions">
@@ -1647,6 +2146,97 @@ function ValueInput({
     );
 }
 
+function QueryFields({
+    editable,
+    query,
+    onChange,
+    onUseRules,
+}: {
+    editable: boolean;
+    query: QueryDraft;
+    onChange: (query: QueryDraft) => void;
+    onUseRules: () => void;
+}) {
+    const set = (key: keyof QueryDraft) => (value: string) =>
+        onChange({ ...query, [key]: value });
+    return (
+        <>
+            <div className="section-header-text">
+                <h3>Query</h3>
+                <p className="hint">
+                    One query selects the value from a catalog; the default
+                    answers when nothing matches.
+                </p>
+            </div>
+            <div className="field-row">
+                <span className="label">From</span>
+                <input
+                    className="input mono"
+                    disabled={!editable}
+                    placeholder="catalog_id"
+                    value={query.from}
+                    onChange={(event) => set("from")(event.target.value)}
+                />
+            </div>
+            <div className="field-row">
+                <span className="label">Filter</span>
+                <input
+                    className="input mono"
+                    disabled={!editable}
+                    placeholder="entry.tier == context.account.tier"
+                    value={query.filter}
+                    onChange={(event) => set("filter")(event.target.value)}
+                />
+            </div>
+            <div className="field-row">
+                <span className="label">Sort</span>
+                <input
+                    className="input mono"
+                    disabled={!editable}
+                    placeholder="entry.priority (optional)"
+                    value={query.sort}
+                    onChange={(event) => set("sort")(event.target.value)}
+                />
+            </div>
+            <div className="field-row">
+                <span className="label">Order</span>
+                <select
+                    className="input"
+                    disabled={!editable}
+                    value={query.order}
+                    onChange={(event) => set("order")(event.target.value)}
+                >
+                    <option value="">default (asc)</option>
+                    <option value="asc">asc</option>
+                    <option value="desc">desc</option>
+                </select>
+            </div>
+            <div className="field-row">
+                <span className="label">Limit</span>
+                <input
+                    className="input mono"
+                    type="number"
+                    disabled={!editable}
+                    placeholder="all matches"
+                    value={query.limitText}
+                    onChange={(event) => set("limitText")(event.target.value)}
+                />
+            </div>
+            {editable ? (
+                <div className="action-row">
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        title="Switch back to first-match rules"
+                        onClick={onUseRules}
+                    >
+                        Use rules instead
+                    </button>
+                </div>
+            ) : null}
+        </>
+    );
+}
+
 // --- the raw-text path ---
 
 function FilePanel({
@@ -1655,6 +2245,8 @@ function FilePanel({
     file,
     editable,
     changeSet,
+    deleteAs,
+    onDeleted,
     onBack,
     onSaved,
     onError,
@@ -1664,6 +2256,11 @@ function FilePanel({
     file: string;
     editable: boolean;
     changeSet: ChangeSet | null;
+    // The entity address this file defines, when the file was reached
+    // through one: deletion then goes through the semantic operation so
+    // the change record names the entity, not just the path.
+    deleteAs?: string;
+    onDeleted?: () => void;
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
@@ -1815,9 +2412,39 @@ function FilePanel({
                             : ": lint judges the result after the save."}
                     </p>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                    Back
-                </button>
+                <span className="action-row">
+                    {editable &&
+                    changeSet !== null &&
+                    file !== "rototo-package.toml" ? (
+                        <DeleteButton
+                            label="Delete"
+                            warning={`This removes ${deleteAs ?? file}; anything still referencing it shows up in lint.`}
+                            onConfirm={() =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    ...(deleteAs !== undefined
+                                        ? {
+                                              operations: [
+                                                  {
+                                                      op: "delete",
+                                                      target: deleteAs,
+                                                  },
+                                              ],
+                                          }
+                                        : { deletes: [file] }),
+                                    summary: `Delete ${deleteAs ?? file}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onDeleted?.();
+                                }, onError)
+                            }
+                        />
+                    ) : null}
+                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
+                        Back
+                    </button>
+                </span>
             </div>
             {content === null ? (
                 <p className="muted">Loading…</p>
@@ -1868,13 +2495,521 @@ function FilePanel({
     );
 }
 
+// --- creating and deleting entities ---
+
+// The starter schema a console-created catalog or context begins with:
+// open, so the first entry or sample validates while the real contract is
+// drafted in the raw schema file.
+const STARTER_SCHEMA = { type: "object", additionalProperties: true };
+
+type CreateDeps = {
+    detail: PackageDetail;
+    changeSet: ChangeSet | null;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
+    onCreated: (id: string) => void;
+};
+
+function NewVariableForm({
+    detail,
+    changeSet,
+    onSaved,
+    onError,
+    onCreated,
+}: CreateDeps) {
+    const [open, setOpen] = useState(false);
+    const [id, setId] = useState("");
+    const [type, setType] = useState("bool");
+    const [defaultText, setDefaultText] = useState("false");
+    const [busy, setBusy] = useState(false);
+    if (changeSet === null) {
+        return null;
+    }
+    if (!open) {
+        return (
+            <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setOpen(true)}
+            >
+                New variable
+            </button>
+        );
+    }
+    const submit = () => {
+        let value: unknown;
+        try {
+            value = textToValue(defaultText, type);
+        } catch (error) {
+            onError(error);
+            return;
+        }
+        const variableId = id.trim();
+        setBusy(true);
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            operations: [
+                { op: "create_variable", id: variableId, type, default: value },
+            ],
+            summary: `Create ${variableId}`,
+        })
+            .then((result) => {
+                onSaved(result);
+                onCreated(variableId);
+            }, onError)
+            .finally(() => setBusy(false));
+    };
+    return (
+        <span className="inline-form">
+            <input
+                autoFocus
+                className="input mono"
+                placeholder="variable_id"
+                value={id}
+                onChange={(event) => setId(event.target.value)}
+            />
+            <select
+                className="input"
+                value={type}
+                onChange={(event) => {
+                    setType(event.target.value);
+                    setDefaultText(
+                        event.target.value === "bool"
+                            ? "false"
+                            : event.target.value === "string"
+                              ? ""
+                              : "0",
+                    );
+                }}
+            >
+                {["bool", "int", "number", "string"].map((option) => (
+                    <option key={option} value={option}>
+                        {option}
+                    </option>
+                ))}
+            </select>
+            <ValueInput
+                type={type}
+                disabled={false}
+                value={defaultText}
+                onChange={setDefaultText}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={busy || id.trim() === ""}
+                onClick={submit}
+            >
+                Create
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => setOpen(false)}
+            >
+                Cancel
+            </button>
+        </span>
+    );
+}
+
+function NewCatalogForm({
+    detail,
+    changeSet,
+    onSaved,
+    onError,
+    onCreated,
+}: CreateDeps) {
+    if (changeSet === null) {
+        return null;
+    }
+    return (
+        <NewIdForm
+            label="New catalog"
+            placeholder="catalog_id"
+            onSubmit={(id) =>
+                saveEdit(changeSet.id, {
+                    packagePath: detail.path,
+                    expectedPin: detail.pin,
+                    operations: [
+                        { op: "create_catalog", id, schema: STARTER_SCHEMA },
+                    ],
+                    summary: `Create catalog ${id}`,
+                }).then((result) => {
+                    onSaved(result);
+                    onCreated(id);
+                }, onError)
+            }
+        />
+    );
+}
+
+function NewContextForm({
+    detail,
+    changeSet,
+    onSaved,
+    onError,
+    onCreated,
+}: CreateDeps) {
+    if (changeSet === null) {
+        return null;
+    }
+    return (
+        <NewIdForm
+            label="New context"
+            placeholder="context_id"
+            onSubmit={(id) =>
+                saveEdit(changeSet.id, {
+                    packagePath: detail.path,
+                    expectedPin: detail.pin,
+                    operations: [
+                        { op: "create_context", id, schema: STARTER_SCHEMA },
+                    ],
+                    summary: `Create context ${id}`,
+                }).then((result) => {
+                    onSaved(result);
+                    onCreated(id);
+                }, onError)
+            }
+        />
+    );
+}
+
+function NewListForm({
+    detail,
+    changeSet,
+    onSaved,
+    onError,
+    onCreated,
+}: CreateDeps) {
+    const [open, setOpen] = useState(false);
+    const [id, setId] = useState("");
+    const [type, setType] = useState("string");
+    const [membersText, setMembersText] = useState("");
+    const [busy, setBusy] = useState(false);
+    if (changeSet === null) {
+        return null;
+    }
+    if (!open) {
+        return (
+            <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setOpen(true)}
+            >
+                New list
+            </button>
+        );
+    }
+    const submit = () => {
+        let members: unknown[];
+        try {
+            members = membersText
+                .split(",")
+                .map((text) => text.trim())
+                .filter((text) => text !== "")
+                .map((text) => textToValue(text, type));
+        } catch (error) {
+            onError(error);
+            return;
+        }
+        if (members.length === 0) {
+            onError(new Error("a list needs at least one member"));
+            return;
+        }
+        const listId = id.trim();
+        setBusy(true);
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            operations: [{ op: "create_list", id: listId, type, members }],
+            summary: `Create list ${listId}`,
+        })
+            .then((result) => {
+                onSaved(result);
+                onCreated(listId);
+            }, onError)
+            .finally(() => setBusy(false));
+    };
+    return (
+        <span className="inline-form">
+            <input
+                autoFocus
+                className="input mono"
+                placeholder="list_id"
+                value={id}
+                onChange={(event) => setId(event.target.value)}
+            />
+            <select
+                className="input"
+                value={type}
+                onChange={(event) => setType(event.target.value)}
+            >
+                {["string", "int", "number", "bool"].map((option) => (
+                    <option key={option} value={option}>
+                        {option}
+                    </option>
+                ))}
+            </select>
+            <input
+                className="input mono"
+                placeholder="member, member, member"
+                value={membersText}
+                onChange={(event) => setMembersText(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={busy || id.trim() === ""}
+                onClick={submit}
+            >
+                Create
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => setOpen(false)}
+            >
+                Cancel
+            </button>
+        </span>
+    );
+}
+
+// One id in, one create operation out: entries, samples, and files share
+// the shape.
+function NewIdForm({
+    label,
+    placeholder,
+    onSubmit,
+}: {
+    label: string;
+    placeholder: string;
+    onSubmit: (id: string) => Promise<unknown> | void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [id, setId] = useState("");
+    const [busy, setBusy] = useState(false);
+    if (!open) {
+        return (
+            <div className="action-row">
+                <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setOpen(true)}
+                >
+                    {label}
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="action-row">
+            <input
+                autoFocus
+                className="input mono"
+                placeholder={placeholder}
+                value={id}
+                onChange={(event) => setId(event.target.value)}
+            />
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={busy || id.trim() === ""}
+                onClick={() => {
+                    setBusy(true);
+                    void Promise.resolve(onSubmit(id.trim())).finally(() => {
+                        setBusy(false);
+                        setOpen(false);
+                        setId("");
+                    });
+                }}
+            >
+                Create
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => setOpen(false)}
+            >
+                Cancel
+            </button>
+        </div>
+    );
+}
+
+// A two-step delete: the first click shows the blast radius, the second
+// commits it. Deletes land like any edit, so lint reports what dangles.
+// The surfaces lens reuses it, so "delete" reads the same everywhere.
+export function DeleteButton({
+    label,
+    warning,
+    onConfirm,
+}: {
+    label: string;
+    warning: string;
+    onConfirm: () => Promise<unknown> | void;
+}) {
+    const [confirming, setConfirming] = useState(false);
+    const [busy, setBusy] = useState(false);
+    if (!confirming) {
+        return (
+            <button
+                className="btn btn-ghost btn-sm btn-remove"
+                onClick={() => setConfirming(true)}
+            >
+                {label}
+            </button>
+        );
+    }
+    return (
+        <span className="inline-form">
+            <span className="hint">{warning}</span>
+            <button
+                className="btn btn-primary btn-sm"
+                disabled={busy}
+                onClick={() => {
+                    setBusy(true);
+                    void Promise.resolve(onConfirm()).finally(() => {
+                        setBusy(false);
+                        setConfirming(false);
+                    });
+                }}
+            >
+                {busy ? "Deleting…" : "Confirm delete"}
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => setConfirming(false)}
+            >
+                Keep
+            </button>
+        </span>
+    );
+}
+
+// Who points at this entity, from the model's reference index: the blast
+// radius a delete shows before it lands.
+function referenceLabels(
+    model: SemanticModel,
+    matches: (to: ModelEntityRef) => boolean,
+): string[] {
+    const labels = new Set<string>();
+    for (const reference of model.references) {
+        if (!matches(reference.to)) {
+            continue;
+        }
+        const from = reference.from;
+        const id =
+            typeof from.id === "string"
+                ? from.id
+                : typeof from["variable"] === "string"
+                  ? (from["variable"] as string)
+                  : "?";
+        labels.add(`${from.kind} ${id}`);
+    }
+    return [...labels].sort();
+}
+
+// The reference index does not track list usage, so the visible blast
+// radius for a list is the variables typed against it; expression uses
+// (`lists.<id>`) surface through lint after the delete.
+function listReferrers(model: SemanticModel, listId: string): string[] {
+    return model.variables
+        .filter((variable) => {
+            const value = variable.declaration.value ?? "";
+            return (
+                value === `list=${listId}` || value === `array<list=${listId}>`
+            );
+        })
+        .map((variable) => `variable ${variable.id}`);
+}
+
+function blastWarning(what: string, referrers: string[]): string {
+    const base = `This removes ${what}.`;
+    if (referrers.length === 0) {
+        return `${base} Anything still referencing it shows up in lint.`;
+    }
+    const shown = referrers.slice(0, 4).join(", ");
+    const more =
+        referrers.length > 4 ? ` and ${referrers.length - 4} more` : "";
+    return `${base} Still referenced by ${shown}${more}; those references will fail lint.`;
+}
+
 // --- form state to operations ---
+
+type QueryDraft = {
+    from: string;
+    filter: string;
+    sort: string;
+    order: string;
+    limitText: string;
+};
+
+type VariableDraft = {
+    description: string;
+    defaultText: string;
+    rules: RuleDraft[];
+    method: "rules" | "query" | "allocation";
+    query: QueryDraft;
+};
+
+function methodOf(
+    variable: VariableModel | undefined,
+): "rules" | "query" | "allocation" {
+    const value = variable?.resolve?.method?.value;
+    return value === "query" || value === "allocation" ? value : "rules";
+}
+
+function queryToDraft(query: QueryModel | undefined): QueryDraft {
+    return {
+        from: query?.from?.value ?? "",
+        filter: query?.filter?.value ?? "",
+        sort: query?.sort?.value ?? "",
+        order: query?.order?.value ?? "",
+        limitText: query?.limit?.value ?? "",
+    };
+}
+
+function queryEqual(a: QueryDraft, b: QueryDraft): boolean {
+    return (
+        a.from === b.from &&
+        a.filter === b.filter &&
+        a.sort === b.sort &&
+        a.order === b.order &&
+        a.limitText === b.limitText
+    );
+}
+
+function queryOperation(variableId: string, query: QueryDraft): EditOperation {
+    if (query.from.trim() === "" || query.filter.trim() === "") {
+        throw new Error("a query needs a catalog to read and a filter");
+    }
+    const operation: EditOperation = {
+        op: "set_query",
+        variable: variableId,
+        from: query.from.trim(),
+        filter: query.filter.trim(),
+    };
+    if (query.sort.trim() !== "") {
+        operation["sort"] = query.sort.trim();
+    }
+    if (query.order !== "") {
+        operation["order"] = query.order;
+    }
+    if (query.limitText.trim() !== "") {
+        const limit = Number(query.limitText);
+        if (!Number.isInteger(limit) || limit < 1) {
+            throw new Error(
+                `${query.limitText} is not a positive integer limit`,
+            );
+        }
+        operation["limit"] = limit;
+    }
+    return operation;
+}
 
 function buildOperations(
     variableId: string,
     type: string,
-    original: { description: string; defaultText: string; rules: RuleDraft[] },
-    draft: { description: string; defaultText: string; rules: RuleDraft[] },
+    original: VariableDraft,
+    draft: VariableDraft,
 ): EditOperation[] {
     const operations: EditOperation[] = [];
     if (draft.description !== original.description) {
@@ -1890,6 +3025,29 @@ function buildOperations(
             variable: variableId,
             value: textToValue(draft.defaultText, type),
         });
+    }
+    if (draft.method === "query") {
+        // The whole query saves as one operation; the engine drops any
+        // rules, since a query resolve has no rules to run.
+        if (
+            original.method !== "query" ||
+            !queryEqual(draft.query, original.query)
+        ) {
+            operations.push(queryOperation(variableId, draft.query));
+        }
+        return operations;
+    }
+    if (original.method === "query") {
+        operations.push({ op: "clear_query", variable: variableId });
+        for (const rule of draft.rules) {
+            operations.push({
+                op: "add_rule",
+                variable: variableId,
+                when: rule.when,
+                value: textToValue(rule.valueText, type),
+            });
+        }
+        return operations;
     }
     if (!rulesEqual(draft.rules, original.rules)) {
         if (draft.rules.length === original.rules.length) {
