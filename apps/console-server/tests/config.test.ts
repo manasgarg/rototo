@@ -32,10 +32,27 @@ test("a blank XDG_CACHE_HOME means unset, per the spec", () => {
     );
 });
 
-test("the data dir stays an explicit opt-in", () => {
-    assert.equal(resolveConfig({}).dataDir, null);
+test("the data dir defaults to XDG_DATA_HOME and persists", () => {
+    const config = resolveConfig({ XDG_DATA_HOME: "/var/data/me" });
     assert.equal(
-        resolveConfig({}, { dataDir: "/srv/console" }).dataDir,
-        "/srv/console",
+        config.dataDir,
+        path.join("/var/data/me", "rototo", "console"),
     );
+});
+
+test("the data dir falls back to ~/.local/share", () => {
+    const config = resolveConfig({});
+    assert.equal(
+        config.dataDir,
+        path.join(os.homedir(), ".local", "share", "rototo", "console"),
+    );
+});
+
+test("an explicit --data-dir wins and pulls the cache alongside", () => {
+    const config = resolveConfig(
+        { XDG_DATA_HOME: "/var/data/me", XDG_CACHE_HOME: "/var/cache/me" },
+        { dataDir: "/srv/console" },
+    );
+    assert.equal(config.dataDir, "/srv/console");
+    assert.equal(config.cacheDir, "/srv/console");
 });

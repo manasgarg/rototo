@@ -76,7 +76,7 @@ starting point you can copy to `.env` and fill in.
 | `--host` | `127.0.0.1` | Address to bind |
 | `--port` | `7687` | Port to listen on |
 | `--public-url` | `http://{host}:{port}` | The externally visible origin. OAuth redirects and cookies use it, and the allowed-origin check is derived from it. Set this whenever people reach the console at a real hostname. |
-| `--data-dir` | *(none)* | Where the coordination store and stored credentials live. Leave it off and the console runs fully in memory. Staged package caches follow it too; without it they go to the XDG cache directory. |
+| `--data-dir` | `$XDG_DATA_HOME/rototo/console` | Where the store, stored credentials, and staged package caches live. The default persists under your XDG data home; point it somewhere else to keep everything on a volume you choose. |
 | `--web` | *(auto)* | Path to the built web bundle. Falls back to the packaged copy, then a repo checkout's build output. |
 
 ### Environment variables
@@ -127,23 +127,33 @@ secret alongside it.
 
 ## State, and why it is disposable
 
-When you give the console a `--data-dir`, it keeps a small SQLite store
-there. That store is coordination, not content: sign-in records, cached
-review state, the bookkeeping the UI needs to feel fast. The configuration
-itself never lives there. It lives in git, where it always has.
+The console keeps a small SQLite store in its data directory. That store is
+coordination, not content: sign-in records, cached review state, the
+bookkeeping the UI needs to feel fast. The configuration itself never lives
+there. It lives in git, where it always has.
 
-That split is deliberate, and it is what makes the store safe to lose. If the
-file is deleted or the container is replaced, the console rebuilds what it
-needs from GitHub. Run without a `--data-dir` and there is no store file at
-all; everything is in memory and gone on restart, which is exactly what you
-want for a quick local look.
+That split is deliberate, and it is what makes the store safe to lose. If
+the directory is deleted or the container is replaced, the console rebuilds
+what it needs from GitHub. The one thing you actually lose is stored
+sign-ins, so people sign in again.
 
-One thing does persist either way: the cache of staged package trees, keyed
-by commit. With a `--data-dir` it lives under `pins/` inside it, so one
-volume holds everything. Without one it goes to the standard cache location,
-`$XDG_CACHE_HOME/rototo/console` (usually `~/.cache/rototo/console`). It is
-a pure cache: size-bounded, safe to delete at any time, and never worth
-backing up.
+### Where files go
+
+Everything the console writes follows the XDG base directories, so it lands
+where the rest of your tools already keep things:
+
+| What | Default location | With `--data-dir` |
+| --- | --- | --- |
+| Coordination store (`console.sqlite`) | `$XDG_DATA_HOME/rototo/console/` | the data dir |
+| Stored credentials (`credentials.json`) | `$XDG_DATA_HOME/rototo/console/` | the data dir |
+| Staged package caches (`pins/`, `pins-composed/`) | `$XDG_CACHE_HOME/rototo/console/` | under the data dir |
+
+`$XDG_DATA_HOME` falls back to `~/.local/share` and `$XDG_CACHE_HOME` to
+`~/.cache` when the variables are unset. The split matters for backups: the
+data directory is worth a volume, while the caches are keyed by commit and
+size-bounded, safe to delete at any time and never worth backing up. An
+explicit `--data-dir` collapses the split on purpose, pulling the caches
+alongside the store so one volume holds everything the console touches.
 
 ## Hosting it for a team
 
@@ -162,9 +172,10 @@ Two things matter when you do this:
 - Point the proxy's API path and app path at the one console port. The server
   serves both from the same process, so a single upstream is enough.
 
-Beyond that, hosting is ordinary: pick a `--data-dir` on a persistent volume
-if you want warm restarts, set the sign-in and encryption variables for team
-mode, and let the reverse proxy own TLS.
+Beyond that, hosting is ordinary: state persists under the XDG data home by
+default, so set `--data-dir` when you want it on a volume you manage, set
+the sign-in and encryption variables for team mode, and let the reverse
+proxy own TLS.
 
 ## Where the console stops
 

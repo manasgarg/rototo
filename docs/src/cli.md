@@ -360,16 +360,32 @@ rototo setup --agent claude
 
 - **`--all`** - set up every supported integration.
 - **`--shell <shell>`** - `auto`, `bash`, `fish`, `zsh`, `elvish`, `powershell`,
-  or `none`. Completions land where each shell already looks, following the
-  XDG base directories: bash and elvish under `$XDG_DATA_HOME` (usually
-  `~/.local/share`), fish and the Neovim config under `$XDG_CONFIG_HOME`
-  (usually `~/.config`), zsh under `$ZDOTDIR/.zfunc`.
+  or `none`.
 - **`--editor <editor>`** - `all`, `neovim`, or `none`.
 - **`--agent <agent>`** - `all`, `claude`, `codex`, or `none`. Agent guidance is
   written into a clearly marked, managed block.
 - **`--print`** - print the generated content instead of writing files.
 - **`--dry-run`** - show planned changes without touching the filesystem.
 - **`--force`** - overwrite rototo-owned generated files that already exist.
+
+### Where files go
+
+Everything `setup` writes follows the XDG base directories, in the spot each
+tool already searches:
+
+| Target | File |
+| --- | --- |
+| bash | `$XDG_DATA_HOME/bash-completion/completions/rototo` |
+| elvish | `$XDG_DATA_HOME/elvish/lib/rototo-completions.elv` |
+| fish | `$XDG_CONFIG_HOME/fish/completions/rototo.fish` |
+| zsh | `$ZDOTDIR/.zfunc/_rototo` (`~/.zfunc` when `ZDOTDIR` is unset) |
+| Neovim | `$XDG_CONFIG_HOME/nvim/lua/rototo.lua`, plus one `require` line in your init file |
+| powershell | nothing; `--print` gives you the script to add to your profile |
+
+`$XDG_DATA_HOME` falls back to `~/.local/share` and `$XDG_CONFIG_HOME` to
+`~/.config` when unset. Agent guidance lands in your project's `CLAUDE.md`
+or `AGENTS.md` inside a clearly marked block. Beyond `setup`, the CLI keeps
+no files of its own: no cache, no state, no config directory.
 
 ## lsp - the language server
 

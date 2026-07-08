@@ -27,7 +27,7 @@ const { values } = parseArgs({
 const config = resolveConfig(process.env, {
     port: values.port !== undefined ? Number(values.port) : undefined,
     host: values.host,
-    dataDir: values["data-dir"] ?? null,
+    dataDir: values["data-dir"],
     publicUrl: values["public-url"],
 });
 

@@ -32,11 +32,15 @@ export type ServerConfig = {
     //Origin used for OAuth redirects and cookies.
     publicUrl: string;
     allowedOrigins: string[];
-    //Null means ephemeral state: in-memory store, no stored credentials.
-    dataDir: string | null;
-    //Where rebuildable caches live (the pin store): the XDG cache home.
-    //Independent of dataDir because a commit-keyed cache is always safe to
-    //share and never worth backing up.
+    //Where the coordination store and stored credentials live. Defaults to
+    //the XDG data home; --data-dir points it somewhere else. The store is
+    //rebuildable from GitHub either way, so deleting the directory resets
+    //the console without losing configuration (that lives in git).
+    dataDir: string;
+    //Where rebuildable caches live (the pin store): the XDG cache home by
+    //default, because a commit-keyed cache is never worth backing up. An
+    //explicit --data-dir pulls the cache alongside the store so one volume
+    //holds everything.
     cacheDir: string;
     githubOAuth: { clientId: string; clientSecret: string } | null;
     //One generic OIDC provider covers Okta, Entra, Google, and the rest.
@@ -150,12 +154,22 @@ export function resolveConfig(
         port,
         publicUrl,
         allowedOrigins,
-        dataDir: overrides.dataDir ?? null,
-        cacheDir: path.join(
-            trimmed(env.XDG_CACHE_HOME) ?? path.join(os.homedir(), ".cache"),
-            "rototo",
-            "console",
-        ),
+        dataDir:
+            overrides.dataDir ??
+            path.join(
+                trimmed(env.XDG_DATA_HOME) ??
+                    path.join(os.homedir(), ".local", "share"),
+                "rototo",
+                "console",
+            ),
+        cacheDir:
+            overrides.dataDir ??
+            path.join(
+                trimmed(env.XDG_CACHE_HOME) ??
+                    path.join(os.homedir(), ".cache"),
+                "rototo",
+                "console",
+            ),
         githubOAuth,
         oidc,
         enrollment,

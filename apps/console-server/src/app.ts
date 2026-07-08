@@ -242,15 +242,11 @@ export function buildApp(deps: AppDeps): App {
     };
 
     const git = deps.git ?? new GitHubGit();
-    // The pin store is a pure cache (commit-keyed, size-bounded), so it
-    // defaults to the XDG cache home and is shared across processes and
-    // restarts; a data dir, when given, keeps everything on one volume.
+    // The pin store is a pure cache (commit-keyed, size-bounded), shared
+    // across processes and restarts; config.cacheDir puts it in the XDG
+    // cache home, or alongside the store under an explicit --data-dir.
     const stager = new PackageStager({
-        cacheRoot:
-            deps.pinCacheRoot ??
-            (config.dataDir !== null
-                ? path.join(config.dataDir, "pins")
-                : path.join(config.cacheDir, "pins")),
+        cacheRoot: deps.pinCacheRoot ?? path.join(config.cacheDir, "pins"),
         remoteFor: deps.gitRemote,
     });
     const changeSets = new ChangeSets({ store, git, stager });

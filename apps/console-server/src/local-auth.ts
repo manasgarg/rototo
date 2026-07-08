@@ -28,7 +28,7 @@ export type LocalIdentity =
 
 export async function resolveAmbientToken(
     explicitToken: string | null,
-    dataDir: string | null,
+    dataDir: string,
 ): Promise<AmbientToken | null> {
     if (explicitToken !== null && explicitToken.trim().length > 0) {
         // clap fills --package-token from ROTOTO_PACKAGE_TOKEN too; here the
@@ -37,22 +37,20 @@ export async function resolveAmbientToken(
         return { token: explicitToken.trim(), source: "environment" };
     }
 
-    if (dataDir !== null) {
-        try {
-            const contents = await readFile(
-                path.join(dataDir, "credentials.json"),
-                "utf8",
-            );
-            const credentials = JSON.parse(contents) as {
-                github_token?: string;
-            };
-            const token = credentials.github_token?.trim() ?? "";
-            if (token.length > 0) {
-                return { token, source: "device-flow" };
-            }
-        } catch {
-            // No stored credentials; keep walking the chain.
+    try {
+        const contents = await readFile(
+            path.join(dataDir, "credentials.json"),
+            "utf8",
+        );
+        const credentials = JSON.parse(contents) as {
+            github_token?: string;
+        };
+        const token = credentials.github_token?.trim() ?? "";
+        if (token.length > 0) {
+            return { token, source: "device-flow" };
         }
+    } catch {
+        // No stored credentials; keep walking the chain.
     }
 
     try {
@@ -70,7 +68,7 @@ export async function resolveAmbientToken(
 
 type LocalAuthDeps = {
     explicitToken: string | null;
-    dataDir: string | null;
+    dataDir: string;
     github: GitHubFacts;
 };
 
