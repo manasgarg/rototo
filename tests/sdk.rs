@@ -7,8 +7,8 @@ use rototo::model::VariableResolutionSource;
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, Package, RefreshEvent, RefreshEventType,
     RefreshOptions, RefreshOutcome, RefreshingPackage, ResolveOptions, SourceOptions,
-    TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package,
-    lint_package, lint_variable, list_catalogs, list_variables, read_catalog, read_variable,
+    TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_catalogs,
+    inspect_package, inspect_variables, lint_package, lint_variable, read_catalog, read_variable,
     read_variables, resolve_variable, stage_package_source,
 };
 
@@ -192,8 +192,8 @@ async fn sdk_lints_condition_variable() {
 }
 
 #[tokio::test]
-async fn sdk_lists_variables_for_apps() {
-    let variables = list_variables("examples/basic".as_ref()).await.unwrap();
+async fn sdk_inspects_variables_for_apps() {
+    let variables = inspect_variables("examples/basic".as_ref()).await.unwrap();
 
     assert!(variables.len() > 2);
     assert!(
@@ -204,8 +204,8 @@ async fn sdk_lists_variables_for_apps() {
 }
 
 #[tokio::test]
-async fn sdk_lists_catalogs_for_apps() {
-    let catalogs = list_catalogs("examples/basic".as_ref()).await.unwrap();
+async fn sdk_inspects_catalogs_for_apps() {
+    let catalogs = inspect_catalogs("examples/basic".as_ref()).await.unwrap();
 
     assert!(catalogs.len() > 2);
     assert!(
@@ -1768,7 +1768,7 @@ async fn projected_package_resolves_identically_to_the_composed_source() {
     let projected = Package::load(target.to_string_lossy()).await.unwrap();
 
     let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
-    let ids = rototo::list_variables("examples/acme-overlay".as_ref())
+    let ids = rototo::inspect_variables("examples/acme-overlay".as_ref())
         .await
         .unwrap();
     assert!(!ids.is_empty());
@@ -1889,7 +1889,7 @@ async fn reflection_discovers_looks_up_and_walks_references() {
     for catalog in ["email_template", "policy", "sms_template"] {
         catalogs.push(catalog.to_owned());
     }
-    assert_eq!(package.list_entries("policy").unwrap(), vec!["default"]);
+    assert_eq!(package.entry_ids("policy").unwrap(), vec!["default"]);
     let entry = package.read_entry("policy", "default").unwrap();
     // Raw, no id injection, refs exactly as authored.
     assert!(entry.get("id").is_none());
@@ -2007,12 +2007,12 @@ async fn billing_entitlements_follow_through_the_lookup_surface() {
 
 /// List reflection: contract and members through one read.
 #[tokio::test]
-async fn reflection_reads_enums() {
+async fn reflection_reads_lists() {
     let package = Package::load("examples/billing").await.unwrap();
-    let lists = package.list_enums().unwrap();
+    let lists = package.list_ids().unwrap();
     assert!(lists.contains(&"plan_tiers".to_owned()), "{lists:?}");
-    let plan_tiers = package.read_enum("plan_tiers").unwrap();
+    let plan_tiers = package.read_list("plan_tiers").unwrap();
     assert_eq!(plan_tiers.member_type, "string");
     assert!(plan_tiers.members.contains(&serde_json::json!("business")));
-    assert!(package.read_enum("missing").is_err());
+    assert!(package.read_list("missing").is_err());
 }

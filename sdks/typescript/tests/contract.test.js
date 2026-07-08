@@ -68,9 +68,9 @@ async function runCase(contractCase) {
         };
     }
 
-    if (operation === "read_enum") {
+    if (operation === "read_list") {
         const pkg = await Package.load(packageSource);
-        return pkg.readEnum(contractCase.id);
+        return pkg.readList(contractCase.id);
     }
 
     if (operation === "resolve_reference") {

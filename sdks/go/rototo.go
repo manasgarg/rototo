@@ -301,58 +301,58 @@ func (w *Package) ResolveVariable(
 	return &resolution, nil
 }
 
-// EnumConfig is one enum: contract and members together.
-type EnumConfig struct {
+// ListConfig is one list: contract and members together.
+type ListConfig struct {
 	ID          string  `json:"id"`
 	Description *string `json:"description"`
 	MemberType  string  `json:"memberType"`
 	Members     []any   `json:"members"`
 }
 
-// ListEnums lists every enum id in the loaded package.
-func (w *Package) ListEnums() ([]string, error) {
+// ListIds lists every list id in the loaded package.
+func (w *Package) ListIds() ([]string, error) {
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageListEnums(handle)
+	text, err := nativePackageListIds(handle)
 	if err != nil {
 		return nil, err
 	}
-	var enums []string
-	if err := json.Unmarshal([]byte(text), &enums); err != nil {
+	var lists []string
+	if err := json.Unmarshal([]byte(text), &lists); err != nil {
 		return nil, err
 	}
-	return enums, nil
+	return lists, nil
 }
 
-// ReadEnum reads one enum.
-func (w *Package) ReadEnum(id string) (*EnumConfig, error) {
+// ReadList reads one list.
+func (w *Package) ReadList(id string) (*ListConfig, error) {
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageReadEnum(handle, id)
+	text, err := nativePackageReadList(handle, id)
 	if err != nil {
 		return nil, err
 	}
-	var config EnumConfig
+	var config ListConfig
 	if err := json.Unmarshal([]byte(text), &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
-// ListEntries lists every entry id of one catalog.
-func (w *Package) ListEntries(catalog string) ([]string, error) {
+// EntryIds lists every entry id of one catalog.
+func (w *Package) EntryIds(catalog string) ([]string, error) {
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageListEntries(handle, catalog)
+	text, err := nativePackageEntryIds(handle, catalog)
 	if err != nil {
 		return nil, err
 	}

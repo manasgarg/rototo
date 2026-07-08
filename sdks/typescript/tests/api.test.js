@@ -106,12 +106,12 @@ test("scoped package token prefixes are validated", async () => {
 test("reflection surface", async () => {
     const pkg = await Package.load(resolve(ROOT, "examples/billing"));
 
-    assert.ok(pkg.listEnums().includes("plan_tiers"));
-    const planTiers = pkg.readEnum("plan_tiers");
+    assert.ok(pkg.listIds().includes("plan_tiers"));
+    const planTiers = pkg.readList("plan_tiers");
     assert.equal(planTiers.memberType, "string");
     assert.ok(planTiers.members.includes("business"));
 
-    assert.ok(pkg.listEntries("features").includes("sso"));
+    assert.ok(pkg.entryIds("features").includes("sso"));
     assert.equal(pkg.readEntry("features", "sso").name, "Single sign-on");
 
     assert.equal(

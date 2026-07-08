@@ -387,13 +387,13 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"value": value}, nil
-	case "read_enum":
+	case "read_list":
 		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
 			return nil, err
 		}
 		defer closePackage(t, pkg)
-		config, err := pkg.ReadEnum(sdkCase.ID)
+		config, err := pkg.ReadList(sdkCase.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -632,22 +632,22 @@ func TestReflectionSurface(t *testing.T) {
 	}
 	defer closePackage(t, pkg)
 
-	enums, err := pkg.ListEnums()
+	lists, err := pkg.ListIds()
 	if err != nil {
-		t.Fatalf("list enums: %v", err)
+		t.Fatalf("list lists: %v", err)
 	}
-	if !slices.Contains(enums, "plan_tiers") {
-		t.Fatalf("plan_tiers missing from %v", enums)
+	if !slices.Contains(lists, "plan_tiers") {
+		t.Fatalf("plan_tiers missing from %v", lists)
 	}
-	planTiers, err := pkg.ReadEnum("plan_tiers")
+	planTiers, err := pkg.ReadList("plan_tiers")
 	if err != nil {
-		t.Fatalf("read enum: %v", err)
+		t.Fatalf("read list: %v", err)
 	}
 	if planTiers.MemberType != "string" {
 		t.Fatalf("unexpected member type %q", planTiers.MemberType)
 	}
 
-	entries, err := pkg.ListEntries("features")
+	entries, err := pkg.EntryIds("features")
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
 	}

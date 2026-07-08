@@ -94,12 +94,12 @@ class ReflectionTest(unittest.IsolatedAsyncioTestCase):
     async def test_reflection_surface(self) -> None:
         package = await rototo.Package.load(str(ROOT / "examples" / "billing"))
 
-        self.assertIn("plan_tiers", package.list_enums())
-        plan_tiers = package.read_enum("plan_tiers")
+        self.assertIn("plan_tiers", package.list_ids())
+        plan_tiers = package.read_list("plan_tiers")
         self.assertEqual(plan_tiers["memberType"], "string")
         self.assertIn("business", plan_tiers["members"])
 
-        entries = package.list_entries("features")
+        entries = package.entry_ids("features")
         self.assertIn("sso", entries)
         sso = package.read_entry("features", "sso")
         self.assertEqual(sso["name"], "Single sign-on")

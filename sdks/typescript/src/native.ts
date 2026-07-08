@@ -14,9 +14,9 @@ type NativePackage = {
         validateContext?: boolean,
         trace?: boolean,
     ): VariableResolutionJson;
-    listEnums(): string[];
-    readEnum(id: string): EnumConfigJson;
-    listEntries(catalog: string): string[];
+    listIds(): string[];
+    readList(id: string): ListConfigJson;
+    entryIds(catalog: string): string[];
     readEntry(catalog: string, entry: string): JsonValue;
     resolveReference(address: string): JsonValue;
     resolveEntryRef(value: string, pins: string[]): JsonValue;
@@ -112,7 +112,7 @@ export type PackageLayerIdentityJson = {
     immutable: boolean;
 };
 
-export type EnumConfigJson = {
+export type ListConfigJson = {
     id: string;
     description: string | null;
     memberType: string;

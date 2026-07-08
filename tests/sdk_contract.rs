@@ -128,12 +128,12 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 .map_err(|err| err.to_string())?;
             Ok(serde_json::json!({ "value": value }))
         }
-        "read_enum" => {
+        "read_list" => {
             let package = Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
             let id = case_id(case)?;
-            let config = package.read_enum(id).map_err(|err| err.to_string())?;
+            let config = package.read_list(id).map_err(|err| err.to_string())?;
             Ok(config.to_json())
         }
         "resolve_reference" => {

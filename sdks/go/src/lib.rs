@@ -149,20 +149,20 @@ pub extern "C" fn rototo_go_package_resolve_variable(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_package_list_enums(
+pub extern "C" fn rototo_go_package_list_ids(
     handle: *mut c_void,
     _a: *const c_char,
     _b: *const c_char,
 ) -> RototoGoStringResult {
     string_result(|| {
         let package = package_from_handle(handle)?;
-        let enums = package.list_enums().map_err(|err| err.to_string())?;
-        json_string(serde_json::json!(enums))
+        let lists = package.list_ids().map_err(|err| err.to_string())?;
+        json_string(serde_json::json!(lists))
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_package_read_enum(
+pub extern "C" fn rototo_go_package_read_list(
     handle: *mut c_void,
     id: *const c_char,
     _b: *const c_char,
@@ -170,13 +170,13 @@ pub extern "C" fn rototo_go_package_read_enum(
     string_result(|| {
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let config = package.read_enum(&id).map_err(|err| err.to_string())?;
+        let config = package.read_list(&id).map_err(|err| err.to_string())?;
         json_string(config.to_json())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_package_list_entries(
+pub extern "C" fn rototo_go_package_entry_ids(
     handle: *mut c_void,
     catalog: *const c_char,
     _b: *const c_char,
@@ -184,9 +184,7 @@ pub extern "C" fn rototo_go_package_list_entries(
     string_result(|| {
         let package = package_from_handle(handle)?;
         let catalog = required_string(catalog, "catalog")?;
-        let entries = package
-            .list_entries(&catalog)
-            .map_err(|err| err.to_string())?;
+        let entries = package.entry_ids(&catalog).map_err(|err| err.to_string())?;
         json_string(serde_json::json!(entries))
     })
 }

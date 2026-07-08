@@ -69,9 +69,9 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
         package = await rototo.Package.load(package_source)
         return {"value": package.read_entry(case["catalog"], case["entry"])}
 
-    if operation == "read_enum":
+    if operation == "read_list":
         package = await rototo.Package.load(package_source)
-        return package.read_enum(case["id"])
+        return package.read_list(case["id"])
 
     if operation == "resolve_reference":
         package = await rototo.Package.load(package_source)

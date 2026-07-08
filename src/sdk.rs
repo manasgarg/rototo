@@ -317,12 +317,12 @@ impl Package {
     }
 
     /// Every list id in the loaded package.
-    pub fn list_enums(&self) -> Result<Vec<String>> {
+    pub fn list_ids(&self) -> Result<Vec<String>> {
         Ok(self.runtime()?.lists.keys().cloned().collect())
     }
 
     /// One list, contract and members together.
-    pub fn read_enum(&self, id: impl AsRef<str>) -> Result<ListConfig> {
+    pub fn read_list(&self, id: impl AsRef<str>) -> Result<ListConfig> {
         let id = id.as_ref();
         let declaration = self
             .runtime()?
@@ -339,7 +339,7 @@ impl Package {
 
     /// Every entry id of one catalog. Ids only: enumerating a large catalog
     /// should not clone its values.
-    pub fn list_entries(&self, catalog: impl AsRef<str>) -> Result<Vec<String>> {
+    pub fn entry_ids(&self, catalog: impl AsRef<str>) -> Result<Vec<String>> {
         let catalog = catalog.as_ref();
         let entries = self
             .runtime()?

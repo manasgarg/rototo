@@ -260,17 +260,17 @@ class Package:
             source=result["source"],
         )
 
-    def list_enums(self) -> list[str]:
-        """Every enum id in the loaded package."""
-        return self._inner.list_enums()
+    def list_ids(self) -> list[str]:
+        """Every list id in the loaded package."""
+        return self._inner.list_ids()
 
-    def read_enum(self, id: str) -> dict[str, Any]:
-        """One enum: id, description, memberType, and members."""
-        return self._inner.read_enum(id)
+    def read_list(self, id: str) -> dict[str, Any]:
+        """One list: id, description, memberType, and members."""
+        return self._inner.read_list(id)
 
-    def list_entries(self, catalog: str) -> list[str]:
+    def entry_ids(self, catalog: str) -> list[str]:
         """Every entry id of one catalog."""
-        return self._inner.list_entries(catalog)
+        return self._inner.entry_ids(catalog)
 
     def read_entry(self, catalog: str, entry: str) -> Any:
         """One raw catalog entry, exactly as authored."""
@@ -372,17 +372,17 @@ class RefreshingPackage:
                 return
             yield RefreshEvent._from_dict(event)
 
-    def list_enums(self) -> list[str]:
-        """Every enum id in the loaded package."""
-        return self._inner.list_enums()
+    def list_ids(self) -> list[str]:
+        """Every list id in the loaded package."""
+        return self._inner.list_ids()
 
-    def read_enum(self, id: str) -> dict[str, Any]:
-        """One enum: id, description, memberType, and members."""
-        return self._inner.read_enum(id)
+    def read_list(self, id: str) -> dict[str, Any]:
+        """One list: id, description, memberType, and members."""
+        return self._inner.read_list(id)
 
-    def list_entries(self, catalog: str) -> list[str]:
+    def entry_ids(self, catalog: str) -> list[str]:
         """Every entry id of one catalog."""
-        return self._inner.list_entries(catalog)
+        return self._inner.entry_ids(catalog)
 
     def read_entry(self, catalog: str, entry: str) -> Any:
         """One raw catalog entry, exactly as authored."""

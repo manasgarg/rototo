@@ -147,9 +147,9 @@ type nativeSymbols struct {
 	packageIdentity                  unsafe.Pointer
 	packageLint                      unsafe.Pointer
 	packageResolveVariable           unsafe.Pointer
-	packageListEnums                 unsafe.Pointer
-	packageReadEnum                  unsafe.Pointer
-	packageListEntries               unsafe.Pointer
+	packageListIds                   unsafe.Pointer
+	packageReadList                  unsafe.Pointer
+	packageEntryIds                  unsafe.Pointer
 	packageReadEntry                 unsafe.Pointer
 	packageResolveReference          unsafe.Pointer
 	packageResolveEntryRef           unsafe.Pointer
@@ -225,9 +225,9 @@ func loadNative() error {
 	native.packageIdentity = symbol("rototo_go_package_identity")
 	native.packageLint = symbol("rototo_go_package_lint")
 	native.packageResolveVariable = symbol("rototo_go_package_resolve_variable")
-	native.packageListEnums = symbol("rototo_go_package_list_enums")
-	native.packageReadEnum = symbol("rototo_go_package_read_enum")
-	native.packageListEntries = symbol("rototo_go_package_list_entries")
+	native.packageListIds = symbol("rototo_go_package_list_ids")
+	native.packageReadList = symbol("rototo_go_package_read_list")
+	native.packageEntryIds = symbol("rototo_go_package_entry_ids")
 	native.packageReadEntry = symbol("rototo_go_package_read_entry")
 	native.packageResolveReference = symbol("rototo_go_package_resolve_reference")
 	native.packageResolveEntryRef = symbol("rototo_go_package_resolve_entry_ref")
@@ -375,16 +375,16 @@ func nativePackageStr2(fn unsafe.Pointer, handle nativeHandle, a, b string) (str
 	return stringResult(result)
 }
 
-func nativePackageListEnums(handle nativeHandle) (string, error) {
-	return nativePackageStr2(native.packageListEnums, handle, "", "")
+func nativePackageListIds(handle nativeHandle) (string, error) {
+	return nativePackageStr2(native.packageListIds, handle, "", "")
 }
 
-func nativePackageReadEnum(handle nativeHandle, id string) (string, error) {
-	return nativePackageStr2(native.packageReadEnum, handle, id, "")
+func nativePackageReadList(handle nativeHandle, id string) (string, error) {
+	return nativePackageStr2(native.packageReadList, handle, id, "")
 }
 
-func nativePackageListEntries(handle nativeHandle, catalog string) (string, error) {
-	return nativePackageStr2(native.packageListEntries, handle, catalog, "")
+func nativePackageEntryIds(handle nativeHandle, catalog string) (string, error) {
+	return nativePackageStr2(native.packageEntryIds, handle, catalog, "")
 }
 
 func nativePackageReadEntry(handle nativeHandle, catalog, entry string) (string, error) {

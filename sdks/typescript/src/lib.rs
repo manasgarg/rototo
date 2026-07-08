@@ -110,19 +110,19 @@ impl JsPackage {
         }))
     }
 
-    #[napi(js_name = "listEnums")]
-    pub fn list_enums(&self) -> Result<Vec<String>> {
-        self.inner.list_enums().map_err(js_err)
+    #[napi(js_name = "listIds")]
+    pub fn list_ids(&self) -> Result<Vec<String>> {
+        self.inner.list_ids().map_err(js_err)
     }
 
-    #[napi(js_name = "readEnum")]
-    pub fn read_enum(&self, id: String) -> Result<JsonValue> {
-        Ok(self.inner.read_enum(&id).map_err(js_err)?.to_json())
+    #[napi(js_name = "readList")]
+    pub fn read_list(&self, id: String) -> Result<JsonValue> {
+        Ok(self.inner.read_list(&id).map_err(js_err)?.to_json())
     }
 
-    #[napi(js_name = "listEntries")]
-    pub fn list_entries(&self, catalog: String) -> Result<Vec<String>> {
-        self.inner.list_entries(&catalog).map_err(js_err)
+    #[napi(js_name = "entryIds")]
+    pub fn entry_ids(&self, catalog: String) -> Result<Vec<String>> {
+        self.inner.entry_ids(&catalog).map_err(js_err)
     }
 
     #[napi(js_name = "readEntry")]

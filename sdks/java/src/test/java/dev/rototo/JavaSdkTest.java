@@ -24,14 +24,14 @@ public final class JavaSdkTest {
 
     private static void reflection() throws Exception {
         try (Package pkg = await(Package.load("examples/billing"))) {
-            if (!pkg.listEnums().contains("plan_tiers")) {
-                throw new AssertionError("plan_tiers missing: " + pkg.listEnums());
+            if (!pkg.listIds().contains("plan_tiers")) {
+                throw new AssertionError("plan_tiers missing: " + pkg.listIds());
             }
-            Map<String, Object> planTiers = pkg.readEnum("plan_tiers");
-            assertEquals("string", planTiers.get("memberType"), "enum member type");
+            Map<String, Object> planTiers = pkg.readList("plan_tiers");
+            assertEquals("string", planTiers.get("memberType"), "list member type");
 
-            if (!pkg.listEntries("features").contains("sso")) {
-                throw new AssertionError("sso missing: " + pkg.listEntries("features"));
+            if (!pkg.entryIds("features").contains("sso")) {
+                throw new AssertionError("sso missing: " + pkg.entryIds("features"));
             }
             Map<String, Object> sso = Json.asObject(pkg.readEntry("features", "sso"));
             assertEquals("Single sign-on", sso.get("name"), "sso name");
@@ -198,9 +198,9 @@ public final class JavaSdkTest {
                         }
                         break;
                     }
-                    case "read_enum": {
+                    case "read_list": {
                         Map<String, Object> result = Json.asObject(expect.get("result"));
-                        Map<String, Object> actual = pkg.readEnum(Json.asString(testCase.get("id")));
+                        Map<String, Object> actual = pkg.readList(Json.asString(testCase.get("id")));
                         for (Map.Entry<String, Object> field : result.entrySet()) {
                             assertEquals(
                                     field.getValue(),

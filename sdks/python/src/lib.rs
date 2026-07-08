@@ -115,17 +115,17 @@ impl PyPackage {
         variable_resolution_to_py(py, resolution)
     }
 
-    fn list_enums(&self) -> PyResult<Vec<String>> {
-        self.inner.list_enums().map_err(py_err)
+    fn list_ids(&self) -> PyResult<Vec<String>> {
+        self.inner.list_ids().map_err(py_err)
     }
 
-    fn read_enum(&self, py: Python<'_>, id: String) -> PyResult<Py<PyAny>> {
-        let config = self.inner.read_enum(&id).map_err(py_err)?;
+    fn read_list(&self, py: Python<'_>, id: String) -> PyResult<Py<PyAny>> {
+        let config = self.inner.read_list(&id).map_err(py_err)?;
         json_to_py(py, &config.to_json())
     }
 
-    fn list_entries(&self, catalog: String) -> PyResult<Vec<String>> {
-        self.inner.list_entries(&catalog).map_err(py_err)
+    fn entry_ids(&self, catalog: String) -> PyResult<Vec<String>> {
+        self.inner.entry_ids(&catalog).map_err(py_err)
     }
 
     fn read_entry(&self, py: Python<'_>, catalog: String, entry: String) -> PyResult<Py<PyAny>> {

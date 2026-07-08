@@ -29,8 +29,8 @@ pub use lint::{
 };
 pub use pack::{PackagedArchive, pack_package, project_package};
 pub use package::{
-    find_package_root, inspect_package, list_catalogs, list_variables, read_catalog, read_catalogs,
-    read_variable, read_variables,
+    find_package_root, inspect_catalogs, inspect_package, inspect_variables, read_catalog,
+    read_catalogs, read_variable, read_variables,
 };
 pub use resolve::{
     resolve_variable, resolve_variables, trace_variable_resolution,

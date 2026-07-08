@@ -98,11 +98,11 @@ pub fn catalog_for_id<'a>(
         .ok_or_else(|| RototoError::new(format!("catalog not found: catalog://{id}")))
 }
 
-pub async fn list_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
+pub async fn inspect_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
     Ok(inspect_package(package_root).await?.variables)
 }
 
-pub async fn list_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
+pub async fn inspect_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     Ok(inspect_package(package_root).await?.catalogs)
 }
 

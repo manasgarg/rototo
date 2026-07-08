@@ -162,20 +162,20 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_packageListEnumsNative(
+pub extern "system" fn Java_dev_rototo_Native_packageListIdsNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
-        let enums = package.list_enums().map_err(|err| err.to_string())?;
-        env_json(env, serde_json::json!(enums))
+        let lists = package.list_ids().map_err(|err| err.to_string())?;
+        env_json(env, serde_json::json!(lists))
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_packageReadEnumNative(
+pub extern "system" fn Java_dev_rototo_Native_packageReadListNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -184,13 +184,13 @@ pub extern "system" fn Java_dev_rototo_Native_packageReadEnumNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let config = package.read_enum(&id).map_err(|err| err.to_string())?;
+        let config = package.read_list(&id).map_err(|err| err.to_string())?;
         env_json(env, config.to_json())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_packageListEntriesNative(
+pub extern "system" fn Java_dev_rototo_Native_packageEntryIdsNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -199,9 +199,7 @@ pub extern "system" fn Java_dev_rototo_Native_packageListEntriesNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let catalog = required_string(env, catalog, "catalog")?;
-        let entries = package
-            .list_entries(&catalog)
-            .map_err(|err| err.to_string())?;
+        let entries = package.entry_ids(&catalog).map_err(|err| err.to_string())?;
         env_json(env, serde_json::json!(entries))
     })
 }

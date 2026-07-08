@@ -52,7 +52,7 @@ per-language runners).
 |---|---|---|---|
 | R1 | `inspect_package` / `inspection()` | entities, paths, and linters are enumerated | `sdk_inspects_package` |
 | R2 | `lint_package`, `lint_variable`, `lint_catalog` | scoped lint views over the same pipeline | `sdk_lints_package`, `sdk_lints_condition_variable`, and `tests/package_lint.rs` |
-| R3 | `list_variables`, `list_catalogs` | app-facing listings | `sdk_lists_variables_for_apps`, `sdk_lists_catalogs_for_apps` |
+| R3 | `inspect_variables`, `inspect_catalogs` | app-facing listings | `sdk_inspects_variables_for_apps`, `sdk_inspects_catalogs_for_apps` |
 | R4 | `read_variable`, `read_catalog` and the plural forms | typed `VariableConfig` / `CatalogConfig`, with declared sources | `sdk_reads_variable_config`, `sdk_reads_catalog_config`, `sdk_reads_all_basic_variable_configs_with_declared_sources`, `sdk_reads_primitive_variable_values`, `sdk_reads_condition_variable_configs` |
 | R5 | catalog entry files | read as whole TOML objects, nested tables included | `catalog_entry_files_are_whole_toml_objects` |
 | R6 | the diagnostics catalog | built-in rules plus the package's declared custom rules | `sdk_reads_diagnostic_catalog` |
@@ -79,8 +79,8 @@ The app-side surface for what hydration used to do implicitly
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
-| X1 | `list_enums` / `read_enum` | list ids; one list's contract and members together; a missing id errors | `reflection_reads_enums` |
-| X2 | `list_entries` / `read_entry` | entry ids only; one raw entry as authored (no hydration, no id injection) | `reflection_discovers_looks_up_and_walks_references` |
+| X1 | `list_ids` / `read_list` | list ids; one list's contract and members together; a missing id errors | `reflection_reads_lists` |
+| X2 | `entry_ids` / `read_entry` | entry ids only; one raw entry as authored (no hydration, no id injection) | `reflection_discovers_looks_up_and_walks_references` |
 | X3 | `resolve_reference` / `resolve_reference_at` | one hop with hydration's exact semantics: entry lookup, pointer application, first-match rule for multi-catalog pins, raw target value; errors name the address | `reflection_discovers_looks_up_and_walks_references` |
 | X4 | `ValueRef` construction | from an address, from a raw entry-ref string plus its pins, or from a dynamic ref object; canonical `address()` rendering | `reflection_discovers_looks_up_and_walks_references` |
 | X5 | `references_in` | every `x-rototo-ref` field in a value reported as (pointer, reference), `$ref` indirection included, nothing spliced | `reflection_discovers_looks_up_and_walks_references` |

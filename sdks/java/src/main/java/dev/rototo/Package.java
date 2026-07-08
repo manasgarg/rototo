@@ -98,23 +98,23 @@ public final class Package implements AutoCloseable {
                 value.get("source"));
     }
 
-    /** Every enum id in the loaded package. */
-    public java.util.List<String> listEnums() {
-        String json = Native.packageListEnumsNative(openHandle());
+    /** Every list id in the loaded package. */
+    public java.util.List<String> listIds() {
+        String json = Native.packageListIdsNative(openHandle());
         return Json.asStringList(Json.parse(json));
     }
 
-    /** One enum: id, description, memberType, and members. */
-    public Map<String, Object> readEnum(String id) {
+    /** One list: id, description, memberType, and members. */
+    public Map<String, Object> readList(String id) {
         Objects.requireNonNull(id, "id");
-        String json = Native.packageReadEnumNative(openHandle(), id);
+        String json = Native.packageReadListNative(openHandle(), id);
         return Json.asObject(Json.parse(json));
     }
 
     /** Every entry id of one catalog. */
-    public java.util.List<String> listEntries(String catalog) {
+    public java.util.List<String> entryIds(String catalog) {
         Objects.requireNonNull(catalog, "catalog");
-        String json = Native.packageListEntriesNative(openHandle(), catalog);
+        String json = Native.packageEntryIdsNative(openHandle(), catalog);
         return Json.asStringList(Json.parse(json));
     }
 

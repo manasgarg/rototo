@@ -1,5 +1,5 @@
 import {
-    type EnumConfigJson,
+    type ListConfigJson,
     type JsonObject,
     type JsonValue,
     type RefreshOutcome,
@@ -275,7 +275,7 @@ export function version(): string {
     return VERSION;
 }
 
-export type EnumConfig = EnumConfigJson;
+export type ListConfig = ListConfigJson;
 
 export class Package {
     private constructor(private readonly inner: NativePackageHandle) {}
@@ -360,28 +360,28 @@ export class Package {
         }
     }
 
-    /** Every enum id in the loaded package. */
-    listEnums(): string[] {
+    /** Every list id in the loaded package. */
+    listIds(): string[] {
         try {
-            return this.inner.listEnums();
+            return this.inner.listIds();
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
-    /** One enum: id, description, memberType, and members. */
-    readEnum(id: string): EnumConfig {
+    /** One list: id, description, memberType, and members. */
+    readList(id: string): ListConfig {
         try {
-            return this.inner.readEnum(id);
+            return this.inner.readList(id);
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
     /** Every entry id of one catalog. */
-    listEntries(catalog: string): string[] {
+    entryIds(catalog: string): string[] {
         try {
-            return this.inner.listEntries(catalog);
+            return this.inner.entryIds(catalog);
         } catch (error) {
             throw toRototoError(error);
         }

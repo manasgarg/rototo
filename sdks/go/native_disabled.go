@@ -36,15 +36,15 @@ func nativePackageServedFallback(handle nativeHandle) (bool, error) {
 	return false, cgoDisabled()
 }
 
-func nativePackageListEnums(handle nativeHandle) (string, error) {
+func nativePackageListIds(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageReadEnum(handle nativeHandle, id string) (string, error) {
+func nativePackageReadList(handle nativeHandle, id string) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageListEntries(handle nativeHandle, catalog string) (string, error) {
+func nativePackageEntryIds(handle nativeHandle, catalog string) (string, error) {
 	return "", cgoDisabled()
 }
 
