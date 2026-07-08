@@ -84,9 +84,10 @@ _install-console-web-deps:
     npm --prefix apps/console-web ci
 
 # Run the console server (API plus the built web bundle when staged).
+# Flags pass through to the server: `just console-dev --public-url https://...`.
 [group('08. console')]
-console-dev:
-    npm --prefix apps/console-server run dev
+console-dev *args:
+    npm --prefix apps/console-server run dev -- {{args}}
 
 # Run the console web app's Vite dev server (proxies /api to 127.0.0.1:7687).
 [group('08. console')]
