@@ -3063,12 +3063,27 @@ select.input {
     border-radius: var(--radius-2);
 }
 
-.context-picker-peek {
-    flex: 0 1 auto;
+/* a chosen context, flattened to dotted-path facts */
+.context-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 16px;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 12px;
+}
+
+.context-fact {
     white-space: nowrap;
+    color: var(--ink-2);
+}
+
+.context-fact-value {
+    color: var(--ink-0);
+}
+
+.context-picker .context-facts {
+    flex: 1 1 100%;
 }
 
 .context-picker-editor {
@@ -3104,12 +3119,14 @@ select.input {
     border-radius: var(--radius-2);
 }
 
+.preview-case .row-text {
+    min-width: 0;
+}
+
+/* boundary cases carry whole values; wrap them rather than clipping */
 .preview-case .row-sub {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 46ch;
-    display: inline-block;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .trace-walk {
@@ -3129,6 +3146,22 @@ select.input {
     color: var(--sea-700);
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+/* a composite resolved value (a catalog entry), pretty-printed */
+.trace-value-block {
+    max-height: 320px;
+    font-size: 12px;
+    line-height: 1.55;
+    padding: 10px 12px;
+}
+
+/* one CEL expression that wraps instead of clipping; Enter still submits */
+.expression-input {
+    field-sizing: content;
+    min-height: 36px;
+    resize: none;
+    white-space: pre-wrap;
 }
 
 .trace-rules {

@@ -2426,12 +2426,22 @@ function QueryFields({
             </div>
             <div className="form-row">
                 <span className="label">Filter</span>
-                <input
-                    className="input mono"
+                {/* A query filter is routinely several clauses long; a
+                    wrapping textarea keeps the whole expression readable.
+                    It stays one expression: Enter submits, never a newline. */}
+                <textarea
+                    className="input mono expression-input"
                     disabled={!editable}
                     placeholder="entry.tier == context.account.tier"
+                    rows={1}
                     value={query.filter}
                     onChange={(event) => set("filter")(event.target.value)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            event.preventDefault();
+                            event.currentTarget.form?.requestSubmit();
+                        }
+                    }}
                 />
             </div>
             <div className="form-row">

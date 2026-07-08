@@ -38,6 +38,52 @@ export function syntheticLabel(entry: SynthesizedContext): string {
     return `${entry.target.id} · ${entry.caseId}`;
 }
 
+// A context shown as flattened dotted-path facts: nested JSON braces are
+// noise when the question is "which facts does this resolution see". The
+// full JSON stays a hover away.
+export function ContextFacts({
+    context,
+}: {
+    context: Record<string, unknown>;
+}) {
+    return (
+        <span
+            className="context-facts"
+            title={JSON.stringify(context, null, 2)}
+        >
+            {flattenContext(context).map((fact) => (
+                <span className="context-fact" key={fact.path}>
+                    <span className="context-fact-path">{fact.path}</span>
+                    {" = "}
+                    <span className="context-fact-value">{fact.value}</span>
+                </span>
+            ))}
+        </span>
+    );
+}
+
+function flattenContext(
+    value: Record<string, unknown>,
+    prefix = "",
+): { path: string; value: string }[] {
+    const facts: { path: string; value: string }[] = [];
+    for (const [key, entry] of Object.entries(value)) {
+        const path = prefix === "" ? key : `${prefix}.${key}`;
+        if (
+            entry !== null &&
+            typeof entry === "object" &&
+            !Array.isArray(entry)
+        ) {
+            facts.push(
+                ...flattenContext(entry as Record<string, unknown>, path),
+            );
+        } else {
+            facts.push({ path, value: JSON.stringify(entry) ?? "null" });
+        }
+    }
+    return facts;
+}
+
 export function ContextPicker({
     inventory,
     chosen,
@@ -154,12 +200,7 @@ export function ContextPicker({
                 <option value="adhoc">Custom JSON…</option>
             </select>
             {chosen.kind !== "none" && !editing ? (
-                <span
-                    className="hint mono context-picker-peek"
-                    title={JSON.stringify(chosen.context, null, 2)}
-                >
-                    {peek(chosen.context)}
-                </span>
+                <ContextFacts context={chosen.context} />
             ) : null}
             {editing ? (
                 <span className="inline-form context-picker-editor">
@@ -202,9 +243,4 @@ export function ContextPicker({
             ) : null}
         </div>
     );
-}
-
-function peek(context: Record<string, unknown>): string {
-    const text = JSON.stringify(context);
-    return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }

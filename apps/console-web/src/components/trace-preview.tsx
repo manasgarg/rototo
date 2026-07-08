@@ -10,6 +10,7 @@
 
 import type { SynthesizedContext, TraceOutcome } from "@/lib/api";
 import {
+    ContextFacts,
     syntheticLabel,
     type ChosenContext,
     contextLabel,
@@ -77,9 +78,20 @@ export function TracePreview({
                         <div className="preview-case" key={entry.caseId}>
                             <span className="row-text">
                                 <span className="row-title">{entry.title}</span>
-                                <span className="row-sub mono">
-                                    {JSON.stringify(entry.context)} →{" "}
-                                    {JSON.stringify(entry.expect.value)}
+                                <ContextFacts context={entry.context} />
+                                <span className="row-sub">
+                                    expected value{" "}
+                                    <span
+                                        className="mono"
+                                        title={JSON.stringify(
+                                            entry.expect.value,
+                                            null,
+                                            2,
+                                        )}
+                                    >
+                                        {JSON.stringify(entry.expect.value) ??
+                                            "none"}
+                                    </span>
                                 </span>
                             </span>
                             <span className="action-row">
@@ -125,13 +137,19 @@ function TraceWalk({
         return null;
     }
     const matched = trace.rules.find((rule) => rule.matched);
+    // A primitive reads fine inline; a catalog-backed value is a whole
+    // entry, which only makes sense pretty-printed.
+    const value = trace.resolution.value;
+    const composite = typeof value === "object" && value !== null;
     return (
         <div className="trace-walk">
             <div className="trace-result">
                 <span className="label">resolves to</span>
-                <span className="mono trace-value">
-                    {JSON.stringify(trace.resolution.value)}
-                </span>
+                {!composite ? (
+                    <span className="mono trace-value">
+                        {JSON.stringify(value)}
+                    </span>
+                ) : null}
                 <span className="hint">
                     {matched !== undefined
                         ? `rule ${matched.index} matched`
@@ -141,6 +159,11 @@ function TraceWalk({
                         : ""}
                 </span>
             </div>
+            {composite ? (
+                <pre className="codewell trace-value-block">
+                    {JSON.stringify(value, null, 2)}
+                </pre>
+            ) : null}
             <div className="trace-rules">
                 {trace.rules.map((rule) => (
                     <div
