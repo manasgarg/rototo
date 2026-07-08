@@ -606,6 +606,9 @@ async fn resolved_reference_edges_agree_with_the_index_and_definition() {
                     })
                 }));
             }
+            ReferenceTarget::List(id) => {
+                assert!(snapshot.index.lists.contains_key(id));
+            }
             ReferenceTarget::ContextAttribute(_) | ReferenceTarget::VariableValue { .. } => {}
         }
 

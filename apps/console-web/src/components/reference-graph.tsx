@@ -19,7 +19,8 @@ import {
 } from "@/lib/api";
 import { navigate, type AddressStep } from "@/lib/router";
 
-type GraphNodeKind = "condition" | "variable" | "catalog" | "catalogEntry";
+type GraphNodeKind =
+    "condition" | "variable" | "list" | "catalog" | "catalogEntry";
 
 type GraphNode = {
     id: string;
@@ -53,6 +54,7 @@ type GraphData = { nodes: GraphNode[]; edges: GraphEdge[] };
 const KIND_LABEL: Record<GraphNodeKind, string> = {
     condition: "condition",
     variable: "variable",
+    list: "list",
     catalog: "catalog",
     catalogEntry: "value",
 };
@@ -382,6 +384,15 @@ function packageGraph(
             path: variable.location.path,
         });
     }
+    for (const list of model.lists) {
+        pushNode({
+            id: `list:${list.id}`,
+            kind: "list",
+            label: list.id,
+            href: hrefFor([{ class: "list", id: list.id }]),
+            path: `lists/${list.id}.toml`,
+        });
+    }
     for (const catalog of model.catalogs) {
         pushNode({
             id: `catalog:${catalog.id}`,
@@ -492,6 +503,22 @@ function packageGraph(
                 conditions.push(dependency);
                 ruleConditionsByRule.set(rule, conditions);
             }
+        } else if (to.kind === "list" && typeof to.id === "string") {
+            pushEdge({
+                from: readerNode,
+                to: `list:${to.id}`,
+                kind: via.kind === "variableList" ? "selects" : "reads",
+                reader: readerId,
+                ruleIndexes:
+                    via.kind === "ruleCondition" &&
+                    typeof via.index === "number"
+                        ? [via.index]
+                        : undefined,
+                unconditional:
+                    via.kind === "variableList" || via.kind === "query"
+                        ? true
+                        : undefined,
+            });
         } else if (to.kind === "catalog" && typeof to.id === "string") {
             pushEdge({
                 from: readerNode,
@@ -662,6 +689,7 @@ function partitionGraph(data: GraphData): {
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
     { kind: "condition", title: "conditions" },
     { kind: "variable", title: "variables" },
+    { kind: "list", title: "lists" },
     { kind: "catalog", title: "catalogs" },
     { kind: "catalogEntry", title: "values" },
 ];
@@ -669,6 +697,7 @@ const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
 const KIND_COLOR: Record<GraphNodeKind, string> = {
     condition: "var(--cyan-600)",
     variable: "var(--sea-600)",
+    list: "var(--info-500)",
     catalog: "var(--ok-700)",
     catalogEntry: "var(--ink-1)",
 };

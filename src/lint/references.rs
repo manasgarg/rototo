@@ -31,12 +31,15 @@ pub(super) struct ReferenceEdge {
 #[allow(clippy::enum_variant_names)]
 pub(super) enum ReferenceSource {
     VariableCatalog { variable: String },
+    VariableList { variable: String },
     VariableResolveDefault { variable: String },
     VariableRuleConditionVariable { variable: String, rule: usize },
     VariableRuleContextAttribute { variable: String, rule: usize },
+    VariableRuleList { variable: String, rule: usize },
     VariableRuleValue { variable: String, rule: usize },
     VariableQueryVariable { variable: String },
     VariableQueryContextAttribute { variable: String },
+    VariableQueryList { variable: String },
     VariableAllocation { variable: String },
 }
 
@@ -46,6 +49,7 @@ pub(super) enum ReferenceTarget {
     Variable(String),
     Catalog(String),
     CatalogEntry { catalog: String, value: String },
+    List(String),
     Allocation(String),
     VariableValue { variable: String, value: String },
 }
@@ -146,6 +150,7 @@ impl ReferenceIndex {
                 ReferenceTarget::Variable(_)
                 | ReferenceTarget::Catalog(_)
                 | ReferenceTarget::CatalogEntry { .. }
+                | ReferenceTarget::List(_)
                 | ReferenceTarget::VariableValue { .. }
                 | ReferenceTarget::Allocation(_) => {}
             }
@@ -224,6 +229,13 @@ impl ReferenceIndex {
             );
         }
 
+        for list in index.lists.values() {
+            self.declarations.insert(
+                ReferenceTarget::List(list.id.clone()),
+                list.location.clone(),
+            );
+        }
+
         for layer in index.layers.values() {
             for allocation in &layer.allocations {
                 if let ProjectField::Present(id) = &allocation.id {
@@ -264,6 +276,21 @@ impl ReferenceIndex {
                         ),
                         type_kind.location.clone(),
                         ReferenceTarget::Catalog(catalog.to_owned()),
+                    );
+                }
+                for list in type_kind.value.list_ids() {
+                    self.push_edge(
+                        ReferenceSource::VariableList {
+                            variable: variable.id.clone(),
+                        },
+                        SemanticTarget::field(
+                            SemanticEntity::Variable {
+                                id: variable.id.clone(),
+                            },
+                            SemanticField::VariableType,
+                        ),
+                        type_kind.location.clone(),
+                        ReferenceTarget::List(list.to_owned()),
                     );
                 }
             } else if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
@@ -334,6 +361,21 @@ impl ReferenceIndex {
                             ),
                             expression.location.clone(),
                             ReferenceTarget::ContextAttribute(path.clone()),
+                        );
+                    }
+                    for list in &expression.value.references().lists {
+                        self.push_edge(
+                            ReferenceSource::VariableQueryList {
+                                variable: variable.id.clone(),
+                            },
+                            SemanticTarget::field(
+                                SemanticEntity::Variable {
+                                    id: variable.id.clone(),
+                                },
+                                field.clone(),
+                            ),
+                            expression.location.clone(),
+                            ReferenceTarget::List(list.clone()),
                         );
                     }
                 }
@@ -414,6 +456,17 @@ impl ReferenceIndex {
                                 SemanticTarget::field(entity.clone(), field.clone()),
                                 expression.location.clone(),
                                 ReferenceTarget::ContextAttribute(path.clone()),
+                            );
+                        }
+                        for list in &expression.value.references().lists {
+                            self.push_edge(
+                                ReferenceSource::VariableRuleList {
+                                    variable: variable.id.clone(),
+                                    rule: rule.index,
+                                },
+                                SemanticTarget::field(entity.clone(), field.clone()),
+                                expression.location.clone(),
+                                ReferenceTarget::List(list.clone()),
                             );
                         }
                     }

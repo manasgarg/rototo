@@ -413,11 +413,15 @@ export function WorkbenchPage({
                 onError={saveFailed}
             />
 
-            <ContextPicker
-                inventory={inventory}
-                chosen={chosen}
-                onChange={chooseContext}
-            />
+            {/* The context parameterizes resolution; screens that never
+                resolve (files, history, diagnostics) don't ask for one. */}
+            {view.kind === "overview" || view.kind === "address" ? (
+                <ContextPicker
+                    inventory={inventory}
+                    chosen={chosen}
+                    onChange={chooseContext}
+                />
+            ) : null}
 
             {state.pin !== null ? (
                 <div className="banner banner-info">
@@ -675,8 +679,8 @@ function Overview({
                         </h2>
                         <p className="hint">
                             {outcomes === null
-                                ? "Structure only; pick a context to light it up. Hover an entity to preview its definition."
-                                : "Every variable resolved under the chosen context; bright paths fired, dim paths never ran."}
+                                ? "Structure only; pick a context above and every variable shows the value it yields. Hover an entity to preview its definition."
+                                : "Every variable resolved under the given context; bright paths fired, dim paths never ran."}
                         </p>
                     </div>
                     <div className="card graph-card">
@@ -745,14 +749,15 @@ function VariableRows({
                         className="row"
                         key={variable.id}
                         href={hrefFor(variable.id)}
-                        data-search={`${variable.id} ${variable.declaration.value ?? ""} ${variable.description ?? ""}`}
+                        data-search={`${variable.id} ${variable.declaration.value ?? ""} ${methodText(variable)} ${variable.description ?? ""}`}
                     >
                         <span className="row-text">
                             <span className="row-title mono">
                                 {variable.id}
                             </span>
                             <span className="row-sub">
-                                {variable.declaration.value ?? "?"}
+                                {variable.declaration.value ?? "?"} ·{" "}
+                                {methodText(variable)}
                                 {variable.description !== undefined
                                     ? ` — ${variable.description}`
                                     : ""}
@@ -1477,7 +1482,11 @@ function ListPanel({
                             label="Delete list"
                             warning={blastWarning(
                                 `lists/${listId}.toml`,
-                                listReferrers(model, listId),
+                                referenceLabels(
+                                    model,
+                                    (to) =>
+                                        to.kind === "list" && to.id === listId,
+                                ),
                             )}
                             onConfirm={() =>
                                 oneOp(
@@ -1574,20 +1583,17 @@ function ListPanel({
                     Start or pick a change set above to edit.
                 </p>
             )}
-            {listTypedVariables(model, listId).length > 0 ? (
-                <div className="reference-links">
-                    <span className="label">Typed against this list</span>
-                    {listTypedVariables(model, listId).map((id) => (
-                        <a
-                            key={id}
-                            className="pill pill-neutral mono"
-                            href={hrefEntity([{ class: "variable", id }])}
-                        >
-                            {id}
-                        </a>
-                    ))}
-                </div>
-            ) : null}
+            <ReferencePills
+                title="Used by"
+                entities={model.references
+                    .filter(
+                        (reference) =>
+                            reference.to.kind === "list" &&
+                            reference.to.id === listId,
+                    )
+                    .map((reference) => reference.from)}
+                hrefEntity={hrefEntity}
+            />
         </div>
     );
 }
@@ -1988,6 +1994,11 @@ function VariablePanel({
                     <h2 className="mono">{variable.id}</h2>
                     <p className="hint">
                         <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
+                        <MethodLabel
+                            variable={variable}
+                            hrefEntity={hrefEntity}
+                        />{" "}
+                        ·{" "}
                         <a
                             className="row-link mono"
                             href={hrefFile(variable.location.path)}
@@ -2256,6 +2267,47 @@ function VariablePanel({
             </form>
         </div>
     );
+}
+
+// The resolution method, named: the middle of the model sentence (given a
+// context, a variable yields a value by employing a method).
+function methodText(variable: VariableModel): string {
+    const method = methodOf(variable);
+    if (method === "query") {
+        const from = variable.resolve?.query?.from?.value;
+        return `query from ${from ?? "?"}`;
+    }
+    if (method === "allocation") {
+        return "allocation";
+    }
+    return (variable.resolve?.rules ?? []).length > 0
+        ? "first-match rules"
+        : "default only";
+}
+
+// The same method, with the query's source catalog as a link.
+function MethodLabel({
+    variable,
+    hrefEntity,
+}: {
+    variable: VariableModel;
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
+    const from = variable.resolve?.query?.from?.value;
+    if (methodOf(variable) === "query" && typeof from === "string") {
+        return (
+            <>
+                query from{" "}
+                <a
+                    className="expr-link"
+                    href={hrefEntity([{ class: "catalog", id: from }])}
+                >
+                    {from}
+                </a>
+            </>
+        );
+    }
+    return <>{methodText(variable)}</>;
 }
 
 // A variable's declared type; entity-backed types (catalog=, list=, and
@@ -3132,24 +3184,6 @@ function referenceLabels(
         labels.add(`${from.kind} ${id}`);
     }
     return [...labels].sort();
-}
-
-// The reference index does not track list usage, so the visible blast
-// radius for a list is the variables typed against it; expression uses
-// (`lists.<id>`) surface through lint after the delete.
-function listTypedVariables(model: SemanticModel, listId: string): string[] {
-    return model.variables
-        .filter((variable) => {
-            const value = variable.declaration.value ?? "";
-            return (
-                value === `list=${listId}` || value === `array<list=${listId}>`
-            );
-        })
-        .map((variable) => variable.id);
-}
-
-function listReferrers(model: SemanticModel, listId: string): string[] {
-    return listTypedVariables(model, listId).map((id) => `variable ${id}`);
 }
 
 // One side of the reference index as links: the entities a panel's subject

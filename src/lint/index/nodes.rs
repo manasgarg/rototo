@@ -120,7 +120,6 @@ impl VariableTypeKind {
         }
     }
 
-    #[allow(dead_code)]
     pub(in crate::lint) fn list_ids(&self) -> Vec<&str> {
         match self {
             Self::Primitive(_) | Self::Catalog(_) => Vec::new(),

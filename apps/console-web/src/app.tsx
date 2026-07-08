@@ -188,6 +188,13 @@ export function App() {
                             surfaceId: null,
                         })}
                     />
+                    {/* Resolution order: contexts feed variables, variables
+                        select from catalogs and lists. */}
+                    <NavItem
+                        label="Contexts"
+                        on={addressClass === "evaluation-context"}
+                        to={packageHref(collection("evaluation-context"))}
+                    />
                     <NavItem
                         label="Variables"
                         on={addressClass === "variable"}
@@ -202,11 +209,6 @@ export function App() {
                         label="Lists"
                         on={addressClass === "list"}
                         to={packageHref(collection("list"))}
-                    />
-                    <NavItem
-                        label="Contexts"
-                        on={addressClass === "evaluation-context"}
-                        to={packageHref(collection("evaluation-context"))}
                     />
                     <NavItem
                         label="Files"

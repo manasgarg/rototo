@@ -183,6 +183,45 @@ async fn semantic_model_projects_extends_edges_and_lists() {
             .all(|member| member.location.range.is_some()),
         "member locations carry ranges for member-level edits"
     );
+
+    // A list-typed variable references its list through the declaration, so
+    // "who uses this list" answers from the same edge list as catalogs.
+    let type_edge = release_ops
+        .references
+        .iter()
+        .find(|reference| {
+            matches!(&reference.from, ModelEntityRef::Variable { id } if id == "log_level")
+                && matches!(&reference.to, ModelEntityRef::List { id } if id == "log_levels")
+        })
+        .expect("list-typed variable -> list edge");
+    assert!(matches!(type_edge.via, ModelReferenceVia::VariableList));
+    assert!(
+        type_edge.declaration.is_some(),
+        "in-package list references carry the list's declaration"
+    );
+}
+
+/// A membership test in a rule condition (`context.tier in lists.plan_tiers`)
+/// references the list it reads, attributed to the rule.
+#[tokio::test]
+async fn semantic_model_projects_expression_list_references() {
+    let model = package_semantic_model(Path::new(
+        "tests/fixtures/packages/schema-enum-context-types",
+    ))
+    .await
+    .expect("schema-enum-context-types should produce a semantic model");
+    let rule_edge = model
+        .references
+        .iter()
+        .find(|reference| {
+            matches!(&reference.from, ModelEntityRef::Variable { id } if id == "tier_gate")
+                && matches!(&reference.to, ModelEntityRef::List { id } if id == "plan_tiers")
+        })
+        .expect("rule membership -> list edge");
+    assert!(matches!(
+        rule_edge.via,
+        ModelReferenceVia::RuleCondition { index: 0 }
+    ));
 }
 
 #[tokio::test]

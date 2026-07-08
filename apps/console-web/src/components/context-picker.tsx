@@ -166,7 +166,7 @@ export function ContextPicker({
 
     return (
         <div className="context-picker">
-            <span className="label mode-strip-label">context</span>
+            <span className="label mode-strip-label">given context</span>
             <select
                 className="input"
                 value={editing ? "adhoc" : selectValue}

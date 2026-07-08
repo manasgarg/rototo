@@ -319,6 +319,7 @@ pub struct ReferenceModel {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelReferenceVia {
     VariableCatalog,
+    VariableList,
     ResolveDefault,
     RuleCondition { index: usize },
     RuleValue { index: usize },
@@ -341,6 +342,9 @@ pub enum ModelEntityRef {
     CatalogEntry {
         catalog: String,
         key: String,
+    },
+    List {
+        id: String,
     },
     EvaluationContext {
         id: String,
@@ -756,16 +760,19 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
 fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
     match source {
         ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
+        ReferenceSource::VariableList { .. } => ModelReferenceVia::VariableList,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
         ReferenceSource::VariableRuleConditionVariable { rule, .. }
-        | ReferenceSource::VariableRuleContextAttribute { rule, .. } => {
+        | ReferenceSource::VariableRuleContextAttribute { rule, .. }
+        | ReferenceSource::VariableRuleList { rule, .. } => {
             ModelReferenceVia::RuleCondition { index: *rule }
         }
         ReferenceSource::VariableRuleValue { rule, .. } => {
             ModelReferenceVia::RuleValue { index: *rule }
         }
         ReferenceSource::VariableQueryVariable { .. }
-        | ReferenceSource::VariableQueryContextAttribute { .. } => ModelReferenceVia::Query,
+        | ReferenceSource::VariableQueryContextAttribute { .. }
+        | ReferenceSource::VariableQueryList { .. } => ModelReferenceVia::Query,
         ReferenceSource::VariableAllocation { .. } => ModelReferenceVia::Allocation,
     }
 }
@@ -773,12 +780,15 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
 fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
     match source {
         ReferenceSource::VariableCatalog { variable }
+        | ReferenceSource::VariableList { variable }
         | ReferenceSource::VariableResolveDefault { variable }
         | ReferenceSource::VariableRuleConditionVariable { variable, .. }
         | ReferenceSource::VariableRuleContextAttribute { variable, .. }
+        | ReferenceSource::VariableRuleList { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. }
         | ReferenceSource::VariableQueryVariable { variable }
         | ReferenceSource::VariableQueryContextAttribute { variable }
+        | ReferenceSource::VariableQueryList { variable }
         | ReferenceSource::VariableAllocation { variable } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
@@ -796,6 +806,7 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
             catalog: catalog.clone(),
             key: value.clone(),
         },
+        ReferenceTarget::List(id) => ModelEntityRef::List { id: id.clone() },
         ReferenceTarget::VariableValue { variable, value } => ModelEntityRef::Value {
             variable: variable.clone(),
             key: value.clone(),

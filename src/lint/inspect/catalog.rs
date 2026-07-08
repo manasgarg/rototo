@@ -93,11 +93,14 @@ pub(super) fn reference_source_kind(source: &ReferenceSource) -> &'static str {
     match source {
         ReferenceSource::VariableRuleConditionVariable { .. }
         | ReferenceSource::VariableRuleContextAttribute { .. }
+        | ReferenceSource::VariableRuleList { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableCatalog { .. }
+        | ReferenceSource::VariableList { .. }
         | ReferenceSource::VariableQueryVariable { .. }
         | ReferenceSource::VariableQueryContextAttribute { .. }
+        | ReferenceSource::VariableQueryList { .. }
         | ReferenceSource::VariableAllocation { .. } => "variable",
     }
 }
@@ -106,15 +109,18 @@ pub(super) fn reference_source_label(source: &ReferenceSource) -> String {
     match source {
         ReferenceSource::VariableRuleConditionVariable { variable, rule }
         | ReferenceSource::VariableRuleContextAttribute { variable, rule }
+        | ReferenceSource::VariableRuleList { variable, rule }
         | ReferenceSource::VariableRuleValue { variable, rule } => {
             format!("variable {variable} resolve.rule[{rule}]")
         }
         ReferenceSource::VariableResolveDefault { variable } => {
             format!("variable {variable} resolve.default")
         }
-        ReferenceSource::VariableCatalog { variable } => format!("variable {variable}"),
+        ReferenceSource::VariableCatalog { variable }
+        | ReferenceSource::VariableList { variable } => format!("variable {variable}"),
         ReferenceSource::VariableQueryVariable { variable }
-        | ReferenceSource::VariableQueryContextAttribute { variable } => {
+        | ReferenceSource::VariableQueryContextAttribute { variable }
+        | ReferenceSource::VariableQueryList { variable } => {
             format!("variable {variable} resolve query")
         }
         ReferenceSource::VariableAllocation { variable } => {
