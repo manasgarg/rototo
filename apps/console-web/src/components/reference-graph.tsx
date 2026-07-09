@@ -832,25 +832,17 @@ function ColumnsGraph({
                             x2 + (leftToRight ? -bend : bend)
                         } ${y2}, ${x2} ${y2}`;
                     }
-                    // Hover owns the green highlight. A fired path under the
-                    // chosen context distinguishes itself by weight against
-                    // its dimmed dormant siblings instead, so a carried
-                    // context never reads as a stuck hover.
+                    // Hover owns the only stroke change. The chosen context
+                    // speaks through node values and the dimming of paths
+                    // that never ran; a persistent stroke difference reads
+                    // as a stuck highlight, whatever its color.
                     return (
                         <path
                             d={path}
                             fill="none"
                             key={index}
-                            stroke={
-                                lit
-                                    ? "var(--sea-500)"
-                                    : state === "fired"
-                                      ? "var(--ink-2)"
-                                      : "var(--line-2)"
-                            }
-                            strokeWidth={
-                                lit ? 1.8 : state === "fired" ? 1.6 : 1
-                            }
+                            stroke={lit ? "var(--sea-500)" : "var(--line-2)"}
+                            strokeWidth={lit ? 1.8 : 1}
                             opacity={
                                 (active !== null && !lit) || offSearch
                                     ? 0.25

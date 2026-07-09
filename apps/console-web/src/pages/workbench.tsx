@@ -649,7 +649,7 @@ function Overview({
                         <p className="hint">
                             {outcomes === null
                                 ? "Structure only; pick a context above and every variable shows the value it yields. Hover an entity to preview its definition."
-                                : "Every variable resolved under the given context; bright paths fired, dim paths never ran."}
+                                : "Every variable resolved under the given context; paths that never ran are dimmed."}
                         </p>
                     </div>
                     <div className="card graph-card">
