@@ -832,14 +832,25 @@ function ColumnsGraph({
                             x2 + (leftToRight ? -bend : bend)
                         } ${y2}, ${x2} ${y2}`;
                     }
-                    const bright = lit || state === "fired";
+                    // Hover owns the green highlight. A fired path under the
+                    // chosen context distinguishes itself by weight against
+                    // its dimmed dormant siblings instead, so a carried
+                    // context never reads as a stuck hover.
                     return (
                         <path
                             d={path}
                             fill="none"
                             key={index}
-                            stroke={bright ? "var(--sea-500)" : "var(--line-2)"}
-                            strokeWidth={bright ? 1.8 : 1}
+                            stroke={
+                                lit
+                                    ? "var(--sea-500)"
+                                    : state === "fired"
+                                      ? "var(--ink-2)"
+                                      : "var(--line-2)"
+                            }
+                            strokeWidth={
+                                lit ? 1.8 : state === "fired" ? 1.6 : 1
+                            }
                             opacity={
                                 (active !== null && !lit) || offSearch
                                     ? 0.25
