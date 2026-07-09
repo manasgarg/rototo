@@ -3,9 +3,134 @@
 // always parameterized by one. Sources: the package's saved samples,
 // synthesized boundary contexts from the fixtures machinery, or ad-hoc JSON.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { ContextInventory, SynthesizedContext } from "@/lib/api";
+
+type ComboOption = { value: string; label: string; group?: string };
+
+// A combobox over the context sources: type to filter, arrows to move,
+// Enter to pick. A package accumulates samples and synthesized cases well
+// past what a plain dropdown lets anyone scan.
+function ContextCombo({
+    label,
+    options,
+    value,
+    onPick,
+}: {
+    label: string;
+    options: ComboOption[];
+    value: string;
+    onPick: (value: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    // null shows the selection's label; a string is a live filter.
+    const [query, setQuery] = useState<string | null>(null);
+    const [active, setActive] = useState(0);
+    const wrapper = useRef<HTMLDivElement>(null);
+
+    const selected = options.find((option) => option.value === value);
+    const needle = (query ?? "").trim().toLowerCase();
+    const visible =
+        needle === ""
+            ? options
+            : options.filter((option) =>
+                  option.label.toLowerCase().includes(needle),
+              );
+    const activeIndex = Math.min(active, Math.max(visible.length - 1, 0));
+
+    const close = () => {
+        setOpen(false);
+        setQuery(null);
+        setActive(0);
+    };
+    const pick = (option: ComboOption) => {
+        onPick(option.value);
+        close();
+    };
+
+    return (
+        <div
+            className="combo"
+            ref={wrapper}
+            onBlur={(event) => {
+                if (!wrapper.current?.contains(event.relatedTarget as Node)) {
+                    close();
+                }
+            }}
+        >
+            <input
+                aria-expanded={open}
+                aria-label={label}
+                className="input"
+                placeholder="Search contexts"
+                role="combobox"
+                value={query ?? selected?.label ?? ""}
+                onChange={(event) => {
+                    setQuery(event.target.value);
+                    setOpen(true);
+                    setActive(0);
+                }}
+                onFocus={() => setOpen(true)}
+                onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        setOpen(true);
+                        setActive(
+                            Math.min(activeIndex + 1, visible.length - 1),
+                        );
+                    } else if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setActive(Math.max(activeIndex - 1, 0));
+                    } else if (event.key === "Enter") {
+                        event.preventDefault();
+                        const option = visible[activeIndex];
+                        if (open && option !== undefined) {
+                            pick(option);
+                        }
+                    } else if (event.key === "Escape") {
+                        close();
+                    }
+                }}
+            />
+            {open ? (
+                <div className="combo-menu" role="listbox">
+                    {visible.length === 0 ? (
+                        <div className="combo-empty hint">
+                            No context matches that search.
+                        </div>
+                    ) : null}
+                    {visible.map((option, index) => (
+                        <span key={`${option.value}:${option.label}`}>
+                            {option.group !== undefined &&
+                            option.group !== visible[index - 1]?.group ? (
+                                <div className="combo-group label">
+                                    {option.group}
+                                </div>
+                            ) : null}
+                            <button
+                                aria-selected={option.value === value}
+                                className="combo-option"
+                                data-active={
+                                    index === activeIndex ? "true" : undefined
+                                }
+                                role="option"
+                                type="button"
+                                // Keep focus in the input so blur-close and
+                                // typing keep working across clicks.
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => pick(option)}
+                                onMouseEnter={() => setActive(index)}
+                            >
+                                {option.label}
+                            </button>
+                        </span>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
+}
 
 export type ChosenContext =
     | { kind: "none" }
@@ -164,41 +289,30 @@ export function ContextPicker({
         }
     };
 
+    const options: ComboOption[] = [
+        { value: "", label: "None (structure only)" },
+        ...samples.map((sample) => ({
+            value: `sample:${sample.key}`,
+            label: `${sample.evaluationContext}/${sample.key}`,
+            group: "Saved samples",
+        })),
+        ...synthesized.map((entry) => ({
+            value: `synthetic:${syntheticLabel(entry)}`,
+            label: syntheticLabel(entry),
+            group: "Synthesized (one per behavior case)",
+        })),
+        { value: "adhoc", label: "Custom JSON…" },
+    ];
+
     return (
         <div className="context-picker">
             <span className="label mode-strip-label">given context</span>
-            <select
-                className="input"
+            <ContextCombo
+                label="Given context"
+                options={options}
                 value={editing ? "adhoc" : selectValue}
-                onChange={(event) => select(event.target.value)}
-            >
-                <option value="">None (structure only)</option>
-                {samples.length > 0 ? (
-                    <optgroup label="Saved samples">
-                        {samples.map((sample) => (
-                            <option
-                                key={sample.key}
-                                value={`sample:${sample.key}`}
-                            >
-                                {sample.evaluationContext}/{sample.key}
-                            </option>
-                        ))}
-                    </optgroup>
-                ) : null}
-                {synthesized.length > 0 ? (
-                    <optgroup label="Synthesized (one per behavior case)">
-                        {synthesized.map((entry) => (
-                            <option
-                                key={syntheticLabel(entry)}
-                                value={`synthetic:${syntheticLabel(entry)}`}
-                            >
-                                {syntheticLabel(entry)}
-                            </option>
-                        ))}
-                    </optgroup>
-                ) : null}
-                <option value="adhoc">Custom JSON…</option>
-            </select>
+                onPick={select}
+            />
             {chosen.kind !== "none" && !editing ? (
                 <ContextFacts context={chosen.context} />
             ) : null}
