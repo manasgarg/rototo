@@ -25,3 +25,53 @@ export function formatInstant(value: string): string {
     const iso = parsed.toISOString();
     return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
 }
+
+// A context rendered as TOML, for readers who think in package files. This
+// is a reading view of a JSON object, not a round-trippable format: a JSON
+// null has no TOML spelling and renders as the bare token `null`.
+export function contextToToml(context: Record<string, unknown>): string {
+    return tableLines(context, "").join("\n").trim();
+}
+
+function tableLines(table: Record<string, unknown>, path: string): string[] {
+    const scalars: string[] = [];
+    const subtables: string[] = [];
+    for (const [key, value] of Object.entries(table)) {
+        if (
+            value !== null &&
+            typeof value === "object" &&
+            !Array.isArray(value)
+        ) {
+            const child =
+                path === "" ? tomlKey(key) : `${path}.${tomlKey(key)}`;
+            subtables.push(
+                "",
+                `[${child}]`,
+                ...tableLines(value as Record<string, unknown>, child),
+            );
+        } else {
+            scalars.push(`${tomlKey(key)} = ${tomlValue(value)}`);
+        }
+    }
+    return [...scalars, ...subtables];
+}
+
+function tomlKey(key: string): string {
+    return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+}
+
+function tomlValue(value: unknown): string {
+    if (typeof value === "string") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map(tomlValue).join(", ")}]`;
+    }
+    if (value !== null && typeof value === "object") {
+        const fields = Object.entries(value).map(
+            ([key, entry]) => `${tomlKey(key)} = ${tomlValue(entry)}`,
+        );
+        return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
+    }
+    return String(value);
+}

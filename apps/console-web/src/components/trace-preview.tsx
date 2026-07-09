@@ -4,9 +4,12 @@
 // `rototo resolve` prints, so console and CLI cannot disagree.
 //
 // The empty state is the impact-confidence fix from the system view: with
-// no context chosen (or none that satisfies the variable), the panel offers
-// the variable's own synthesized boundary contexts, and an active change
-// set can promote one to a real sample with `create_sample`.
+// no context chosen (or none that satisfies the variable), the panel can
+// generate the variable's own synthesized boundary contexts — the smallest
+// valid contexts that exercise each branch — and an active change set can
+// promote one to a real sample with `create_sample`.
+
+import { useState } from "react";
 
 import type { SynthesizedContext, TraceOutcome } from "@/lib/api";
 import {
@@ -38,6 +41,9 @@ export function TracePreview({
     onPromote: (entry: SynthesizedContext) => void;
 }) {
     const cases = synthesized.filter((entry) => entry.target.id === variableId);
+    // The cases arrive with the context inventory; "generate" is the
+    // reader's act of asking for them, so the panel stays quiet until then.
+    const [generated, setGenerated] = useState(false);
 
     return (
         <div className="preview-panel">
@@ -52,7 +58,7 @@ export function TracePreview({
                 <p className="hint">
                     Pick a context above to see this variable resolve.
                     {cases.length > 0
-                        ? " The synthesized cases below cover its boundaries."
+                        ? " Or generate boundary contexts below."
                         : ""}
                 </p>
             ) : outcome === null ? (
@@ -65,7 +71,22 @@ export function TracePreview({
                 <TraceWalk outcome={outcome} hrefEntity={hrefEntity} />
             ) : null}
 
-            {cases.length > 0 ? (
+            {cases.length > 0 && !generated ? (
+                <div className="action-row">
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setGenerated(true)}
+                    >
+                        Generate boundary contexts
+                    </button>
+                    <span className="hint">
+                        The smallest valid contexts that exercise each branch of
+                        this variable.
+                    </span>
+                </div>
+            ) : null}
+
+            {cases.length > 0 && generated ? (
                 <div className="preview-cases">
                     <div className="section-header-text">
                         <h4>Boundary contexts</h4>
