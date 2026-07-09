@@ -275,14 +275,9 @@ export function App() {
                     </a>
                     <Crumbs route={route} state={state} trees={trees} />
                     <div className="topbar-actions">
-                        {state.context !== null ? (
-                            <span
-                                className="pill pill-neutral mono"
-                                title="The chosen context; every execution view resolves under it"
-                            >
-                                {state.context}
-                            </span>
-                        ) : null}
+                        {/* No context chip here: the given-context strip
+                            names the chosen context where resolution
+                            happens, and the raw ctx token reads as noise. */}
                         {state.changeSetId !== null ? (
                             routeTreeId !== null ? (
                                 <a
