@@ -182,6 +182,21 @@ export function ContextFacts({
     context: Record<string, unknown>;
     onEdit?: (context: Record<string, unknown>) => void;
 }) {
+    // The freshly added path flashes for a moment so the eye lands where
+    // the fact landed among the existing chips.
+    const [justAdded, setJustAdded] = useState<string | null>(null);
+    useEffect(() => {
+        if (justAdded === null) {
+            return;
+        }
+        const timer = setTimeout(() => setJustAdded(null), 2500);
+        return () => clearTimeout(timer);
+    }, [justAdded]);
+    // An added JSON-object value flattens to chips below the added path,
+    // so the flash covers the path's whole subtree.
+    const added = (path: string): boolean =>
+        justAdded !== null &&
+        (path === justAdded || path.startsWith(`${justAdded}.`));
     return (
         <span
             className="context-facts"
@@ -198,6 +213,7 @@ export function ContextFacts({
                     </span>
                 ) : (
                     <EditableFact
+                        added={added(fact.path)}
                         key={fact.path}
                         path={fact.path}
                         value={fact.value}
@@ -218,15 +234,16 @@ export function ContextFacts({
             )}
             {onEdit !== undefined ? (
                 <AddFact
-                    onAdd={(path, text) =>
+                    onAdd={(path, text) => {
                         onEdit(
                             setAtPath(
                                 context,
                                 path.split("."),
                                 factValueFromText(text),
                             ),
-                        )
-                    }
+                        );
+                        setJustAdded(path);
+                    }}
                 />
             ) : null}
         </span>
@@ -237,11 +254,13 @@ export function ContextFacts({
 // unchanged draft commits nothing, so a click-through leaves a sample a
 // sample.
 function EditableFact({
+    added,
     path,
     value,
     onCommit,
     onRemove,
 }: {
+    added?: boolean;
     path: string;
     value: unknown;
     onCommit: (text: string) => void;
@@ -256,7 +275,13 @@ function EditableFact({
         setDraft(null);
     };
     return (
-        <span className="context-fact">
+        <span
+            className={
+                added === true
+                    ? "context-fact context-fact-added"
+                    : "context-fact"
+            }
+        >
             <span className="context-fact-path">{path}</span>
             {" = "}
             {draft === null ? (

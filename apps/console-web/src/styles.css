@@ -3171,6 +3171,26 @@ button.context-fact-value:hover {
     gap: 4px;
 }
 
+/* a just-added key flashes, then settles in with its siblings */
+.context-fact-added {
+    padding: 1px 4px;
+    margin: -1px -4px;
+    border-radius: var(--radius-1);
+    animation: context-fact-flash 2.5s ease-out;
+}
+
+@keyframes context-fact-flash {
+    0% {
+        background: var(--sea-100);
+    }
+    60% {
+        background: var(--sea-50);
+    }
+    100% {
+        background: transparent;
+    }
+}
+
 /* a chosen context, flattened to dotted-path facts */
 .context-facts {
     display: flex;
