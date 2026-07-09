@@ -57,12 +57,7 @@ import {
 } from "@/components/context-picker";
 import { DiagnosticsPanel, LintStatusPill } from "@/components/diagnostics";
 import { entityLabel, entitySteps } from "@/components/entity-link";
-import {
-    CompositionPanel,
-    FleetPanel,
-    HistoryPanel,
-    UpcomingPanel,
-} from "@/components/insight";
+import { HistoryPanel, UpcomingPanel } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
 import { TracePreview } from "@/components/trace-preview";
 import { SearchableList } from "@/lib/ui-kit";
@@ -520,17 +515,8 @@ export function WorkbenchPage({
                 <Overview
                     treeId={treeId}
                     detail={detail}
-                    refName={ref}
                     outcomes={outcomes}
                     hrefView={hrefView}
-                    hrefPackage={(path) =>
-                        `#${packageUrl(
-                            treeId,
-                            path,
-                            { kind: "overview" },
-                            { ...state, context: null },
-                        )}`
-                    }
                 />
             )}
         </div>
@@ -652,17 +638,13 @@ export function EditingStrip({
 function Overview({
     treeId,
     detail,
-    refName,
     outcomes,
     hrefView,
-    hrefPackage,
 }: {
     treeId: string;
     detail: PackageDetail;
-    refName: string | undefined;
     outcomes: Map<string, TraceOutcome> | null;
     hrefView: (view: PackageView) => string;
-    hrefPackage: (path: string) => string;
 }) {
     const model = detail.model;
     const hrefEntity = (steps: AddressStep[]): string =>
@@ -701,20 +683,6 @@ function Overview({
                 treeId={treeId}
                 packagePath={detail.path}
                 pin={detail.pin}
-                hrefEntity={hrefEntity}
-            />
-
-            <CompositionPanel
-                treeId={treeId}
-                refName={refName}
-                hrefPackage={hrefPackage}
-            />
-
-            <FleetPanel
-                treeId={treeId}
-                packagePath={detail.path}
-                pin={detail.pin}
-                hrefPackage={hrefPackage}
                 hrefEntity={hrefEntity}
             />
         </>
@@ -762,6 +730,11 @@ function VariableRows({
                                     ? ` — ${variable.description}`
                                     : ""}
                             </span>
+                            {outcome?.error !== undefined ? (
+                                <span className="row-sub row-problem">
+                                    {outcome.error}
+                                </span>
+                            ) : null}
                         </span>
                         <span className="row-side mono">
                             {outcome === undefined ? (
