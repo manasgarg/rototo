@@ -1193,6 +1193,11 @@ button.row:hover {
     white-space: nowrap;
 }
 
+/* a row's resolution problem, stated where the value would be earned */
+.row-sub.row-problem {
+    color: var(--warn-700);
+}
+
 .package-summary-line {
     min-height: 20px;
     align-items: center;

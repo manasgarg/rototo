@@ -207,6 +207,14 @@ export function ReferenceGraph({
                                                 ? sources.get(previewNode.path)
                                                 : undefined
                                         }
+                                        outcome={
+                                            previewNode?.variableId !==
+                                            undefined
+                                                ? outcomes?.get(
+                                                      previewNode.variableId,
+                                                  )
+                                                : null
+                                        }
                                     />
                                 </div>
                             </section>
@@ -294,6 +302,13 @@ export function ReferenceGraph({
                                         ? sources.get(inspectedNode.path)
                                         : undefined
                                 }
+                                outcome={
+                                    inspectedNode?.variableId !== undefined
+                                        ? outcomes?.get(
+                                              inspectedNode.variableId,
+                                          )
+                                        : null
+                                }
                             />
                         </div>
                     </section>
@@ -306,10 +321,12 @@ export function ReferenceGraph({
 function GraphPreview({
     node,
     source,
+    outcome,
 }: {
     node: GraphNode | null;
     /* undefined = loading, null = unavailable. */
     source: string | null | undefined;
+    outcome?: TraceOutcome | null;
 }) {
     if (node === null) {
         return null;
@@ -322,6 +339,9 @@ function GraphPreview({
                     <h4 className="mono">{node.label}</h4>
                 </div>
             </div>
+            {outcome?.error !== undefined ? (
+                <div className="banner banner-warn">{outcome.error}</div>
+            ) : null}
             {source === null ? (
                 <div className="graph-preview-empty hint">
                     Definition unavailable.

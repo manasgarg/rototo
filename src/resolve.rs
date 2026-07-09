@@ -1811,7 +1811,11 @@ value = "save time"
         let err = trace_variable_resolutions(package.path(), &partial)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("No such key"));
+        assert!(
+            err.to_string()
+                .contains("reads context.lane, which the given context does not carry"),
+            "unexpected error: {err}"
+        );
 
         let outcomes = trace_variable_resolution_outcomes(package.path(), &partial)
             .await
@@ -1826,7 +1830,11 @@ value = "save time"
         for id in ["lane_dev", "routed"] {
             let failed = outcome(id);
             assert!(failed.trace.is_none());
-            assert!(failed.error.as_ref().unwrap().contains("No such key"));
+            let error = failed.error.as_ref().unwrap();
+            assert!(
+                error.contains("reads context.lane, which the given context does not carry"),
+                "unexpected error for {id}: {error}"
+            );
         }
 
         // A context covering every key read clears the whole batch.

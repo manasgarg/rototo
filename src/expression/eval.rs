@@ -47,10 +47,47 @@ pub(super) fn cel_evaluate(
 
     let value = ctx
         .resolve(cel_ast)
-        .map_err(|err| RototoError::new(format!("expression evaluation failed: {err}")))?;
+        .map_err(|err| RototoError::new(evaluation_failure(&err, references, context)))?;
     value
         .json()
         .map_err(|err| RototoError::new(format!("expression result is not JSON: {err}")))
+}
+
+// cel's raw missing-key error names a bare key ("No such key: lane") without
+// saying whose. When the failure is a key lookup and referenced context paths
+// are absent from the given context, say that directly: it is the one
+// evaluation failure a caller can fix by supplying a fact.
+fn evaluation_failure(
+    err: &ExecutionError,
+    references: &ExpressionReferences,
+    context: &JsonValue,
+) -> String {
+    if matches!(err, ExecutionError::NoSuchKey(_)) {
+        let missing = references
+            .context_paths
+            .iter()
+            .filter(|path| context_path_missing(context, path))
+            .map(|path| format!("context.{path}"))
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return format!(
+                "the expression reads {}, which the given context does not carry",
+                missing.join(" and ")
+            );
+        }
+    }
+    format!("expression evaluation failed: {err}")
+}
+
+fn context_path_missing(context: &JsonValue, path: &str) -> bool {
+    let mut current = context;
+    for segment in path.split('.') {
+        match current.get(segment) {
+            Some(next) => current = next,
+            None => return true,
+        }
+    }
+    false
 }
 
 pub(super) fn to_cel(value: &JsonValue) -> Result<CelValue> {
