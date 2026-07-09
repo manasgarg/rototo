@@ -60,6 +60,7 @@ import { entityLabel, entitySteps } from "@/components/entity-link";
 import { HistoryPanel, UpcomingPanel } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
 import { TracePreview } from "@/components/trace-preview";
+import { resolvedValueText } from "@/lib/format";
 import { SearchableList } from "@/lib/ui-kit";
 import {
     changeSetUrl,
@@ -689,8 +690,7 @@ function Overview({
     );
 }
 
-function clipValue(value: unknown): string {
-    const text = JSON.stringify(value) ?? "";
+function clipText(text: string): string {
     return text.length > 20 ? `${text.slice(0, 20)}…` : text;
 }
 
@@ -747,8 +747,21 @@ function VariableRows({
                                     cannot resolve
                                 </span>
                             ) : (
-                                <span className="pill pill-sea mono">
-                                    {clipValue(outcome.trace?.resolution.value)}
+                                <span
+                                    className="pill pill-sea mono"
+                                    title={
+                                        JSON.stringify(
+                                            outcome.trace?.resolution.value,
+                                            null,
+                                            2,
+                                        ) ?? ""
+                                    }
+                                >
+                                    {clipText(
+                                        outcome.trace !== undefined
+                                            ? resolvedValueText(outcome.trace)
+                                            : "",
+                                    )}
                                 </span>
                             )}
                         </span>

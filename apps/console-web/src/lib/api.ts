@@ -204,8 +204,15 @@ export type RuleTrace = {
     matched: boolean;
 };
 
+// Where a resolved value came from: a catalog-backed resolution names the
+// selected entry key(s), which is how people know the value.
+export type ResolutionSource =
+    | { kind: "literal" }
+    | { kind: "catalog"; catalog: string; value: string }
+    | { kind: "catalog_array"; catalog: string; values: string[] };
+
 export type ResolutionTrace = {
-    resolution: { id: string; value: unknown };
+    resolution: { id: string; value: unknown; source?: ResolutionSource };
     default_value: unknown;
     rules: RuleTrace[];
     provenance?: string;

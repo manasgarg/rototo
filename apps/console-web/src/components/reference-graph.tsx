@@ -17,6 +17,7 @@ import {
     type TraceOutcome,
     type VariableModel,
 } from "@/lib/api";
+import { resolvedValueText } from "@/lib/format";
 import { navigate, type AddressStep } from "@/lib/router";
 
 type GraphNodeKind =
@@ -1081,7 +1082,9 @@ function GraphNodeBox({
           : error
             ? "cannot resolve"
             : clip(
-                  JSON.stringify(outcome.trace?.resolution.value) ?? "",
+                  outcome.trace !== undefined
+                      ? resolvedValueText(outcome.trace)
+                      : "",
                   maxLabelChars,
               );
     const open = () => {
@@ -1168,7 +1171,7 @@ function GraphNodeBox({
                 {outcome?.error !== undefined
                     ? `\n${outcome.error}`
                     : outcome?.trace !== undefined
-                      ? `\n= ${JSON.stringify(outcome.trace.resolution.value)}`
+                      ? `\n= ${resolvedValueText(outcome.trace)}`
                       : ""}
             </title>
         </g>

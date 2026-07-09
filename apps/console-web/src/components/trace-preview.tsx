@@ -154,6 +154,11 @@ function TraceWalk({
                     {matched !== undefined
                         ? `rule ${matched.index} matched`
                         : "no rule matched; the default answers"}
+                    {trace.resolution.source?.kind === "catalog"
+                        ? ` · entry ${trace.resolution.source.value}`
+                        : trace.resolution.source?.kind === "catalog_array"
+                          ? ` · entries ${trace.resolution.source.values.join(", ")}`
+                          : ""}
                     {trace.provenance !== undefined
                         ? ` · from layer ${trace.provenance}`
                         : ""}
