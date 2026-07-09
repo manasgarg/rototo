@@ -135,13 +135,19 @@ test("collectives and namespace subtrees round-trip", () => {
 test("page-noun tails round-trip", () => {
     roundTrip("examples/billing", { kind: "surfaces", surfaceId: null });
     roundTrip("examples/billing", { kind: "surfaces", surfaceId: "pricing" });
-    roundTrip("examples/billing", { kind: "files", file: null });
     roundTrip("examples/billing", {
         kind: "files",
         file: "variables/active_plan.toml",
     });
     roundTrip("examples/billing", { kind: "history" });
     roundTrip("examples/billing", { kind: "diagnostics" });
+    // There is no file-browsing screen: a bare files tail is the overview.
+    assert.deepEqual(parseHash("/trees/st_7/examples/billing/-/files").route, {
+        page: "package",
+        treeId: "st_7",
+        packagePath: "examples/billing",
+        view: { kind: "overview" },
+    });
 });
 
 test("view state rides the query and round-trips", () => {

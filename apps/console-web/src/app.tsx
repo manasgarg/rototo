@@ -180,14 +180,8 @@ export function App() {
                         on={view?.kind === "overview"}
                         to={packageHref({ kind: "overview" })}
                     />
-                    <NavItem
-                        label="Surfaces"
-                        on={view?.kind === "surfaces"}
-                        to={packageHref({
-                            kind: "surfaces",
-                            surfaceId: null,
-                        })}
-                    />
+                    {/* Surfaces is hidden from the nav for now; the pages
+                        stay reachable by URL. */}
                     {/* Resolution order: contexts feed variables, variables
                         select from catalogs and lists. */}
                     <NavItem
@@ -209,11 +203,6 @@ export function App() {
                         label="Lists"
                         on={addressClass === "list"}
                         to={packageHref(collection("list"))}
-                    />
-                    <NavItem
-                        label="Files"
-                        on={view?.kind === "files"}
-                        to={packageHref({ kind: "files", file: null })}
                     />
                     <NavItem
                         label="History"
@@ -542,13 +531,7 @@ function crumbsFor(
                 parts.push({ label: view.surfaceId, to: null, mono: true });
             }
         } else if (view.kind === "files") {
-            parts.push({
-                label: "Files",
-                to: at({ kind: "files", file: null }),
-            });
-            if (view.file !== null) {
-                parts.push({ label: view.file, to: null, mono: true });
-            }
+            parts.push({ label: view.file, to: null, mono: true });
         } else if (view.kind === "history") {
             parts.push({ label: "History", to: null });
         } else if (view.kind === "diagnostics") {

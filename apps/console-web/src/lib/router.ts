@@ -32,7 +32,10 @@ export type PackageView =
     | { kind: "diagnostics" }
     | { kind: "address"; steps: AddressStep[] }
     | { kind: "surfaces"; surfaceId: string | null }
-    | { kind: "files"; file: string | null }
+    // A file view always names a file: entities open as their defining
+    // file, but there is no file-browsing screen, so a bare "files" tail
+    // lands on the overview.
+    | { kind: "files"; file: string }
     | { kind: "history" };
 
 export type Route =
@@ -150,7 +153,7 @@ function parseTail(tail: string): PackageView {
     }
     if (segments[0] === "files") {
         const file = segments.slice(1).join("/");
-        return { kind: "files", file: file === "" ? null : file };
+        return file === "" ? { kind: "overview" } : { kind: "files", file };
     }
     if (tail === "history") {
         return { kind: "history" };
@@ -235,9 +238,7 @@ export function packageUrl(
                     ? "/surfaces"
                     : `/surfaces/${view.surfaceId}`
                 : view.kind === "files"
-                  ? view.file === null
-                      ? "/files"
-                      : `/files/${view.file}`
+                  ? `/files/${view.file}`
                   : view.kind === "diagnostics"
                     ? "/diagnostics"
                     : "/history";

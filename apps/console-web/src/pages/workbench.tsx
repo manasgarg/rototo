@@ -24,7 +24,6 @@ import {
     createChangeSet,
     fetchContexts,
     listChangeSets,
-    listPackageFiles,
     listPackages,
     lspNotifications,
     lspNotify,
@@ -469,31 +468,18 @@ export function WorkbenchPage({
                     hrefFile={hrefFile}
                 />
             ) : view.kind === "files" ? (
-                view.file === null ? (
-                    <FileList
-                        treeId={treeId}
-                        detail={detail}
-                        changeSet={active}
-                        editable={editable}
-                        hrefFile={hrefFile}
-                        onOpenFile={(path) => go({ kind: "files", file: path })}
-                        onSaved={afterSave}
-                        onError={saveFailed}
-                    />
-                ) : (
-                    <FilePanel
-                        key={`${view.file}@${detail.pin}`}
-                        treeId={treeId}
-                        detail={detail}
-                        file={view.file}
-                        editable={editable}
-                        changeSet={active}
-                        onDeleted={() => go({ kind: "files", file: null })}
-                        onBack={() => go({ kind: "files", file: null })}
-                        onSaved={afterSave}
-                        onError={saveFailed}
-                    />
-                )
+                <FilePanel
+                    key={`${view.file}@${detail.pin}`}
+                    treeId={treeId}
+                    detail={detail}
+                    file={view.file}
+                    editable={editable}
+                    changeSet={active}
+                    onDeleted={() => go({ kind: "overview" })}
+                    onBack={() => go({ kind: "overview" })}
+                    onSaved={afterSave}
+                    onError={saveFailed}
+                />
             ) : view.kind === "address" ? (
                 <AddressView
                     treeId={treeId}
@@ -635,7 +621,7 @@ export function EditingStrip({
 
 // The package overview: the reference graph plus the insight panels. The
 // per-kind entity lists live on their collection pages (the nav's
-// Variables, Catalogs, Lists, Contexts, Files), not here.
+// Contexts, Variables, Catalogs, Lists), not here.
 function Overview({
     treeId,
     detail,
@@ -1737,95 +1723,6 @@ function ContextDetailPanel({
                 </SearchableList>
             )}
         </div>
-    );
-}
-
-function FileList({
-    treeId,
-    detail,
-    changeSet,
-    editable,
-    hrefFile,
-    onOpenFile,
-    onSaved,
-    onError,
-}: {
-    treeId: string;
-    detail: PackageDetail;
-    changeSet?: ChangeSet | null;
-    editable?: boolean;
-    hrefFile: (path: string) => string;
-    onOpenFile?: (path: string) => void;
-    onSaved?: (result: EditResponse) => void;
-    onError?: (error: unknown) => void;
-}) {
-    const [files, setFiles] = useState<string[] | null>(null);
-    useEffect(() => {
-        let stale = false;
-        listPackageFiles(treeId, detail.path, detail.pin).then(
-            (response) => {
-                if (!stale) {
-                    setFiles(response.files);
-                }
-            },
-            () => {
-                if (!stale) {
-                    setFiles([]);
-                }
-            },
-        );
-        return () => {
-            stale = true;
-        };
-    }, [treeId, detail.path, detail.pin]);
-    return (
-        <>
-            <div className="section-header-text">
-                <h2>Files</h2>
-                <p className="hint">
-                    The raw-text escape hatch: every file, structured or not.
-                </p>
-            </div>
-            {editable === true &&
-            changeSet != null &&
-            onSaved !== undefined &&
-            onError !== undefined ? (
-                <NewIdForm
-                    label="New file"
-                    placeholder="path/in/package.toml"
-                    onSubmit={(path) =>
-                        saveEdit(changeSet.id, {
-                            packagePath: detail.path,
-                            expectedPin: detail.pin,
-                            files: [{ path, content: "" }],
-                            summary: `Create ${path}`,
-                        }).then((result) => {
-                            onSaved(result);
-                            onOpenFile?.(path);
-                        }, onError)
-                    }
-                />
-            ) : null}
-            <SearchableList
-                label="Search files"
-                placeholder="Search files"
-                emptyLabel="No file matches that search."
-                className="row-list"
-            >
-                {(files ?? []).map((file) => (
-                    <a
-                        className="row"
-                        key={file}
-                        href={hrefFile(file)}
-                        data-search={file}
-                    >
-                        <span className="row-text">
-                            <span className="row-title mono">{file}</span>
-                        </span>
-                    </a>
-                ))}
-            </SearchableList>
-        </>
     );
 }
 
