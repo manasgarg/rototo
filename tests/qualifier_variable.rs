@@ -408,7 +408,9 @@ fn resolve_rejects_missing_condition_context_even_when_schema_allows_it() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("No such key"));
+        .stderr(predicate::str::contains(
+            "which the given context does not carry",
+        ));
 }
 
 #[test]
@@ -448,7 +450,9 @@ fn resolve_rejects_missing_context_for_variable_rules() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("No such key"));
+        .stderr(predicate::str::contains(
+            "which the given context does not carry",
+        ));
 }
 
 #[test]

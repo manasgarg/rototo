@@ -707,12 +707,20 @@ mod tests {
         let err = resolve_condition(package.path(), "missing-compare", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("No such key"));
+        assert!(
+            err.to_string()
+                .contains("reads context.missing.path, which the given context does not carry"),
+            "unexpected error: {err}"
+        );
 
         let err = resolve_condition(package.path(), "missing-bucket", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("No such key"));
+        assert!(
+            err.to_string()
+                .contains("reads context.missing.id, which the given context does not carry"),
+            "unexpected error: {err}"
+        );
 
         assert!(
             !resolve_condition(package.path(), "missing-after-false", &non_matching_context,)
@@ -726,7 +734,11 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.to_string().contains("No such key"));
+        assert!(
+            err.to_string()
+                .contains("reads context.missing.path, which the given context does not carry"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]

@@ -942,7 +942,11 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
         .resolve_variable("premium_users", &context)
         .unwrap_err();
 
-    assert!(err.to_string().contains("No such key"));
+    assert!(
+        err.to_string()
+            .contains("reads context.user.tier, which the given context does not carry"),
+        "unexpected error: {err}"
+    );
 }
 
 #[tokio::test]
