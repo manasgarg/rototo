@@ -3126,8 +3126,49 @@ select.input {
     gap: 8px;
 }
 
-.context-toml {
-    margin: 0;
+/* editable chips: the value is a button, keys can be dropped or added */
+button.context-fact-value {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ink-0);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline dashed var(--line-2);
+    text-underline-offset: 3px;
+}
+
+button.context-fact-value:hover {
+    color: var(--sea-700);
+}
+
+.context-fact-remove {
+    margin-left: 2px;
+    padding: 0 3px;
+    border: none;
+    border-radius: var(--radius-1);
+    background: none;
+    color: var(--ink-3);
+    font: inherit;
+    cursor: pointer;
+}
+
+.context-fact-remove:hover {
+    background: var(--err-bg);
+    color: var(--err-700);
+}
+
+.context-facts .context-fact-input {
+    width: auto;
+    min-height: 0;
+    padding: 1px 6px;
+    font-size: 12px;
+}
+
+.context-fact-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 /* a chosen context, flattened to dotted-path facts */

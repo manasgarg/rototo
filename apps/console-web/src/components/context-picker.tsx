@@ -3,13 +3,12 @@
 // always parameterized by one. The strip stays collapsed to a one-line
 // summary until clicked. Its dropdown offers only the package's saved
 // samples; synthesized boundary contexts are generated from a variable's
-// own preview panel, and any chosen context can be edited into an ad-hoc
-// one in place.
+// own preview panel. Both views edit: chips fact by fact, JSON as a whole.
+// Every edit lands on the session's ad-hoc context, never on the sample.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ContextInventory, SynthesizedContext } from "@/lib/api";
-import { contextToToml } from "@/lib/format";
 
 type ComboOption = { value: string; label: string; group?: string };
 
@@ -173,33 +172,209 @@ export function syntheticLabel(entry: SynthesizedContext): string {
 
 // A context shown as flattened dotted-path facts: nested JSON braces are
 // noise when the question is "which facts does this resolution see". The
-// full JSON stays a hover away.
+// full JSON stays a hover away. With `onEdit` the chips become an editor:
+// click a value to change it, × drops the key, "+ Add key" grows the
+// context by one dotted path.
 export function ContextFacts({
     context,
+    onEdit,
 }: {
     context: Record<string, unknown>;
+    onEdit?: (context: Record<string, unknown>) => void;
 }) {
     return (
         <span
             className="context-facts"
             title={JSON.stringify(context, null, 2)}
         >
-            {flattenContext(context).map((fact) => (
-                <span className="context-fact" key={fact.path}>
-                    <span className="context-fact-path">{fact.path}</span>
-                    {" = "}
-                    <span className="context-fact-value">{fact.value}</span>
-                </span>
-            ))}
+            {flattenContext(context).map((fact) =>
+                onEdit === undefined ? (
+                    <span className="context-fact" key={fact.path}>
+                        <span className="context-fact-path">{fact.path}</span>
+                        {" = "}
+                        <span className="context-fact-value">
+                            {factText(fact.value)}
+                        </span>
+                    </span>
+                ) : (
+                    <EditableFact
+                        key={fact.path}
+                        path={fact.path}
+                        value={fact.value}
+                        onCommit={(text) =>
+                            onEdit(
+                                setAtPath(
+                                    context,
+                                    fact.path.split("."),
+                                    factValueFromText(text),
+                                ),
+                            )
+                        }
+                        onRemove={() =>
+                            onEdit(removeAtPath(context, fact.path.split(".")))
+                        }
+                    />
+                ),
+            )}
+            {onEdit !== undefined ? (
+                <AddFact
+                    onAdd={(path, text) =>
+                        onEdit(
+                            setAtPath(
+                                context,
+                                path.split("."),
+                                factValueFromText(text),
+                            ),
+                        )
+                    }
+                />
+            ) : null}
         </span>
+    );
+}
+
+// One editable chip. Commit on Enter or blur, the ControlInput idiom; an
+// unchanged draft commits nothing, so a click-through leaves a sample a
+// sample.
+function EditableFact({
+    path,
+    value,
+    onCommit,
+    onRemove,
+}: {
+    path: string;
+    value: unknown;
+    onCommit: (text: string) => void;
+    onRemove: () => void;
+}) {
+    // null shows the value; a string is a live draft.
+    const [draft, setDraft] = useState<string | null>(null);
+    const commit = () => {
+        if (draft !== null && draft !== factEditText(value)) {
+            onCommit(draft);
+        }
+        setDraft(null);
+    };
+    return (
+        <span className="context-fact">
+            <span className="context-fact-path">{path}</span>
+            {" = "}
+            {draft === null ? (
+                <>
+                    <button
+                        className="context-fact-value"
+                        title="Edit this value"
+                        type="button"
+                        onClick={() => setDraft(factEditText(value))}
+                    >
+                        {factText(value)}
+                    </button>
+                    <button
+                        className="context-fact-remove"
+                        title={`Remove ${path}`}
+                        type="button"
+                        onClick={onRemove}
+                    >
+                        ×
+                    </button>
+                </>
+            ) : (
+                <input
+                    autoFocus
+                    className="input mono context-fact-input"
+                    size={Math.max(draft.length + 2, 6)}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            event.preventDefault();
+                            commit();
+                        }
+                    }}
+                />
+            )}
+        </span>
+    );
+}
+
+function AddFact({ onAdd }: { onAdd: (path: string, text: string) => void }) {
+    const [open, setOpen] = useState(false);
+    const [path, setPath] = useState("");
+    const [text, setText] = useState("");
+    if (!open) {
+        return (
+            <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => setOpen(true)}
+            >
+                + Add key
+            </button>
+        );
+    }
+    const close = () => {
+        setOpen(false);
+        setPath("");
+        setText("");
+    };
+    const valid =
+        path.trim() !== "" &&
+        !path
+            .trim()
+            .split(".")
+            .some((segment) => segment === "");
+    return (
+        <form
+            className="context-fact context-fact-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                if (!valid) {
+                    return;
+                }
+                onAdd(path.trim(), text);
+                close();
+            }}
+        >
+            <input
+                autoFocus
+                className="input mono context-fact-input"
+                placeholder="path.to.key"
+                size={14}
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+            />
+            {" = "}
+            <input
+                className="input mono context-fact-input"
+                placeholder="value"
+                size={10}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+            />
+            <button
+                className="btn btn-secondary btn-sm"
+                disabled={!valid}
+                type="submit"
+            >
+                Add
+            </button>
+            <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={close}
+            >
+                Cancel
+            </button>
+        </form>
     );
 }
 
 function flattenContext(
     value: Record<string, unknown>,
     prefix = "",
-): { path: string; value: string }[] {
-    const facts: { path: string; value: string }[] = [];
+): { path: string; value: unknown }[] {
+    const facts: { path: string; value: unknown }[] = [];
     for (const [key, entry] of Object.entries(value)) {
         const path = prefix === "" ? key : `${prefix}.${key}`;
         if (
@@ -211,10 +386,80 @@ function flattenContext(
                 ...flattenContext(entry as Record<string, unknown>, path),
             );
         } else {
-            facts.push({ path, value: JSON.stringify(entry) ?? "null" });
+            facts.push({ path, value: entry });
         }
     }
     return facts;
+}
+
+function factText(value: unknown): string {
+    return JSON.stringify(value) ?? "null";
+}
+
+// A string edits without its quotes; everything else edits as JSON text.
+function factEditText(value: unknown): string {
+    return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+}
+
+// The CLI's `--context path=value` typing rule (src/cli/context.rs):
+// JSON if it parses, otherwise the raw string.
+function factValueFromText(text: string): unknown {
+    try {
+        return JSON.parse(text);
+    } catch {
+        return text;
+    }
+}
+
+// The CLI's `insert_context_path` shape: a dotted path descends objects,
+// and a non-object in the way is replaced by one.
+function setAtPath(
+    context: Record<string, unknown>,
+    path: string[],
+    value: unknown,
+): Record<string, unknown> {
+    const [head, ...rest] = path;
+    if (head === undefined) {
+        return context;
+    }
+    if (rest.length === 0) {
+        return { ...context, [head]: value };
+    }
+    const current = context[head];
+    const child =
+        current !== null &&
+        typeof current === "object" &&
+        !Array.isArray(current)
+            ? (current as Record<string, unknown>)
+            : {};
+    return { ...context, [head]: setAtPath(child, rest, value) };
+}
+
+function removeAtPath(
+    context: Record<string, unknown>,
+    path: string[],
+): Record<string, unknown> {
+    const [head, ...rest] = path;
+    if (head === undefined || !(head in context)) {
+        return context;
+    }
+    if (rest.length === 0) {
+        const remaining = { ...context };
+        delete remaining[head];
+        return remaining;
+    }
+    const current = context[head];
+    if (
+        current === null ||
+        typeof current !== "object" ||
+        Array.isArray(current)
+    ) {
+        return context;
+    }
+    return {
+        ...context,
+        [head]: removeAtPath(current as Record<string, unknown>, rest),
+    };
 }
 
 export function ContextPicker({
@@ -227,14 +472,28 @@ export function ContextPicker({
     onChange: (chosen: ChosenContext) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
-    const [display, setDisplay] = useState<"chips" | "toml">("chips");
-    const [editing, setEditing] = useState(false);
+    const [display, setDisplay] = useState<"chips" | "json">("chips");
     const [text, setText] = useState("{}");
     const [problem, setProblem] = useState<string | null>(null);
 
     const samples = inventory?.samples ?? [];
 
     const selectValue = chosen.kind === "sample" ? `sample:${chosen.key}` : "";
+
+    // The JSON tab is the whole-context editor; entering it, or switching
+    // the chosen context while on it, re-prefills the draft.
+    useEffect(() => {
+        if (display === "json") {
+            setText(
+                JSON.stringify(
+                    chosen.kind === "none" ? {} : chosen.context,
+                    null,
+                    2,
+                ),
+            );
+            setProblem(null);
+        }
+    }, [display, chosen]);
 
     const apply = () => {
         try {
@@ -246,7 +505,6 @@ export function ContextPicker({
             ) {
                 throw new Error("a context is a JSON object");
             }
-            setEditing(false);
             setProblem(null);
             onChange({ kind: "adhoc", context });
         } catch (error) {
@@ -254,23 +512,7 @@ export function ContextPicker({
         }
     };
 
-    // Editing starts from whatever is chosen, so a saved sample is one
-    // tweak away from a what-if; the result is the session's ad-hoc
-    // context, never a write to the sample.
-    const startEditing = () => {
-        setText(
-            JSON.stringify(
-                chosen.kind === "none" ? {} : chosen.context,
-                null,
-                2,
-            ),
-        );
-        setProblem(null);
-        setEditing(true);
-    };
-
     const select = (value: string) => {
-        setEditing(false);
         if (value === "") {
             onChange({ kind: "none" });
             return;
@@ -309,7 +551,10 @@ export function ContextPicker({
                         title={JSON.stringify(chosen.context, null, 2)}
                     >
                         {flattenContext(chosen.context)
-                            .map((fact) => `${fact.path} = ${fact.value}`)
+                            .map(
+                                (fact) =>
+                                    `${fact.path} = ${factText(fact.value)}`,
+                            )
                             .join("   ")}
                     </span>
                 ) : null}
@@ -362,38 +607,27 @@ export function ContextPicker({
                             </button>
                             <button
                                 className={
-                                    display === "toml" ? "active" : undefined
+                                    display === "json" ? "active" : undefined
                                 }
                                 type="button"
-                                onClick={() => setDisplay("toml")}
+                                onClick={() => setDisplay("json")}
                             >
-                                TOML
+                                JSON
                             </button>
                         </div>
-                        {!editing ? (
-                            <button
-                                className="btn btn-secondary btn-sm"
-                                title="Edit this context as JSON; the result becomes the custom context"
-                                type="button"
-                                onClick={startEditing}
-                            >
-                                Edit
-                            </button>
-                        ) : null}
                     </div>
-                    {chosen.kind !== "none" && !editing ? (
-                        display === "chips" ? (
-                            <ContextFacts context={chosen.context} />
-                        ) : (
-                            <pre className="codewell context-toml">
-                                {contextToToml(chosen.context)}
-                            </pre>
-                        )
-                    ) : null}
-                    {editing ? (
+                    {display === "chips" ? (
+                        <ContextFacts
+                            context={
+                                chosen.kind === "none" ? {} : chosen.context
+                            }
+                            onEdit={(context) =>
+                                onChange({ kind: "adhoc", context })
+                            }
+                        />
+                    ) : (
                         <span className="inline-form context-picker-editor">
                             <textarea
-                                autoFocus
                                 className="textarea mono"
                                 rows={6}
                                 value={text}
@@ -419,18 +653,12 @@ export function ContextPicker({
                                 >
                                     Use context
                                 </button>
-                                <button
-                                    className="btn btn-ghost btn-sm"
-                                    onClick={() => setEditing(false)}
-                                >
-                                    Cancel
-                                </button>
                                 {problem !== null ? (
                                     <span className="hint">{problem}</span>
                                 ) : null}
                             </span>
                         </span>
-                    ) : null}
+                    )}
                 </div>
             ) : null}
         </div>
