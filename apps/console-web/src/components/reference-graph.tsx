@@ -117,6 +117,16 @@ export function ReferenceGraph({
         }
     };
 
+    // Unconnected entities join the same canvas as one last cluster of
+    // edgeless nodes, so the whole package is one picture.
+    const clusters =
+        partitions.isolated.length > 0
+            ? [
+                  ...partitions.components,
+                  { nodes: partitions.isolated, edges: [] },
+              ]
+            : partitions.components;
+
     if (!hasEntities) {
         return (
             <div className="graph-empty hint">
@@ -155,165 +165,38 @@ export function ReferenceGraph({
                 </label>
             </div>
             <div className="graph-visuals">
-                <div className="graph-canvases">
-                    {partitions.components.map((component, index) => {
-                        const previewNode =
-                            inspectedNode &&
-                            component.nodes.some(
-                                (node) => node.id === inspectedNode.id,
-                            )
-                                ? inspectedNode
-                                : null;
-                        return (
-                            <section
-                                aria-label={`Connected entity graph ${index + 1}`}
-                                className="graph-canvas"
-                                key={component.nodes
-                                    .map((node) => node.id)
-                                    .join("|")}
-                            >
-                                {partitions.components.length > 1 ? (
-                                    <div className="graph-canvas-head">
-                                        <span className="label">
-                                            Connection {index + 1}
-                                        </span>
-                                        <span className="hint">
-                                            {component.nodes.length}{" "}
-                                            {component.nodes.length === 1
-                                                ? "entity"
-                                                : "entities"}
-                                        </span>
-                                    </div>
-                                ) : null}
-                                <div
-                                    className={
-                                        previewNode
-                                            ? "graph-canvas-body has-preview"
-                                            : "graph-canvas-body"
-                                    }
-                                >
-                                    <div className="graph-scroll">
-                                        <ColumnsGraph
-                                            data={component}
-                                            inspectedId={inspectedId}
-                                            onInspect={inspect}
-                                            outcomes={outcomes}
-                                            query={needle}
-                                        />
-                                    </div>
-                                    <GraphPreview
-                                        node={previewNode}
-                                        source={
-                                            previewNode
-                                                ? sources.get(previewNode.path)
-                                                : undefined
-                                        }
-                                        outcome={
-                                            previewNode?.variableId !==
-                                            undefined
-                                                ? outcomes?.get(
-                                                      previewNode.variableId,
-                                                  )
-                                                : null
-                                        }
-                                    />
-                                </div>
-                            </section>
-                        );
-                    })}
-                </div>
-                {partitions.isolated.length > 0 ? (
-                    <section
-                        aria-label="Unconnected entities"
-                        className="graph-isolated"
+                <section aria-label="Entity graph" className="graph-canvas">
+                    <div
+                        className={
+                            inspectedNode
+                                ? "graph-canvas-body has-preview"
+                                : "graph-canvas-body"
+                        }
                     >
-                        <div className="graph-isolated-head">
-                            <span className="label">Unconnected entities</span>
-                            <span className="hint">
-                                {partitions.isolated.length}{" "}
-                                {partitions.isolated.length === 1
-                                    ? "entity"
-                                    : "entities"}{" "}
-                                with no links
-                            </span>
-                        </div>
-                        <div
-                            className={
-                                inspectedNode &&
-                                partitions.isolated.some(
-                                    (node) => node.id === inspectedNode.id,
-                                )
-                                    ? "graph-isolated-body has-preview"
-                                    : "graph-isolated-body"
-                            }
-                        >
-                            <div className="graph-isolated-list">
-                                {partitions.isolated.map((node) => {
-                                    const matches =
-                                        needle.length === 0 ||
-                                        node.label
-                                            .toLowerCase()
-                                            .includes(needle);
-                                    const className = [
-                                        "graph-isolated-node",
-                                        inspectedNode?.id === node.id
-                                            ? "is-active"
-                                            : "",
-                                        needle.length > 0 && matches
-                                            ? "is-highlighted"
-                                            : "",
-                                        needle.length > 0 && !matches
-                                            ? "is-dimmed"
-                                            : "",
-                                    ]
-                                        .filter(Boolean)
-                                        .join(" ");
-                                    return (
-                                        <a
-                                            className={className}
-                                            href={node.href}
-                                            key={node.id}
-                                            onFocus={() => inspect(node)}
-                                            onMouseEnter={() => inspect(node)}
-                                        >
-                                            <span
-                                                className="graph-isolated-kind"
-                                                data-kind={node.kind}
-                                            >
-                                                {KIND_LABEL[node.kind]}
-                                            </span>
-                                            <span className="mono">
-                                                {node.label}
-                                            </span>
-                                        </a>
-                                    );
-                                })}
-                            </div>
-                            <GraphPreview
-                                node={
-                                    inspectedNode &&
-                                    partitions.isolated.some(
-                                        (node) => node.id === inspectedNode.id,
-                                    )
-                                        ? inspectedNode
-                                        : null
-                                }
-                                source={
-                                    inspectedNode
-                                        ? sources.get(inspectedNode.path)
-                                        : undefined
-                                }
-                                outcome={
-                                    inspectedNode?.variableId !== undefined
-                                        ? outcomes?.get(
-                                              inspectedNode.variableId,
-                                          )
-                                        : null
-                                }
+                        <div className="graph-scroll">
+                            <ColumnsGraph
+                                components={clusters}
+                                inspectedId={inspectedId}
+                                onInspect={inspect}
+                                outcomes={outcomes}
+                                query={needle}
                             />
                         </div>
-                    </section>
-                ) : null}
+                        <GraphPreview
+                            node={inspectedNode}
+                            source={
+                                inspectedNode
+                                    ? sources.get(inspectedNode.path)
+                                    : undefined
+                            }
+                            outcome={
+                                inspectedNode?.variableId !== undefined
+                                    ? outcomes?.get(inspectedNode.variableId)
+                                    : null
+                            }
+                        />
+                    </div>
+                </section>
             </div>
         </div>
     );
@@ -724,6 +607,7 @@ const KIND_COLOR: Record<GraphNodeKind, string> = {
 };
 
 const ROW_GAP = 8;
+const CLUSTER_GAP = 36;
 const HEADER_HEIGHT = 34;
 const NODE_HEIGHT = 22;
 const VALUE_NODE_HEIGHT = 40;
@@ -735,19 +619,27 @@ const CHAR_WIDTH = 6.6;
 type EdgeState = "plain" | "fired" | "evaluated" | "dormant";
 
 function ColumnsGraph({
-    data,
+    components,
     inspectedId,
     onInspect,
     outcomes,
     query = "",
 }: {
-    data: GraphData;
+    /* Connected components, drawn as clusters one after another. */
+    components: GraphData[];
     inspectedId?: string | null;
     onInspect?: (node: GraphNode | null) => void;
     outcomes: Map<string, TraceOutcome> | null;
     query?: string;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const merged = useMemo(
+        () => ({
+            nodes: components.flatMap((component) => component.nodes),
+            edges: components.flatMap((component) => component.edges),
+        }),
+        [components],
+    );
     const [active, setActive] = useState<string | null>(null);
     const [containerWidth, setContainerWidth] = useState(980);
 
@@ -776,10 +668,11 @@ function ColumnsGraph({
             withValues && (kind === "condition" || kind === "variable")
                 ? VALUE_NODE_HEIGHT
                 : NODE_HEIGHT;
-        const columns = COLUMNS.map((column) => ({
-            ...column,
-            nodes: data.nodes.filter((node) => node.kind === column.kind),
-        })).filter((column) => column.nodes.length > 0);
+        // Columns are shared across every cluster so the whole canvas reads
+        // as one aligned diagram in resolution order.
+        const columns = COLUMNS.filter((column) =>
+            merged.nodes.some((node) => node.kind === column.kind),
+        );
         const count = Math.max(columns.length, 1);
         const gap = Math.max(28, Math.min(56, containerWidth * 0.04));
         const colWidth = Math.max(
@@ -793,27 +686,38 @@ function ColumnsGraph({
             string,
             { x: number; y: number; column: number; height: number }
         >();
-        let bottom = HEADER_HEIGHT;
-        columns.forEach((column, columnIndex) => {
-            const height = nodeHeight(column.kind);
-            column.nodes.forEach((node, rowIndex) => {
-                positions.set(node.id, {
-                    x: PADDING + columnIndex * (colWidth + gap),
-                    y: HEADER_HEIGHT + rowIndex * (height + ROW_GAP),
-                    column: columnIndex,
-                    height,
+        // Clusters stack one after another, separated by a hairline.
+        const dividers: number[] = [];
+        let clusterTop = HEADER_HEIGHT;
+        components.forEach((component, clusterIndex) => {
+            if (clusterIndex > 0) {
+                dividers.push(clusterTop - CLUSTER_GAP / 2);
+            }
+            let clusterBottom = clusterTop;
+            columns.forEach((column, columnIndex) => {
+                const height = nodeHeight(column.kind);
+                const nodes = component.nodes.filter(
+                    (node) => node.kind === column.kind,
+                );
+                nodes.forEach((node, rowIndex) => {
+                    positions.set(node.id, {
+                        x: PADDING + columnIndex * (colWidth + gap),
+                        y: clusterTop + rowIndex * (height + ROW_GAP),
+                        column: columnIndex,
+                        height,
+                    });
                 });
+                clusterBottom = Math.max(
+                    clusterBottom,
+                    clusterTop + nodes.length * (height + ROW_GAP) - ROW_GAP,
+                );
             });
-            bottom = Math.max(
-                bottom,
-                HEADER_HEIGHT +
-                    column.nodes.length * (height + ROW_GAP) -
-                    ROW_GAP,
-            );
+            clusterTop = clusterBottom + CLUSTER_GAP;
         });
         return {
             columns,
             positions,
+            dividers,
             colWidth,
             gap,
             maxLabelChars: Math.max(
@@ -821,9 +725,9 @@ function ColumnsGraph({
                 Math.floor((colWidth - 30) / CHAR_WIDTH),
             ),
             width: PADDING * 2 + count * colWidth + (count - 1) * gap,
-            height: bottom + 8,
+            height: clusterTop - CLUSTER_GAP + 8,
         };
-    }, [containerWidth, data, withValues]);
+    }, [containerWidth, components, merged, withValues]);
 
     const neighbors = useMemo(() => {
         const map = new Map<string, Set<string>>();
@@ -831,16 +735,16 @@ function ColumnsGraph({
             (map.get(a) ?? map.set(a, new Set()).get(a))?.add(b);
             (map.get(b) ?? map.set(b, new Set()).get(b))?.add(a);
         };
-        for (const edge of data.edges) {
+        for (const edge of merged.edges) {
             connect(edge.from, edge.to);
         }
-        for (const node of data.nodes) {
+        for (const node of merged.nodes) {
             for (const related of node.related ?? []) {
                 connect(node.id, related);
             }
         }
         return map;
-    }, [data]);
+    }, [merged]);
 
     // Everything lit by the hovered node: itself, its edge neighbors, and
     // its related entities that complete a selected catalog path.
@@ -858,11 +762,11 @@ function ColumnsGraph({
             return null;
         }
         return new Set(
-            data.nodes
+            merged.nodes
                 .filter((node) => node.label.toLowerCase().includes(query))
                 .map((node) => node.id),
         );
-    }, [data, query]);
+    }, [merged, query]);
 
     const isDimmed = (id: string) =>
         (active !== null &&
@@ -873,7 +777,7 @@ function ColumnsGraph({
     const handleHover = (id: string | null) => {
         setActive(id);
         if (id) {
-            const node = data.nodes.find((candidate) => candidate.id === id);
+            const node = merged.nodes.find((candidate) => candidate.id === id);
             if (node) {
                 onInspect?.(node);
             }
@@ -890,7 +794,7 @@ function ColumnsGraph({
                 viewBox={`0 0 ${layout.width} ${layout.height}`}
                 width={layout.width}
             >
-                {data.edges.map((edge, index) => {
+                {merged.edges.map((edge, index) => {
                     const from = layout.positions.get(edge.from);
                     const to = layout.positions.get(edge.to);
                     if (!from || !to) {
@@ -963,40 +867,48 @@ function ColumnsGraph({
                         {column.title.toUpperCase()}
                     </text>
                 ))}
-                {layout.columns.flatMap((column) =>
-                    column.nodes.map((node) => {
-                        const position = layout.positions.get(node.id);
-                        if (!position) {
-                            return null;
-                        }
-                        return (
-                            <GraphNodeBox
-                                active={inspectedId === node.id}
-                                dimmed={isDimmed(node.id)}
-                                height={position.height}
-                                highlighted={matches?.has(node.id) ?? false}
-                                key={node.id}
-                                maxLabelChars={layout.maxLabelChars}
-                                node={node}
-                                onHover={handleHover}
-                                outcome={
-                                    outcomes !== null &&
-                                    node.variableId !== undefined
-                                        ? (outcomes.get(node.variableId) ??
-                                          null)
-                                        : null
-                                }
-                                showValue={
-                                    outcomes !== null &&
-                                    node.variableId !== undefined
-                                }
-                                width={layout.colWidth}
-                                x={position.x}
-                                y={position.y}
-                            />
-                        );
-                    }),
-                )}
+                {layout.dividers.map((y) => (
+                    <line
+                        key={`divider-${y}`}
+                        stroke="var(--line-1)"
+                        strokeDasharray="3 5"
+                        x1={PADDING}
+                        x2={layout.width - PADDING}
+                        y1={y}
+                        y2={y}
+                    />
+                ))}
+                {merged.nodes.map((node) => {
+                    const position = layout.positions.get(node.id);
+                    if (!position) {
+                        return null;
+                    }
+                    return (
+                        <GraphNodeBox
+                            active={inspectedId === node.id}
+                            dimmed={isDimmed(node.id)}
+                            height={position.height}
+                            highlighted={matches?.has(node.id) ?? false}
+                            key={node.id}
+                            maxLabelChars={layout.maxLabelChars}
+                            node={node}
+                            onHover={handleHover}
+                            outcome={
+                                outcomes !== null &&
+                                node.variableId !== undefined
+                                    ? (outcomes.get(node.variableId) ?? null)
+                                    : null
+                            }
+                            showValue={
+                                outcomes !== null &&
+                                node.variableId !== undefined
+                            }
+                            width={layout.colWidth}
+                            x={position.x}
+                            y={position.y}
+                        />
+                    );
+                })}
             </svg>
         </div>
     );
