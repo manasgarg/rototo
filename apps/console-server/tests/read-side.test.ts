@@ -70,7 +70,10 @@ test("the batch preview is honest about a partial context", async () => {
     assert.equal(outcome("premium_users").trace.rules[0].matched, true);
     // What it cannot cover fails alone, with the missing key named, and
     // the batch as a whole still answers.
-    assert.match(outcome("lane_dev").error, /No such key: lane/);
+    assert.match(
+        outcome("lane_dev").error,
+        /reads context\.lane, which the given context does not carry/,
+    );
     assert.equal(outcome("lane_dev").trace, undefined);
 
     // A synthesized context from the inventory closes that exact gap.

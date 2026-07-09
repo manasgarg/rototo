@@ -130,7 +130,10 @@ test("the understanding walkthrough, end to end and timed", async (t) => {
         preview.outcomes.find((entry: any) => entry.id === id);
     assert.equal(outcome("premium_users").trace.resolution.value, true);
     assert.equal(outcome("enterprise_accounts").trace.resolution.value, true);
-    assert.match(outcome("lane_dev").error, /No such key: lane/);
+    assert.match(
+        outcome("lane_dev").error,
+        /reads context\.lane, which the given context does not carry/,
+    );
     const resolved = preview.outcomes.filter(
         (entry: any) => entry.trace !== undefined,
     );
