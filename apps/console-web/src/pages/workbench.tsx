@@ -408,9 +408,10 @@ export function WorkbenchPage({
                 onError={saveFailed}
             />
 
-            {/* The context parameterizes resolution; screens that never
-                resolve (files, history, diagnostics) don't ask for one. */}
-            {view.kind === "overview" || view.kind === "address" ? (
+            {/* The context parameterizes resolution; only the overview and
+                variable screens resolve, so no other screen asks for one. */}
+            {view.kind === "overview" ||
+            (view.kind === "address" && view.steps[0]?.class === "variable") ? (
                 <ContextPicker
                     inventory={inventory}
                     chosen={chosen}
