@@ -978,6 +978,13 @@ button.row-link {
     min-width: 0;
 }
 
+/* a card led by prose (a description) rather than a heading; the page H1
+   already names the entity */
+.card-lead {
+    font-size: 14px;
+    color: var(--ink-1);
+}
+
 .section {
     display: grid;
     gap: 14px;
@@ -1641,41 +1648,6 @@ select.input {
     min-width: 0;
 }
 
-.rule-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.rule-row .input {
-    flex: 1;
-    min-width: 0;
-}
-
-/* Rule reordering: rows drag by their handle; the target shows an insert line. */
-.rule-block {
-    border-radius: var(--radius-2);
-}
-
-.rule-block[data-dragging] {
-    opacity: 0.45;
-}
-
-.rule-block[data-drop-target] {
-    box-shadow: 0 -2px 0 0 var(--sea-400);
-}
-
-.rule-handle {
-    flex: none;
-    cursor: grab;
-    color: var(--ink-3);
-    touch-action: none;
-}
-
-.rule-handle:active {
-    cursor: grabbing;
-}
-
 /* Branch delta view: unified merge chunks in semantic tints */
 .code-editor-shell .cm-deletedChunk {
     background: var(--err-bg);
@@ -1968,13 +1940,6 @@ select.input {
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 7px;
-}
-
-.rule-word {
-    flex: none;
-    font-family: var(--font-mono), ui-monospace, monospace;
-    font-size: 12px;
-    color: var(--ink-2);
 }
 
 /* a lint finding attached to the field it targets */
@@ -3274,16 +3239,6 @@ button.context-fact-value:hover {
     gap: 8px;
 }
 
-.preview-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px;
-    background: var(--paper-1);
-    border: 1px solid var(--line-1);
-    border-radius: var(--radius-2);
-}
-
 .preview-cases {
     display: flex;
     flex-direction: column;
@@ -3345,47 +3300,59 @@ button.context-fact-value:hover {
     white-space: pre-wrap;
 }
 
-.trace-rules {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+/* The resolution ladder: rules in priority order, the default closing the
+   list as "otherwise". One list serves reading, editing, and (with a
+   context chosen) the trace, so a verdict column appears as a whole. */
+.ladder {
+    display: grid;
+    gap: 6px;
 }
 
-.trace-rule {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
+.ladder-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 2.2fr) 16px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
     padding: 4px 8px;
     border-radius: var(--radius-1);
-    font-size: 12.5px;
 }
 
-.trace-rule-matched {
+/* the verdict column is fixed-width so pills align across rows */
+.ladder[data-verdicts] .ladder-row {
+    grid-template-columns:
+        18px 88px minmax(0, 2.2fr) 16px minmax(0, 1fr)
+        auto;
+}
+
+.ladder-idx {
+    text-align: right;
+}
+
+.ladder-arrow {
+    text-align: center;
+}
+
+.ladder-row[data-state="matched"],
+.ladder-row[data-state="answers"] {
     background: var(--ok-bg);
 }
 
-.trace-rule-dormant {
+/* rows past the match never ran; dim them only when they are plain text,
+   because dimmed inputs read as disabled */
+.ladder:not([data-editable]) .ladder-row[data-state="not-reached"] {
     opacity: 0.55;
 }
 
-/* the condition is what the reader scans; it keeps its width and the
-   value ellipsizes into whatever room remains */
-.trace-rule-when {
-    flex: 0 1 auto;
+.ladder-expr,
+.ladder-value {
     min-width: 0;
-    max-width: 60%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.trace-rule-value {
-    flex: 1 1 0;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--ink-2);
+.ladder-actions {
+    flex-wrap: nowrap;
 }
 
 /* expression identifiers that resolve to entities read as quiet links */

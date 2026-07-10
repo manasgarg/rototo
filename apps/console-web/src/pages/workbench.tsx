@@ -42,6 +42,7 @@ import {
     type PackageDetail,
     type PackageListing,
     type QueryModel,
+    type ResolutionTrace,
     type RuleModel,
     type SemanticModel,
     type SynthesizedContext,
@@ -55,10 +56,14 @@ import {
     type ChosenContext,
 } from "@/components/context-picker";
 import { DiagnosticsPanel, LintStatusPill } from "@/components/diagnostics";
-import { entityLabel, entitySteps } from "@/components/entity-link";
+import {
+    entityLabel,
+    entitySteps,
+    ExpressionText,
+} from "@/components/entity-link";
 import { HistoryPanel, UpcomingPanel } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
-import { TracePreview } from "@/components/trace-preview";
+import { BoundaryContextsCard, OutcomeStrip } from "@/components/trace-preview";
 import { resolvedValueText } from "@/lib/format";
 import { SearchableList } from "@/lib/ui-kit";
 import {
@@ -1910,27 +1915,60 @@ function VariablePanel({
         }).then(onSaved, onError);
     };
 
+    const resolutionDirty =
+        method !== original.method ||
+        !rulesEqual(rules, original.rules) ||
+        defaultText !== original.defaultText ||
+        !queryEqual(query, original.query);
+    // Per-row verdicts bind the server's trace to the ladder only while the
+    // draft still matches the saved definition the trace was computed from.
+    const trace = chosen.kind !== "none" ? (outcome?.trace ?? null) : null;
+    const verdicts =
+        trace !== null && method === "rules" && !resolutionDirty
+            ? ladderVerdicts(trace)
+            : null;
+
     return (
-        <div className="card">
-            <div className="card-head">
-                <div className="card-head-text">
-                    <h2 className="mono">{variable.id}</h2>
-                    <p className="hint">
-                        <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
-                        <MethodLabel
-                            variable={variable}
-                            hrefEntity={hrefEntity}
-                        />{" "}
-                        ·{" "}
-                        <a
-                            className="row-link mono"
-                            href={hrefFile(variable.location.path)}
-                        >
-                            {variable.location.path}
-                        </a>
-                    </p>
-                </div>
-                <span className="action-row">
+        <>
+            <div className="card">
+                <div className="card-head">
+                    <div className="card-head-text">
+                        {editable ? (
+                            <input
+                                aria-label="Description"
+                                className="input"
+                                placeholder="What this variable controls"
+                                value={description}
+                                onChange={(event) =>
+                                    setDescription(event.target.value)
+                                }
+                            />
+                        ) : (
+                            <p className="card-lead">
+                                {description !== "" ? (
+                                    description
+                                ) : (
+                                    <span className="muted">
+                                        No description yet.
+                                    </span>
+                                )}
+                            </p>
+                        )}
+                        <p className="hint">
+                            <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
+                            <MethodLabel
+                                variable={variable}
+                                hrefEntity={hrefEntity}
+                            />{" "}
+                            ·{" "}
+                            <a
+                                className="row-link mono"
+                                href={hrefFile(variable.location.path)}
+                            >
+                                {variable.location.path}
+                            </a>
+                        </p>
+                    </div>
                     {editable && changeSet !== null ? (
                         <DeleteButton
                             label="Delete variable"
@@ -1964,230 +2002,392 @@ function VariablePanel({
                             }
                         />
                     ) : null}
-                    <button className="btn btn-ghost btn-sm" onClick={onBack}>
-                        Back
-                    </button>
-                </span>
+                </div>
+
+                <form
+                    className="form-contents"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        save();
+                    }}
+                >
+                    <div className="form-fields">
+                        <div className="section-header-text">
+                            <h3>Resolution</h3>
+                            <p className="hint">
+                                {method === "allocation"
+                                    ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
+                                    : method === "query"
+                                      ? "One query selects the value from a catalog; the default answers when nothing matches."
+                                      : "First match wins; the default answers when none do."}
+                            </p>
+                        </div>
+
+                        <OutcomeStrip
+                            chosen={chosen}
+                            outcome={outcome}
+                            method={method}
+                            stale={resolutionDirty}
+                        />
+
+                        {method === "query" ? (
+                            editable ? (
+                                <QueryFields
+                                    editable={editable}
+                                    query={query}
+                                    onChange={setQuery}
+                                    onUseRules={() => setMethod("rules")}
+                                />
+                            ) : (
+                                <QueryFacts
+                                    query={original.query}
+                                    hrefEntity={hrefEntity}
+                                />
+                            )
+                        ) : null}
+
+                        {method !== "allocation" ? (
+                            <RuleLadder
+                                type={type}
+                                editable={editable}
+                                withRules={method === "rules"}
+                                rules={rules}
+                                defaultText={defaultText}
+                                verdicts={verdicts}
+                                hrefEntity={hrefEntity}
+                                onRules={setRules}
+                                onDefaultText={setDefaultText}
+                            />
+                        ) : null}
+
+                        {editable && method === "rules" ? (
+                            <div className="action-row">
+                                <button
+                                    className="btn btn-secondary btn-sm"
+                                    type="button"
+                                    onClick={() =>
+                                        setRules([
+                                            ...rules,
+                                            {
+                                                when: "",
+                                                valueText:
+                                                    defaultRuleValue(type),
+                                            },
+                                        ])
+                                    }
+                                >
+                                    Add rule
+                                </button>
+                                <button
+                                    className="btn btn-ghost btn-sm"
+                                    type="button"
+                                    title="Select the value with one catalog query instead of rules"
+                                    onClick={() => setMethod("query")}
+                                >
+                                    Use a query instead
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="card-actions">
+                        {editable ? (
+                            <button
+                                className="btn btn-primary"
+                                type="submit"
+                                disabled={saving}
+                            >
+                                {saving ? "Saving…" : "Save (one commit)"}
+                            </button>
+                        ) : (
+                            <span className="hint">
+                                Start or pick a change set above to edit.
+                            </span>
+                        )}
+                    </div>
+                </form>
             </div>
 
-            {reads.length > 0 || readBy.length > 0 ? (
-                <div className="field-stack">
-                    <ReferencePills
-                        title="Reads"
-                        entities={reads}
-                        hrefEntity={hrefEntity}
-                    />
-                    <ReferencePills
-                        title="Read by"
-                        entities={readBy}
-                        hrefEntity={hrefEntity}
-                    />
-                </div>
-            ) : null}
-
-            <TracePreview
+            <BoundaryContextsCard
                 variableId={variableId}
-                chosen={chosen}
-                outcome={outcome}
                 synthesized={synthesized}
                 canPromote={editable}
-                hrefEntity={hrefEntity}
                 onUseContext={onUseContext}
                 onPromote={promote}
             />
 
-            <form
-                className="form-contents"
-                onSubmit={(event) => {
-                    event.preventDefault();
-                    save();
-                }}
-            >
-                <div className="form-fields">
-                    <div className="form-row">
-                        <span className="label">Description</span>
-                        <input
-                            className="input"
-                            disabled={!editable}
-                            value={description}
-                            onChange={(event) =>
-                                setDescription(event.target.value)
-                            }
+            {reads.length > 0 || readBy.length > 0 ? (
+                <div className="card">
+                    <div className="section-header-text">
+                        <h3>References</h3>
+                        <p className="hint">
+                            What this variable reads, and what reads it.
+                        </p>
+                    </div>
+                    <div className="field-stack">
+                        <ReferencePills
+                            title="Reads"
+                            entities={reads}
+                            hrefEntity={hrefEntity}
+                        />
+                        <ReferencePills
+                            title="Read by"
+                            entities={readBy}
+                            hrefEntity={hrefEntity}
                         />
                     </div>
-                    <div className="form-row">
-                        <span className="label">Default</span>
+                </div>
+            ) : null}
+        </>
+    );
+}
+
+// How one resolution walked the ladder: a verdict per rule row, and one for
+// the otherwise row (the default answers only when no rule matched).
+type LadderVerdict = "matched" | "no-match" | "not-reached" | "answers";
+
+const VERDICT_TEXT: Record<LadderVerdict, string> = {
+    matched: "matched",
+    "no-match": "no match",
+    "not-reached": "not reached",
+    answers: "answers",
+};
+
+function ladderVerdicts(trace: ResolutionTrace): {
+    rows: LadderVerdict[];
+    otherwise: LadderVerdict;
+} {
+    const matchedAt = trace.rules.findIndex((rule) => rule.matched);
+    return {
+        rows: trace.rules.map((rule, index) =>
+            rule.matched
+                ? "matched"
+                : matchedAt !== -1 && index > matchedAt
+                  ? "not-reached"
+                  : "no-match",
+        ),
+        otherwise: matchedAt === -1 ? "answers" : "not-reached",
+    };
+}
+
+function VerdictCell({ verdict }: { verdict: LadderVerdict | undefined }) {
+    if (verdict === undefined) {
+        return <span />;
+    }
+    const ok = verdict === "matched" || verdict === "answers";
+    return (
+        <span className={`pill ${ok ? "pill-ok" : "pill-neutral"}`}>
+            {VERDICT_TEXT[verdict]}
+        </span>
+    );
+}
+
+// The resolution ladder: the rules in priority order and the default as the
+// closing "otherwise" row, one list serving both reading and editing. With
+// a context chosen it doubles as the trace, each row carrying its verdict.
+function RuleLadder({
+    type,
+    editable,
+    withRules,
+    rules,
+    defaultText,
+    verdicts,
+    hrefEntity,
+    onRules,
+    onDefaultText,
+}: {
+    type: string;
+    editable: boolean;
+    // A query variable keeps only the otherwise row: the query answers
+    // first, the default when nothing matches.
+    withRules: boolean;
+    rules: RuleDraft[];
+    defaultText: string;
+    verdicts: { rows: LadderVerdict[]; otherwise: LadderVerdict } | null;
+    hrefEntity: (steps: AddressStep[]) => string;
+    onRules: (rules: RuleDraft[]) => void;
+    onDefaultText: (value: string) => void;
+}) {
+    // A query variable with no declared default has no otherwise row to
+    // read; editing still offers it so a default can be added.
+    const withOtherwise = editable || withRules || defaultText !== "";
+    return (
+        <div
+            className="ladder"
+            data-verdicts={verdicts !== null || undefined}
+            data-editable={editable || undefined}
+        >
+            {withRules
+                ? rules.map((rule, index) => (
+                      <div
+                          className="ladder-row"
+                          data-state={verdicts?.rows[index]}
+                          key={index}
+                      >
+                          <span className="ladder-idx label">{index + 1}</span>
+                          {verdicts !== null ? (
+                              <VerdictCell verdict={verdicts.rows[index]} />
+                          ) : null}
+                          {editable ? (
+                              <input
+                                  aria-label={`Rule ${index + 1} condition`}
+                                  className="input mono"
+                                  value={rule.when}
+                                  onChange={(event) =>
+                                      onRules(
+                                          replaceAt(rules, index, {
+                                              ...rule,
+                                              when: event.target.value,
+                                          }),
+                                      )
+                                  }
+                              />
+                          ) : (
+                              <span className="mono ladder-expr">
+                                  <ExpressionText
+                                      text={rule.when}
+                                      hrefFor={hrefEntity}
+                                  />
+                              </span>
+                          )}
+                          <span className="ladder-arrow label">→</span>
+                          {editable ? (
+                              <ValueInput
+                                  type={type}
+                                  disabled={false}
+                                  value={rule.valueText}
+                                  onChange={(valueText) =>
+                                      onRules(
+                                          replaceAt(rules, index, {
+                                              ...rule,
+                                              valueText,
+                                          }),
+                                      )
+                                  }
+                              />
+                          ) : (
+                              <span
+                                  className="mono ladder-value"
+                                  title={rule.valueText}
+                              >
+                                  {rule.valueText}
+                              </span>
+                          )}
+                          {editable ? (
+                              <span className="action-row ladder-actions">
+                                  <button
+                                      className="btn btn-icon btn-sm"
+                                      type="button"
+                                      disabled={index === 0}
+                                      title="Move up"
+                                      onClick={() =>
+                                          onRules(
+                                              moveRule(rules, index, index - 1),
+                                          )
+                                      }
+                                  >
+                                      ↑
+                                  </button>
+                                  <button
+                                      className="btn btn-icon btn-sm"
+                                      type="button"
+                                      disabled={index === rules.length - 1}
+                                      title="Move down"
+                                      onClick={() =>
+                                          onRules(
+                                              moveRule(rules, index, index + 1),
+                                          )
+                                      }
+                                  >
+                                      ↓
+                                  </button>
+                                  <button
+                                      className="btn btn-icon btn-sm btn-remove"
+                                      type="button"
+                                      title="Remove rule"
+                                      onClick={() =>
+                                          onRules(
+                                              rules.filter(
+                                                  (_, i) => i !== index,
+                                              ),
+                                          )
+                                      }
+                                  >
+                                      ×
+                                  </button>
+                              </span>
+                          ) : null}
+                      </div>
+                  ))
+                : null}
+            {withOtherwise ? (
+                <div className="ladder-row" data-state={verdicts?.otherwise}>
+                    <span className="ladder-idx" />
+                    {verdicts !== null ? (
+                        <VerdictCell verdict={verdicts.otherwise} />
+                    ) : null}
+                    <span className="label">otherwise</span>
+                    <span className="ladder-arrow label">→</span>
+                    {editable ? (
                         <ValueInput
                             type={type}
-                            disabled={!editable}
+                            disabled={false}
                             value={defaultText}
-                            onChange={setDefaultText}
+                            onChange={onDefaultText}
                         />
-                    </div>
-
-                    {method === "allocation" ? (
-                        <div className="section-header-text">
-                            <h3>Allocation</h3>
-                            <p className="hint">
-                                This variable resolves by allocation; adjust the
-                                rollout on its layer, or edit the raw file.
-                            </p>
-                        </div>
-                    ) : method === "query" ? (
-                        <QueryFields
-                            editable={editable}
-                            query={query}
-                            onChange={setQuery}
-                            onUseRules={() => setMethod("rules")}
-                        />
-                    ) : (
-                        <>
-                            <div className="section-header-text">
-                                <h3>Rules</h3>
-                                <p className="hint">
-                                    First match wins; the default answers when
-                                    none do.
-                                </p>
-                            </div>
-                            {rules.map((rule, index) => (
-                                <div className="rule-row" key={index}>
-                                    <span className="rule-word label">
-                                        when
-                                    </span>
-                                    <input
-                                        className="input mono"
-                                        disabled={!editable}
-                                        value={rule.when}
-                                        onChange={(event) =>
-                                            setRules(
-                                                replaceAt(rules, index, {
-                                                    ...rule,
-                                                    when: event.target.value,
-                                                }),
-                                            )
-                                        }
-                                    />
-                                    <span className="rule-word label">
-                                        value
-                                    </span>
-                                    <ValueInput
-                                        type={type}
-                                        disabled={!editable}
-                                        value={rule.valueText}
-                                        onChange={(valueText) =>
-                                            setRules(
-                                                replaceAt(rules, index, {
-                                                    ...rule,
-                                                    valueText,
-                                                }),
-                                            )
-                                        }
-                                    />
-                                    {editable ? (
-                                        <span className="action-row">
-                                            <button
-                                                className="btn btn-icon btn-sm"
-                                                type="button"
-                                                disabled={index === 0}
-                                                title="Move up"
-                                                onClick={() =>
-                                                    setRules(
-                                                        moveRule(
-                                                            rules,
-                                                            index,
-                                                            index - 1,
-                                                        ),
-                                                    )
-                                                }
-                                            >
-                                                ↑
-                                            </button>
-                                            <button
-                                                className="btn btn-icon btn-sm"
-                                                type="button"
-                                                disabled={
-                                                    index === rules.length - 1
-                                                }
-                                                title="Move down"
-                                                onClick={() =>
-                                                    setRules(
-                                                        moveRule(
-                                                            rules,
-                                                            index,
-                                                            index + 1,
-                                                        ),
-                                                    )
-                                                }
-                                            >
-                                                ↓
-                                            </button>
-                                            <button
-                                                className="btn btn-icon btn-sm btn-remove"
-                                                type="button"
-                                                title="Remove rule"
-                                                onClick={() =>
-                                                    setRules(
-                                                        rules.filter(
-                                                            (_, i) =>
-                                                                i !== index,
-                                                        ),
-                                                    )
-                                                }
-                                            >
-                                                ×
-                                            </button>
-                                        </span>
-                                    ) : null}
-                                </div>
-                            ))}
-                            {editable ? (
-                                <div className="action-row">
-                                    <button
-                                        className="btn btn-secondary btn-sm"
-                                        type="button"
-                                        onClick={() =>
-                                            setRules([
-                                                ...rules,
-                                                {
-                                                    when: "",
-                                                    valueText:
-                                                        defaultRuleValue(type),
-                                                },
-                                            ])
-                                        }
-                                    >
-                                        Add rule
-                                    </button>
-                                    <button
-                                        className="btn btn-ghost btn-sm"
-                                        type="button"
-                                        title="Select the value with one catalog query instead of rules"
-                                        onClick={() => setMethod("query")}
-                                    >
-                                        Use a query instead
-                                    </button>
-                                </div>
-                            ) : null}
-                        </>
-                    )}
-                </div>
-
-                <div className="card-actions">
-                    {editable ? (
-                        <button
-                            className="btn btn-primary"
-                            type="submit"
-                            disabled={saving}
-                        >
-                            {saving ? "Saving…" : "Save (one commit)"}
-                        </button>
-                    ) : (
-                        <span className="hint">
-                            Start or pick a change set above to edit.
+                    ) : defaultText !== "" ? (
+                        <span className="mono ladder-value" title={defaultText}>
+                            {defaultText}
                         </span>
+                    ) : (
+                        <span className="muted">none</span>
                     )}
                 </div>
-            </form>
+            ) : null}
+        </div>
+    );
+}
+
+// A query definition, read as facts rather than as a dead form.
+function QueryFacts({
+    query,
+    hrefEntity,
+}: {
+    query: QueryDraft;
+    hrefEntity: (steps: AddressStep[]) => string;
+}) {
+    return (
+        <div className="field-stack">
+            <div className="kv">
+                <span className="label">from</span>
+                <a
+                    className="row-link mono"
+                    href={hrefEntity([{ class: "catalog", id: query.from }])}
+                >
+                    {query.from}
+                </a>
+            </div>
+            <div className="kv">
+                <span className="label">where</span>
+                <span className="mono">
+                    <ExpressionText text={query.filter} hrefFor={hrefEntity} />
+                </span>
+            </div>
+            {query.sort !== "" ? (
+                <div className="kv">
+                    <span className="label">sort</span>
+                    <span className="mono">
+                        {query.sort}
+                        {query.order !== "" ? ` ${query.order}` : ""}
+                    </span>
+                </div>
+            ) : null}
+            {query.limitText !== "" ? (
+                <div className="kv">
+                    <span className="label">limit</span>
+                    <span className="mono">{query.limitText}</span>
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -2321,13 +2521,6 @@ function QueryFields({
         onChange({ ...query, [key]: value });
     return (
         <>
-            <div className="section-header-text">
-                <h3>Query</h3>
-                <p className="hint">
-                    One query selects the value from a catalog; the default
-                    answers when nothing matches.
-                </p>
-            </div>
             <div className="form-row">
                 <span className="label">From</span>
                 <input

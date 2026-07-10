@@ -1,12 +1,13 @@
-// The ring-0 trace preview (design/console-semantic.md "Previews"): for one
-// variable under the chosen context, the resolved value, its provenance,
-// and the rule walk — every rule in order with its verdict. The same data
-// `rototo resolve` prints, so console and CLI cannot disagree.
+// The read side of the variable screen (design/console-semantic.md
+// "Previews"), split into two pieces the screen composes around the rule
+// ladder. OutcomeStrip states the resolved value and its provenance for the
+// chosen context — the same data `rototo resolve` prints, so console and
+// CLI cannot disagree; the per-rule verdicts live on the ladder itself.
 //
-// The empty state is the impact-confidence fix from the system view: with
-// no context chosen (or none that satisfies the variable), the panel can
-// generate the variable's own synthesized boundary contexts — the smallest
-// valid contexts that exercise each branch — and an active change set can
+// BoundaryContextsCard is the impact-confidence fix from the system view:
+// with no satisfying context at hand, the reader can generate the
+// variable's own synthesized boundary contexts — the smallest valid
+// contexts that exercise each branch — and an active change set can
 // promote one to a real sample with `create_sample`.
 
 import { useState } from "react";
@@ -18,60 +19,133 @@ import {
     type ChosenContext,
     contextLabel,
 } from "@/components/context-picker";
-import { ExpressionText } from "@/components/entity-link";
-import type { AddressStep } from "@/lib/router";
 
-export function TracePreview({
-    variableId,
+export function OutcomeStrip({
     chosen,
     outcome,
+    method,
+    stale,
+}: {
+    chosen: ChosenContext;
+    outcome: TraceOutcome | null;
+    // The rule-walk phrasing only makes sense for first-match rules; a
+    // query's entries already say how the value was selected.
+    method: "rules" | "query" | "allocation";
+    // The draft has unsaved edits: the outcome still describes the saved
+    // definition, and says so rather than silently mismatching the form.
+    stale: boolean;
+}) {
+    if (chosen.kind === "none") {
+        return (
+            <p className="hint">
+                Pick a context above to watch this variable resolve.
+            </p>
+        );
+    }
+    if (outcome === null) {
+        return <p className="muted">Resolving…</p>;
+    }
+    if (outcome.error !== undefined) {
+        return (
+            <div className="banner banner-warn">
+                Cannot resolve under this context: {outcome.error}
+            </div>
+        );
+    }
+    const trace = outcome.trace;
+    if (trace === undefined) {
+        return null;
+    }
+    const matched = trace.rules.find((rule) => rule.matched);
+    // A primitive reads fine inline; a catalog-backed value is a whole
+    // entry, which only makes sense pretty-printed.
+    const value = trace.resolution.value;
+    const composite = typeof value === "object" && value !== null;
+    const parts: string[] = [];
+    if (method === "rules") {
+        parts.push(
+            matched !== undefined
+                ? `rule ${matched.index + 1} matched`
+                : "no rule matched; the default answers",
+        );
+    }
+    if (trace.resolution.source?.kind === "catalog_array") {
+        parts.push(`entries ${trace.resolution.source.values.join(", ")}`);
+    }
+    if (trace.provenance !== undefined) {
+        parts.push(`from layer ${trace.provenance}`);
+    }
+    parts.push(`under ${contextLabel(chosen)}`);
+    if (stale) {
+        parts.push("before your unsaved edits");
+    }
+    return (
+        <div className="trace-walk">
+            <div className="trace-result">
+                <span className="label">resolves to</span>
+                {!composite ? (
+                    <span className="mono trace-value">
+                        {JSON.stringify(value)}
+                    </span>
+                ) : trace.resolution.source?.kind === "catalog" ? (
+                    <span className="mono trace-value">
+                        entry {trace.resolution.source.value}
+                    </span>
+                ) : null}
+                <span className="hint">{parts.join(" · ")}</span>
+            </div>
+            {composite ? (
+                <pre className="codewell trace-value-block">
+                    {JSON.stringify(value, null, 2)}
+                </pre>
+            ) : null}
+            {trace.allocation !== undefined ? (
+                <p className="hint">
+                    Allocation {trace.allocation.allocation} on layer{" "}
+                    {trace.allocation.layer}:{" "}
+                    {trace.allocation.enrolled
+                        ? `enrolled, bucket ${trace.allocation.bucket ?? "?"}${
+                              trace.allocation.arm !== undefined
+                                  ? `, arm ${trace.allocation.arm}`
+                                  : ", unclaimed"
+                          }`
+                        : "not enrolled"}
+                </p>
+            ) : null}
+        </div>
+    );
+}
+
+export function BoundaryContextsCard({
+    variableId,
     synthesized,
     canPromote,
-    hrefEntity,
     onUseContext,
     onPromote,
 }: {
     variableId: string;
-    chosen: ChosenContext;
-    outcome: TraceOutcome | null;
     synthesized: SynthesizedContext[];
     canPromote: boolean;
-    hrefEntity: (steps: AddressStep[]) => string;
     onUseContext: (chosen: ChosenContext) => void;
     onPromote: (entry: SynthesizedContext) => void;
 }) {
     const cases = synthesized.filter((entry) => entry.target.id === variableId);
     // The cases arrive with the context inventory; "generate" is the
-    // reader's act of asking for them, so the panel stays quiet until then.
+    // reader's act of asking for them, so the card stays quiet until then.
     const [generated, setGenerated] = useState(false);
-
+    if (cases.length === 0) {
+        return null;
+    }
     return (
-        <div className="preview-panel">
+        <div className="card">
             <div className="section-header-text">
-                <h3>Preview</h3>
+                <h3>Boundary contexts</h3>
                 <p className="hint">
-                    What a caller gets and why, for {contextLabel(chosen)}.
+                    The smallest valid contexts that exercise each branch of
+                    this variable; labeled synthetic until promoted to a sample.
                 </p>
             </div>
-
-            {chosen.kind === "none" ? (
-                <p className="hint">
-                    Pick a context above to see this variable resolve.
-                    {cases.length > 0
-                        ? " Or generate boundary contexts below."
-                        : ""}
-                </p>
-            ) : outcome === null ? (
-                <p className="muted">Resolving…</p>
-            ) : outcome.error !== undefined ? (
-                <div className="banner banner-warn">
-                    Cannot resolve under this context: {outcome.error}
-                </div>
-            ) : outcome.trace !== undefined ? (
-                <TraceWalk outcome={outcome} hrefEntity={hrefEntity} />
-            ) : null}
-
-            {cases.length > 0 && !generated ? (
+            {!generated ? (
                 <div className="action-row">
                     <button
                         className="btn btn-secondary btn-sm"
@@ -79,22 +153,9 @@ export function TracePreview({
                     >
                         Generate boundary contexts
                     </button>
-                    <span className="hint">
-                        The smallest valid contexts that exercise each branch of
-                        this variable.
-                    </span>
                 </div>
-            ) : null}
-
-            {cases.length > 0 && generated ? (
+            ) : (
                 <div className="preview-cases">
-                    <div className="section-header-text">
-                        <h4>Boundary contexts</h4>
-                        <p className="hint">
-                            Synthesized from this variable's own rules; labeled
-                            synthetic until promoted to a sample.
-                        </p>
-                    </div>
                     {cases.map((entry) => (
                         <div className="preview-case" key={entry.caseId}>
                             <span className="row-text">
@@ -141,115 +202,7 @@ export function TracePreview({
                         </div>
                     ))}
                 </div>
-            ) : null}
-        </div>
-    );
-}
-
-function TraceWalk({
-    outcome,
-    hrefEntity,
-}: {
-    outcome: TraceOutcome;
-    hrefEntity: (steps: AddressStep[]) => string;
-}) {
-    const trace = outcome.trace;
-    if (trace === undefined) {
-        return null;
-    }
-    const matched = trace.rules.find((rule) => rule.matched);
-    // A primitive reads fine inline; a catalog-backed value is a whole
-    // entry, which only makes sense pretty-printed.
-    const value = trace.resolution.value;
-    const composite = typeof value === "object" && value !== null;
-    return (
-        <div className="trace-walk">
-            <div className="trace-result">
-                <span className="label">resolves to</span>
-                {!composite ? (
-                    <span className="mono trace-value">
-                        {JSON.stringify(value)}
-                    </span>
-                ) : null}
-                <span className="hint">
-                    {matched !== undefined
-                        ? `rule ${matched.index} matched`
-                        : "no rule matched; the default answers"}
-                    {trace.resolution.source?.kind === "catalog"
-                        ? ` · entry ${trace.resolution.source.value}`
-                        : trace.resolution.source?.kind === "catalog_array"
-                          ? ` · entries ${trace.resolution.source.values.join(", ")}`
-                          : ""}
-                    {trace.provenance !== undefined
-                        ? ` · from layer ${trace.provenance}`
-                        : ""}
-                </span>
-            </div>
-            {composite ? (
-                <pre className="codewell trace-value-block">
-                    {JSON.stringify(value, null, 2)}
-                </pre>
-            ) : null}
-            <div className="trace-rules">
-                {trace.rules.map((rule) => (
-                    <div
-                        className={`trace-rule ${
-                            rule.matched
-                                ? "trace-rule-matched"
-                                : matched !== undefined &&
-                                    rule.index > matched.index
-                                  ? "trace-rule-dormant"
-                                  : ""
-                        }`}
-                        key={rule.index}
-                    >
-                        <span
-                            className={`pill ${rule.matched ? "pill-ok" : "pill-neutral"}`}
-                        >
-                            {rule.matched
-                                ? "matched"
-                                : matched !== undefined &&
-                                    rule.index > matched.index
-                                  ? "not reached"
-                                  : "no match"}
-                        </span>
-                        <span className="mono trace-rule-when">
-                            <ExpressionText
-                                text={rule.condition}
-                                hrefFor={hrefEntity}
-                            />
-                        </span>
-                        <span className="mono trace-rule-value">
-                            → {JSON.stringify(rule.value)}
-                        </span>
-                    </div>
-                ))}
-                <div
-                    className={`trace-rule ${matched === undefined ? "trace-rule-matched" : "trace-rule-dormant"}`}
-                >
-                    <span
-                        className={`pill ${matched === undefined ? "pill-ok" : "pill-neutral"}`}
-                    >
-                        default
-                    </span>
-                    <span className="mono trace-rule-value">
-                        → {JSON.stringify(trace.default_value)}
-                    </span>
-                </div>
-                {trace.allocation !== undefined ? (
-                    <p className="hint">
-                        Allocation {trace.allocation.allocation} on layer{" "}
-                        {trace.allocation.layer}:{" "}
-                        {trace.allocation.enrolled
-                            ? `enrolled, bucket ${trace.allocation.bucket ?? "?"}${
-                                  trace.allocation.arm !== undefined
-                                      ? `, arm ${trace.allocation.arm}`
-                                      : ", unclaimed"
-                              }`
-                            : "not enrolled"}
-                    </p>
-                ) : null}
-            </div>
+            )}
         </div>
     );
 }
