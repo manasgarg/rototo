@@ -367,13 +367,14 @@ export function WorkbenchPage({
     const knownPackage =
         listing === null ||
         listing.packages.some((entry) => entry.path === packagePath);
+    const heading = screenHeading(view, packagePath, treeName);
 
     return (
         <div className="section">
             <div className="section-header">
                 <div className="section-header-text">
-                    <h1 className={packagePath === "." ? undefined : "mono"}>
-                        {packagePath === "." ? treeName : packagePath}
+                    <h1 className={heading.mono ? "mono" : undefined}>
+                        {heading.label}
                     </h1>
                     <p className="hint">
                         {state.pin !== null
@@ -509,6 +510,44 @@ export function WorkbenchPage({
             )}
         </div>
     );
+}
+
+// The H1 names the screen, not the package: the sidebar picker and the
+// breadcrumbs already carry the package, so the heading mirrors the
+// breadcrumb tail — the deepest named address step, a nav label, or the
+// package itself on its overview.
+function screenHeading(
+    view: PackageView,
+    packagePath: string,
+    treeName: string,
+): { label: string; mono: boolean } {
+    if (view.kind === "history") {
+        return { label: "History", mono: false };
+    }
+    if (view.kind === "diagnostics") {
+        return { label: "Diagnostics", mono: false };
+    }
+    if (view.kind === "files") {
+        return { label: view.file, mono: true };
+    }
+    if (view.kind === "surfaces") {
+        return {
+            label: view.surfaceId ?? "Surfaces",
+            mono: view.surfaceId !== null,
+        };
+    }
+    if (view.kind === "address") {
+        const named = view.steps.filter((step) => step.id !== "").at(-1);
+        if (named !== undefined) {
+            return { label: named.id, mono: true };
+        }
+        const head = view.steps[0] as AddressStep;
+        return { label: CLASS_LABELS[head.class] ?? head.class, mono: false };
+    }
+    return {
+        label: packagePath === "." ? treeName : packagePath,
+        mono: packagePath !== ".",
+    };
 }
 
 // The editing context: which change set commits accumulate on. Viewing the
