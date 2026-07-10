@@ -17,6 +17,7 @@ import {
     type TraceOutcome,
     type VariableModel,
 } from "@/lib/api";
+import { CodeEditor, codeLanguageForPath } from "@/components/code-editor";
 import { resolvedValueText } from "@/lib/format";
 import { navigate, type AddressStep } from "@/lib/router";
 
@@ -239,7 +240,13 @@ function GraphPreview({
                     {source === undefined ? (
                         <div className="graph-preview-empty hint">Loading…</div>
                     ) : (
-                        <pre className="graph-preview-code mono">{source}</pre>
+                        <CodeEditor
+                            className="graph-preview-code"
+                            disabled
+                            language={codeLanguageForPath(node.path)}
+                            onChange={() => {}}
+                            value={source}
+                        />
                     )}
                 </div>
             )}

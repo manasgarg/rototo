@@ -1,14 +1,15 @@
 // The first-class context picker (design/console-system-view.md): a context
 // is chosen once and carried across views, because the execution facet is
 // always parameterized by one. The strip stays collapsed to a one-line
-// summary until clicked. Its dropdown offers only the package's saved
-// samples; synthesized boundary contexts are generated from a variable's
-// own preview panel. Both views edit: chips fact by fact, JSON as a whole.
-// Every edit lands on the session's ad-hoc context, never on the sample.
+// summary until clicked. Its dropdown offers the package's saved samples
+// and, on a variable screen, can reveal that variable's synthesized boundary
+// contexts. Both views edit: chips fact by fact, JSON as a whole. Every edit
+// lands on the session's ad-hoc context, never on the sample.
 
 import { useEffect, useRef, useState } from "react";
 
 import type { ContextInventory, SynthesizedContext } from "@/lib/api";
+import { CodeEditor } from "@/components/code-editor";
 
 type ComboOption = { value: string; label: string; group?: string };
 
@@ -28,7 +29,10 @@ function ContextCombo({
     // Shown when the chosen context has no dropdown entry (a synthesized
     // or ad-hoc context): the input still names what is active.
     fallbackLabel?: string;
-    onPick: (value: string) => void;
+    // Return true for an option that mutates this menu in place. Generation
+    // uses that path so the new boundary choices replace the action without
+    // making the reader reopen the dropdown.
+    onPick: (value: string) => boolean;
 }) {
     const [open, setOpen] = useState(false);
     // null shows the selection's label; a string is a live filter.
@@ -52,8 +56,13 @@ function ContextCombo({
         setActive(0);
     };
     const pick = (option: ComboOption) => {
-        onPick(option.value);
-        close();
+        if (onPick(option.value)) {
+            setOpen(true);
+            setQuery(null);
+            setActive(0);
+        } else {
+            close();
+        }
     };
 
     return (
@@ -490,20 +499,37 @@ function removeAtPath(
 export function ContextPicker({
     inventory,
     chosen,
+    boundaryVariableId,
+    canPromoteBoundary = false,
+    onPromoteBoundary,
     onChange,
 }: {
     inventory: ContextInventory | null;
     chosen: ChosenContext;
+    boundaryVariableId?: string;
+    canPromoteBoundary?: boolean;
+    onPromoteBoundary?: (entry: SynthesizedContext) => void;
     onChange: (chosen: ChosenContext) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [display, setDisplay] = useState<"chips" | "json">("chips");
     const [text, setText] = useState("{}");
     const [problem, setProblem] = useState<string | null>(null);
+    const [boundariesGenerated, setBoundariesGenerated] = useState(false);
 
     const samples = inventory?.samples ?? [];
+    const boundaryCases =
+        inventory?.synthesized.filter(
+            (entry) => entry.target.id === boundaryVariableId,
+        ) ?? [];
+    const showBoundaries = boundariesGenerated || chosen.kind === "synthetic";
 
-    const selectValue = chosen.kind === "sample" ? `sample:${chosen.key}` : "";
+    const selectValue =
+        chosen.kind === "sample"
+            ? `sample:${chosen.key}`
+            : chosen.kind === "synthetic"
+              ? `synthetic:${chosen.label}`
+              : "";
 
     // The JSON tab is the whole-context editor; entering it, or switching
     // the chosen context while on it, re-prefills the draft.
@@ -537,16 +563,37 @@ export function ContextPicker({
         }
     };
 
-    const select = (value: string) => {
+    const select = (value: string): boolean => {
         if (value === "") {
             onChange({ kind: "none" });
-            return;
+            return false;
         }
-        const key = value.slice("sample:".length);
-        const sample = samples.find((entry) => entry.key === key);
-        if (sample?.context != null) {
-            onChange({ kind: "sample", key, context: sample.context });
+        if (value === "generate:boundaries") {
+            setBoundariesGenerated(true);
+            return true;
         }
+        if (value.startsWith("sample:")) {
+            const key = value.slice("sample:".length);
+            const sample = samples.find((entry) => entry.key === key);
+            if (sample?.context != null) {
+                onChange({ kind: "sample", key, context: sample.context });
+            }
+            return false;
+        }
+        if (value.startsWith("synthetic:")) {
+            const label = value.slice("synthetic:".length);
+            const entry = boundaryCases.find(
+                (candidate) => syntheticLabel(candidate) === label,
+            );
+            if (entry !== undefined) {
+                onChange({
+                    kind: "synthetic",
+                    label,
+                    context: entry.context,
+                });
+            }
+        }
+        return false;
     };
 
     const options: ComboOption[] = [
@@ -556,7 +603,28 @@ export function ContextPicker({
             label: `${sample.evaluationContext}/${sample.key}`,
             group: "Saved samples",
         })),
+        ...(boundaryCases.length === 0
+            ? []
+            : showBoundaries
+              ? boundaryCases.map((entry) => ({
+                    value: `synthetic:${syntheticLabel(entry)}`,
+                    label: entry.title,
+                    group: "Boundary contexts",
+                }))
+              : [
+                    {
+                        value: "generate:boundaries",
+                        label: "Generate boundary contexts…",
+                        group: "Boundary contexts",
+                    },
+                ]),
     ];
+    const selectedBoundary =
+        chosen.kind === "synthetic"
+            ? boundaryCases.find(
+                  (entry) => syntheticLabel(entry) === chosen.label,
+              )
+            : undefined;
 
     return (
         <div className="context-picker">
@@ -652,13 +720,11 @@ export function ContextPicker({
                         />
                     ) : (
                         <span className="inline-form context-picker-editor">
-                            <textarea
-                                className="textarea mono"
-                                rows={6}
+                            <CodeEditor
+                                className="context-json-editor"
+                                language="json"
                                 value={text}
-                                onChange={(event) =>
-                                    setText(event.target.value)
-                                }
+                                onChange={setText}
                                 onKeyDown={(event) => {
                                     // Enter is a newline in JSON;
                                     // Ctrl/Cmd+Enter applies the context.
@@ -684,6 +750,22 @@ export function ContextPicker({
                             </span>
                         </span>
                     )}
+                    {canPromoteBoundary &&
+                    selectedBoundary !== undefined &&
+                    onPromoteBoundary !== undefined ? (
+                        <div className="action-row">
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                type="button"
+                                title="Adds this boundary context as a saved sample in the active change set"
+                                onClick={() =>
+                                    onPromoteBoundary(selectedBoundary)
+                                }
+                            >
+                                Save as sample
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
         </div>

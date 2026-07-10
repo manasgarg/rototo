@@ -1921,13 +1921,18 @@ select.input {
 }
 
 .graph-preview-code {
-    margin: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.graph-preview-code .cm-editor {
     min-height: 260px;
     max-height: min(56vh, 610px);
-    overflow: auto;
-    padding: 10px 12px;
     font-size: 11.5px;
-    line-height: 1.55;
+}
+
+.graph-preview-code .cm-scroller {
+    overflow: auto;
 }
 
 .graph-preview-empty {
@@ -3002,7 +3007,7 @@ select.input {
         max-height: none;
     }
 
-    .graph-preview-code {
+    .graph-preview-code .cm-editor {
         max-height: 420px;
     }
 
@@ -3239,30 +3244,54 @@ button.context-fact-value:hover {
     gap: 8px;
 }
 
-.preview-cases {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+.variable-toml .cm-editor {
+    min-height: 0;
+    max-height: 440px;
 }
 
-.preview-case {
+.variable-toml .cm-scroller {
+    overflow: auto;
+}
+
+.raw-file-editor .cm-editor {
+    max-height: min(70vh, 720px);
+}
+
+.raw-file-editor .cm-scroller {
+    overflow: auto;
+}
+
+/* Secondary variable controls stay available without competing with the
+   definition -> context -> outcome reading order. */
+.variable-disclosure > summary {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 10px;
-    border: 1px dashed var(--line-2);
-    border-radius: var(--radius-2);
+    gap: 10px;
+    list-style: none;
+    cursor: pointer;
 }
 
-.preview-case .row-text {
-    min-width: 0;
+.variable-disclosure > summary::-webkit-details-marker {
+    display: none;
 }
 
-/* boundary cases carry whole values; wrap them rather than clipping */
-.preview-case .row-sub {
-    white-space: normal;
-    overflow-wrap: anywhere;
+.variable-disclosure > summary::after {
+    content: "›";
+    margin-left: auto;
+    color: var(--ink-3);
+    font-size: 18px;
+    transform: rotate(90deg);
+    transition: transform var(--dur-fast);
+}
+
+.variable-disclosure[open] > summary::after {
+    transform: rotate(-90deg);
+}
+
+.variable-editor {
+    display: grid;
+    gap: 16px;
+    padding-top: 4px;
 }
 
 .trace-walk {
@@ -3284,12 +3313,24 @@ button.context-fact-value:hover {
     overflow-wrap: anywhere;
 }
 
-/* a composite resolved value (a catalog entry), pretty-printed */
-.trace-value-block {
+/* a composite literal value, pretty-printed as highlighted JSON */
+.trace-value-block .cm-editor {
+    min-height: 0;
     max-height: 320px;
     font-size: 12px;
-    line-height: 1.55;
-    padding: 10px 12px;
+}
+
+.trace-value-block .cm-scroller {
+    overflow: auto;
+}
+
+.context-json-editor .cm-editor {
+    min-height: 150px;
+    max-height: 320px;
+}
+
+.context-json-editor .cm-scroller {
+    overflow: auto;
 }
 
 /* one CEL expression that wraps instead of clipping; Enter still submits */

@@ -55,6 +55,7 @@ import {
     syntheticLabel,
     type ChosenContext,
 } from "@/components/context-picker";
+import { CodeEditor, codeLanguageForPath } from "@/components/code-editor";
 import { DiagnosticsPanel, LintStatusPill } from "@/components/diagnostics";
 import {
     entityLabel,
@@ -63,7 +64,7 @@ import {
 } from "@/components/entity-link";
 import { HistoryPanel, UpcomingPanel } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
-import { BoundaryContextsCard, OutcomeStrip } from "@/components/trace-preview";
+import { OutcomeStrip } from "@/components/trace-preview";
 import { resolvedValueText } from "@/lib/format";
 import { SearchableList } from "@/lib/ui-kit";
 import {
@@ -416,8 +417,7 @@ export function WorkbenchPage({
 
             {/* The context parameterizes resolution; only the overview and
                 variable screens resolve, so no other screen asks for one. */}
-            {view.kind === "overview" ||
-            (view.kind === "address" && view.steps[0]?.class === "variable") ? (
+            {view.kind === "overview" ? (
                 <ContextPicker
                     inventory={inventory}
                     chosen={chosen}
@@ -899,13 +899,14 @@ function AddressView({
         return (
             <VariablePanel
                 key={`${head.id}@${detail.pin}`}
+                treeId={treeId}
                 detail={detail}
                 variableId={head.id}
                 editable={editable}
                 changeSet={changeSet}
                 chosen={chosen}
                 outcome={outcomes?.get(head.id) ?? null}
-                synthesized={inventory?.synthesized ?? []}
+                inventory={inventory}
                 hrefEntity={hrefEntity}
                 hrefFile={hrefFile}
                 onUseContext={onUseContext}
@@ -1776,13 +1777,14 @@ function ContextDetailPanel({
 type RuleDraft = { when: string; valueText: string };
 
 function VariablePanel({
+    treeId,
     detail,
     variableId,
     editable,
     changeSet,
     chosen,
     outcome,
-    synthesized,
+    inventory,
     hrefEntity,
     hrefFile,
     onUseContext,
@@ -1790,13 +1792,14 @@ function VariablePanel({
     onSaved,
     onError,
 }: {
+    treeId: string;
     detail: PackageDetail;
     variableId: string;
     editable: boolean;
     changeSet: ChangeSet | null;
     chosen: ChosenContext;
     outcome: TraceOutcome | null;
-    synthesized: SynthesizedContext[];
+    inventory: ContextInventory | null;
     hrefEntity: (steps: AddressStep[]) => string;
     hrefFile: (path: string) => string;
     onUseContext: (chosen: ChosenContext) => void;
@@ -1837,21 +1840,6 @@ function VariablePanel({
             </div>
         );
     }
-
-    const reads = detail.model.references
-        .filter(
-            (reference) =>
-                reference.from.kind === "variable" &&
-                reference.from.id === variableId,
-        )
-        .map((reference) => reference.to);
-    const readBy = detail.model.references
-        .filter(
-            (reference) =>
-                reference.to.kind === "variable" &&
-                reference.to.id === variableId,
-        )
-        .map((reference) => reference.from);
 
     const save = () => {
         if (changeSet === null) {
@@ -1933,165 +1921,147 @@ function VariablePanel({
             <div className="card">
                 <div className="card-head">
                     <div className="card-head-text">
-                        {editable ? (
-                            <input
-                                aria-label="Description"
-                                className="input"
-                                placeholder="What this variable controls"
-                                value={description}
-                                onChange={(event) =>
-                                    setDescription(event.target.value)
-                                }
-                            />
-                        ) : (
-                            <p className="card-lead">
-                                {description !== "" ? (
-                                    description
-                                ) : (
-                                    <span className="muted">
-                                        No description yet.
-                                    </span>
-                                )}
-                            </p>
-                        )}
+                        <h2>Variable TOML</h2>
                         <p className="hint">
+                            {variable.description ?? "No description yet."} ·{" "}
                             <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
                             <MethodLabel
                                 variable={variable}
                                 hrefEntity={hrefEntity}
-                            />{" "}
-                            ·{" "}
-                            <a
-                                className="row-link mono"
-                                href={hrefFile(variable.location.path)}
-                            >
-                                {variable.location.path}
-                            </a>
+                            />
                         </p>
                     </div>
-                    {editable && changeSet !== null ? (
-                        <DeleteButton
-                            label="Delete variable"
-                            warning={blastWarning(
-                                `variables/${variableId}.toml`,
-                                referenceLabels(
-                                    detail.model,
-                                    (to) =>
-                                        to.kind === "variable" &&
-                                        to.id === variableId,
-                                ).filter(
-                                    (label) =>
-                                        label !== `variable ${variableId}`,
-                                ),
-                            )}
-                            onConfirm={() =>
-                                saveEdit(changeSet.id, {
-                                    packagePath: detail.path,
-                                    expectedPin: detail.pin,
-                                    operations: [
-                                        {
-                                            op: "delete",
-                                            target: `variable=${variableId}`,
-                                        },
-                                    ],
-                                    summary: `Delete ${variableId}`,
-                                }).then((result) => {
-                                    onSaved(result);
-                                    onBack();
-                                }, onError)
-                            }
-                        />
-                    ) : null}
+                    <a
+                        className="btn btn-secondary btn-sm"
+                        href={hrefFile(variable.location.path)}
+                    >
+                        Open TOML
+                    </a>
                 </div>
+                <VariableToml
+                    treeId={treeId}
+                    detail={detail}
+                    file={variable.location.path}
+                />
+            </div>
 
-                <form
-                    className="form-contents"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        save();
-                    }}
-                >
-                    <div className="form-fields">
-                        <div className="section-header-text">
-                            <h3>Resolution</h3>
-                            <p className="hint">
-                                {method === "allocation"
-                                    ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
-                                    : method === "query"
-                                      ? "One query selects the value from a catalog; the default answers when nothing matches."
-                                      : "First match wins; the default answers when none do."}
-                            </p>
-                        </div>
+            <ContextPicker
+                inventory={inventory}
+                chosen={chosen}
+                boundaryVariableId={variableId}
+                canPromoteBoundary={editable}
+                onPromoteBoundary={promote}
+                onChange={onUseContext}
+            />
 
-                        <OutcomeStrip
-                            chosen={chosen}
-                            outcome={outcome}
-                            method={method}
-                            stale={resolutionDirty}
-                        />
+            <div className="card variable-outcome">
+                <div className="section-header-text">
+                    <h2>Resolution</h2>
+                </div>
+                <OutcomeStrip
+                    chosen={chosen}
+                    outcome={outcome}
+                    method={method}
+                    stale={resolutionDirty}
+                />
+            </div>
 
-                        {method === "query" ? (
-                            editable ? (
+            {editable && changeSet !== null ? (
+                <details className="card variable-disclosure">
+                    <summary>
+                        <span className="row-text">
+                            <span className="row-title">Edit variable</span>
+                            <span className="row-sub">
+                                Change its description, rules, query, or
+                                default.
+                            </span>
+                        </span>
+                    </summary>
+                    <form
+                        className="variable-editor"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            save();
+                        }}
+                    >
+                        <div className="form-fields">
+                            <label className="form-row">
+                                <span className="label">Description</span>
+                                <input
+                                    aria-label="Description"
+                                    className="input"
+                                    placeholder="What this variable controls"
+                                    value={description}
+                                    onChange={(event) =>
+                                        setDescription(event.target.value)
+                                    }
+                                />
+                            </label>
+                            <div className="section-header-text">
+                                <h3>Resolution definition</h3>
+                                <p className="hint">
+                                    {method === "allocation"
+                                        ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
+                                        : method === "query"
+                                          ? "One query selects the value from a catalog; the default answers when nothing matches."
+                                          : "First match wins; the default answers when none do."}
+                                </p>
+                            </div>
+
+                            {method === "query" ? (
                                 <QueryFields
-                                    editable={editable}
+                                    editable
                                     query={query}
                                     onChange={setQuery}
                                     onUseRules={() => setMethod("rules")}
                                 />
-                            ) : (
-                                <QueryFacts
-                                    query={original.query}
+                            ) : null}
+
+                            {method !== "allocation" ? (
+                                <RuleLadder
+                                    type={type}
+                                    editable
+                                    withRules={method === "rules"}
+                                    rules={rules}
+                                    defaultText={defaultText}
+                                    verdicts={verdicts}
                                     hrefEntity={hrefEntity}
+                                    onRules={setRules}
+                                    onDefaultText={setDefaultText}
                                 />
-                            )
-                        ) : null}
+                            ) : null}
 
-                        {method !== "allocation" ? (
-                            <RuleLadder
-                                type={type}
-                                editable={editable}
-                                withRules={method === "rules"}
-                                rules={rules}
-                                defaultText={defaultText}
-                                verdicts={verdicts}
-                                hrefEntity={hrefEntity}
-                                onRules={setRules}
-                                onDefaultText={setDefaultText}
-                            />
-                        ) : null}
+                            {method === "rules" ? (
+                                <div className="action-row">
+                                    <button
+                                        className="btn btn-secondary btn-sm"
+                                        type="button"
+                                        onClick={() =>
+                                            setRules([
+                                                ...rules,
+                                                {
+                                                    when: "",
+                                                    valueText:
+                                                        defaultRuleValue(type),
+                                                },
+                                            ])
+                                        }
+                                    >
+                                        Add rule
+                                    </button>
+                                    <button
+                                        className="btn btn-ghost btn-sm"
+                                        type="button"
+                                        title="Select the value with one catalog query instead of rules"
+                                        onClick={() => setMethod("query")}
+                                    >
+                                        Use a query instead
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
 
-                        {editable && method === "rules" ? (
-                            <div className="action-row">
-                                <button
-                                    className="btn btn-secondary btn-sm"
-                                    type="button"
-                                    onClick={() =>
-                                        setRules([
-                                            ...rules,
-                                            {
-                                                when: "",
-                                                valueText:
-                                                    defaultRuleValue(type),
-                                            },
-                                        ])
-                                    }
-                                >
-                                    Add rule
-                                </button>
-                                <button
-                                    className="btn btn-ghost btn-sm"
-                                    type="button"
-                                    title="Select the value with one catalog query instead of rules"
-                                    onClick={() => setMethod("query")}
-                                >
-                                    Use a query instead
-                                </button>
-                            </div>
-                        ) : null}
-                    </div>
-
-                    <div className="card-actions">
-                        {editable ? (
+                        <div className="card-actions">
                             <button
                                 className="btn btn-primary"
                                 type="submit"
@@ -2099,46 +2069,92 @@ function VariablePanel({
                             >
                                 {saving ? "Saving…" : "Save (one commit)"}
                             </button>
-                        ) : (
-                            <span className="hint">
-                                Start or pick a change set above to edit.
-                            </span>
-                        )}
-                    </div>
-                </form>
-            </div>
-
-            <BoundaryContextsCard
-                variableId={variableId}
-                synthesized={synthesized}
-                canPromote={editable}
-                onUseContext={onUseContext}
-                onPromote={promote}
-            />
-
-            {reads.length > 0 || readBy.length > 0 ? (
-                <div className="card">
-                    <div className="section-header-text">
-                        <h3>References</h3>
-                        <p className="hint">
-                            What this variable reads, and what reads it.
-                        </p>
-                    </div>
-                    <div className="field-stack">
-                        <ReferencePills
-                            title="Reads"
-                            entities={reads}
-                            hrefEntity={hrefEntity}
-                        />
-                        <ReferencePills
-                            title="Read by"
-                            entities={readBy}
-                            hrefEntity={hrefEntity}
-                        />
-                    </div>
-                </div>
+                            <DeleteButton
+                                label="Delete variable"
+                                warning={blastWarning(
+                                    `variables/${variableId}.toml`,
+                                    referenceLabels(
+                                        detail.model,
+                                        (to) =>
+                                            to.kind === "variable" &&
+                                            to.id === variableId,
+                                    ).filter(
+                                        (label) =>
+                                            label !== `variable ${variableId}`,
+                                    ),
+                                )}
+                                onConfirm={() =>
+                                    saveEdit(changeSet.id, {
+                                        packagePath: detail.path,
+                                        expectedPin: detail.pin,
+                                        operations: [
+                                            {
+                                                op: "delete",
+                                                target: `variable=${variableId}`,
+                                            },
+                                        ],
+                                        summary: `Delete ${variableId}`,
+                                    }).then((result) => {
+                                        onSaved(result);
+                                        onBack();
+                                    }, onError)
+                                }
+                            />
+                        </div>
+                    </form>
+                </details>
             ) : null}
         </>
+    );
+}
+
+function VariableToml({
+    treeId,
+    detail,
+    file,
+}: {
+    treeId: string;
+    detail: PackageDetail;
+    file: string;
+}) {
+    const [content, setContent] = useState<string | null>(null);
+    const [problem, setProblem] = useState<string | null>(null);
+
+    useEffect(() => {
+        let stale = false;
+        setContent(null);
+        setProblem(null);
+        readPackageFile(treeId, detail.path, detail.pin, file).then(
+            (response) => {
+                if (!stale) {
+                    setContent(response.content);
+                }
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setProblem(error.message);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, detail.path, detail.pin, file]);
+
+    if (problem !== null) {
+        return <div className="banner banner-err">{problem}</div>;
+    }
+    if (content === null) {
+        return <p className="muted">Loading definition…</p>;
+    }
+    return (
+        <CodeEditor
+            className="variable-toml"
+            disabled
+            language="toml"
+            onChange={() => {}}
+            value={content}
+        />
     );
 }
 
@@ -2342,50 +2358,6 @@ function RuleLadder({
                     ) : (
                         <span className="muted">none</span>
                     )}
-                </div>
-            ) : null}
-        </div>
-    );
-}
-
-// A query definition, read as facts rather than as a dead form.
-function QueryFacts({
-    query,
-    hrefEntity,
-}: {
-    query: QueryDraft;
-    hrefEntity: (steps: AddressStep[]) => string;
-}) {
-    return (
-        <div className="field-stack">
-            <div className="kv">
-                <span className="label">from</span>
-                <a
-                    className="row-link mono"
-                    href={hrefEntity([{ class: "catalog", id: query.from }])}
-                >
-                    {query.from}
-                </a>
-            </div>
-            <div className="kv">
-                <span className="label">where</span>
-                <span className="mono">
-                    <ExpressionText text={query.filter} hrefFor={hrefEntity} />
-                </span>
-            </div>
-            {query.sort !== "" ? (
-                <div className="kv">
-                    <span className="label">sort</span>
-                    <span className="mono">
-                        {query.sort}
-                        {query.order !== "" ? ` ${query.order}` : ""}
-                    </span>
-                </div>
-            ) : null}
-            {query.limitText !== "" ? (
-                <div className="kv">
-                    <span className="label">limit</span>
-                    <span className="mono">{query.limitText}</span>
                 </div>
             ) : null}
         </div>
@@ -2813,12 +2785,12 @@ function FilePanel({
             {content === null ? (
                 <p className="muted">Loading…</p>
             ) : (
-                <textarea
-                    className="textarea mono"
+                <CodeEditor
+                    className="raw-file-editor"
                     disabled={!editable}
-                    rows={Math.min(30, content.split("\n").length + 2)}
+                    language={codeLanguageForPath(file)}
                     value={content}
-                    onChange={(event) => setContent(event.target.value)}
+                    onChange={setContent}
                     onKeyDown={(event) => {
                         // Enter is a newline here; the submit accelerator
                         // for multi-line editors is Ctrl/Cmd+Enter.

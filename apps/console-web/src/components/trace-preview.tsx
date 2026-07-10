@@ -1,24 +1,13 @@
 // The read side of the variable screen (design/console-semantic.md
-// "Previews"), split into two pieces the screen composes around the rule
-// ladder. OutcomeStrip states the resolved value and its provenance for the
-// chosen context — the same data `rototo resolve` prints, so console and
-// CLI cannot disagree; the per-rule verdicts live on the ladder itself.
-//
-// BoundaryContextsCard is the impact-confidence fix from the system view:
-// with no satisfying context at hand, the reader can generate the
-// variable's own synthesized boundary contexts — the smallest valid
-// contexts that exercise each branch — and an active change set can
-// promote one to a real sample with `create_sample`.
+// "Previews"). OutcomeStrip states the resolved value and its provenance
+// for the chosen context. The same trace powers `rototo resolve`, so console
+// and CLI cannot disagree. Boundary contexts belong to the context picker,
+// where every other context is selected.
 
-import { useState } from "react";
-
-import type { SynthesizedContext, TraceOutcome } from "@/lib/api";
-import {
-    ContextFacts,
-    syntheticLabel,
-    type ChosenContext,
-    contextLabel,
-} from "@/components/context-picker";
+import type { TraceOutcome } from "@/lib/api";
+import { CodeEditor } from "@/components/code-editor";
+import { type ChosenContext, contextLabel } from "@/components/context-picker";
+import { resolvedValueText } from "@/lib/format";
 
 export function OutcomeStrip({
     chosen,
@@ -57,10 +46,15 @@ export function OutcomeStrip({
         return null;
     }
     const matched = trace.rules.find((rule) => rule.matched);
-    // A primitive reads fine inline; a catalog-backed value is a whole
-    // entry, which only makes sense pretty-printed.
+    // Catalog resolutions carry both the raw hydrated value an app receives
+    // and the entry id a person recognizes. This screen names the entry and
+    // deliberately does not dump the hydrated object.
     const value = trace.resolution.value;
-    const composite = typeof value === "object" && value !== null;
+    const source = trace.resolution.source;
+    const catalogBacked =
+        source?.kind === "catalog" || source?.kind === "catalog_array";
+    const composite =
+        typeof value === "object" && value !== null && !catalogBacked;
     const parts: string[] = [];
     if (method === "rules") {
         parts.push(
@@ -69,8 +63,8 @@ export function OutcomeStrip({
                 : "no rule matched; the default answers",
         );
     }
-    if (trace.resolution.source?.kind === "catalog_array") {
-        parts.push(`entries ${trace.resolution.source.values.join(", ")}`);
+    if (source?.kind === "catalog" || source?.kind === "catalog_array") {
+        parts.push(`from catalog ${source.catalog}`);
     }
     if (trace.provenance !== undefined) {
         parts.push(`from layer ${trace.provenance}`);
@@ -85,19 +79,21 @@ export function OutcomeStrip({
                 <span className="label">resolves to</span>
                 {!composite ? (
                     <span className="mono trace-value">
-                        {JSON.stringify(value)}
-                    </span>
-                ) : trace.resolution.source?.kind === "catalog" ? (
-                    <span className="mono trace-value">
-                        entry {trace.resolution.source.value}
+                        {catalogBacked
+                            ? resolvedValueText(trace) || "(no entries)"
+                            : JSON.stringify(value)}
                     </span>
                 ) : null}
                 <span className="hint">{parts.join(" · ")}</span>
             </div>
             {composite ? (
-                <pre className="codewell trace-value-block">
-                    {JSON.stringify(value, null, 2)}
-                </pre>
+                <CodeEditor
+                    className="trace-value-block"
+                    disabled
+                    language="json"
+                    onChange={() => {}}
+                    value={JSON.stringify(value, null, 2)}
+                />
             ) : null}
             {trace.allocation !== undefined ? (
                 <p className="hint">
@@ -112,97 +108,6 @@ export function OutcomeStrip({
                         : "not enrolled"}
                 </p>
             ) : null}
-        </div>
-    );
-}
-
-export function BoundaryContextsCard({
-    variableId,
-    synthesized,
-    canPromote,
-    onUseContext,
-    onPromote,
-}: {
-    variableId: string;
-    synthesized: SynthesizedContext[];
-    canPromote: boolean;
-    onUseContext: (chosen: ChosenContext) => void;
-    onPromote: (entry: SynthesizedContext) => void;
-}) {
-    const cases = synthesized.filter((entry) => entry.target.id === variableId);
-    // The cases arrive with the context inventory; "generate" is the
-    // reader's act of asking for them, so the card stays quiet until then.
-    const [generated, setGenerated] = useState(false);
-    if (cases.length === 0) {
-        return null;
-    }
-    return (
-        <div className="card">
-            <div className="section-header-text">
-                <h3>Boundary contexts</h3>
-                <p className="hint">
-                    The smallest valid contexts that exercise each branch of
-                    this variable; labeled synthetic until promoted to a sample.
-                </p>
-            </div>
-            {!generated ? (
-                <div className="action-row">
-                    <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setGenerated(true)}
-                    >
-                        Generate boundary contexts
-                    </button>
-                </div>
-            ) : (
-                <div className="preview-cases">
-                    {cases.map((entry) => (
-                        <div className="preview-case" key={entry.caseId}>
-                            <span className="row-text">
-                                <span className="row-title">{entry.title}</span>
-                                <ContextFacts context={entry.context} />
-                                <span className="row-sub">
-                                    expected value{" "}
-                                    <span
-                                        className="mono"
-                                        title={JSON.stringify(
-                                            entry.expect.value,
-                                            null,
-                                            2,
-                                        )}
-                                    >
-                                        {JSON.stringify(entry.expect.value) ??
-                                            "none"}
-                                    </span>
-                                </span>
-                            </span>
-                            <span className="action-row">
-                                <button
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() =>
-                                        onUseContext({
-                                            kind: "synthetic",
-                                            label: syntheticLabel(entry),
-                                            context: entry.context,
-                                        })
-                                    }
-                                >
-                                    Preview
-                                </button>
-                                {canPromote ? (
-                                    <button
-                                        className="btn btn-ghost btn-sm"
-                                        title="Adds this context as a real sample in the active change set"
-                                        onClick={() => onPromote(entry)}
-                                    >
-                                        Promote to sample
-                                    </button>
-                                ) : null}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
         </div>
     );
 }
