@@ -908,7 +908,6 @@ function AddressView({
                 outcome={outcomes?.get(head.id) ?? null}
                 inventory={inventory}
                 hrefEntity={hrefEntity}
-                hrefFile={hrefFile}
                 onUseContext={onUseContext}
                 onBack={() => openAddress([{ class: "variable", id: "" }])}
                 onSaved={onSaved}
@@ -1786,7 +1785,6 @@ function VariablePanel({
     outcome,
     inventory,
     hrefEntity,
-    hrefFile,
     onUseContext,
     onBack,
     onSaved,
@@ -1801,7 +1799,6 @@ function VariablePanel({
     outcome: TraceOutcome | null;
     inventory: ContextInventory | null;
     hrefEntity: (steps: AddressStep[]) => string;
-    hrefFile: (path: string) => string;
     onUseContext: (chosen: ChosenContext) => void;
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
@@ -1931,12 +1928,6 @@ function VariablePanel({
                             />
                         </p>
                     </div>
-                    <a
-                        className="btn btn-secondary btn-sm"
-                        href={hrefFile(variable.location.path)}
-                    >
-                        Open TOML
-                    </a>
                 </div>
                 <VariableToml
                     treeId={treeId}
