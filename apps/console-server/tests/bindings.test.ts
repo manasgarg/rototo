@@ -72,7 +72,7 @@ test("semantic model, lint, and inspect report answer for examples/basic", async
         variables: unknown[];
         references: unknown[];
     };
-    assert.equal(model.version, 4);
+    assert.equal(model.version, 5);
     assert.ok(model.variables.length > 0);
     assert.ok(model.references.length > 0);
 

@@ -13,6 +13,7 @@ export function OutcomeStrip({
     chosen,
     outcome,
     method,
+    requiresContext,
     stale,
 }: {
     chosen: ChosenContext;
@@ -20,11 +21,12 @@ export function OutcomeStrip({
     // The rule-walk phrasing only makes sense for first-match rules; a
     // query's entries already say how the value was selected.
     method: "rules" | "query" | "allocation";
+    requiresContext: boolean;
     // The draft has unsaved edits: the outcome still describes the saved
     // definition, and says so rather than silently mismatching the form.
     stale: boolean;
 }) {
-    if (chosen.kind === "none") {
+    if (chosen.kind === "none" && requiresContext) {
         return (
             <p className="hint">
                 Pick a context above to watch this variable resolve.
@@ -69,7 +71,11 @@ export function OutcomeStrip({
     if (trace.provenance !== undefined) {
         parts.push(`from layer ${trace.provenance}`);
     }
-    parts.push(`under ${contextLabel(chosen)}`);
+    parts.push(
+        chosen.kind === "none" || !requiresContext
+            ? "without caller context"
+            : `under ${contextLabel(chosen)}`,
+    );
     if (stale) {
         parts.push("before your unsaved edits");
     }

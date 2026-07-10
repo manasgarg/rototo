@@ -31,6 +31,7 @@ import {
     readPackage,
     readPackageFile,
     runPreview,
+    runVariablePreview,
     saveEdit,
     type ChangeSet,
     type ContextInventory,
@@ -286,23 +287,65 @@ export function WorkbenchPage({
         [go, view],
     );
 
-    // The chosen context resolves the whole package: one lenient batch
-    // feeds every preview and the lit-up graph.
+    // A context-free variable can answer on its own with `{}` even when other
+    // variables make the package's context schema stricter. Everything else
+    // still uses the chosen context as one lenient package batch.
+    const contextFreeVariableId = useMemo(() => {
+        if (detail === null || detail.pin !== pin || view.kind !== "address") {
+            return null;
+        }
+        const head = view.steps[0];
+        if (
+            head?.class !== "variable" ||
+            head.id === "" ||
+            head.id.endsWith("/")
+        ) {
+            return null;
+        }
+        const variable = detail.model.variables.find(
+            (candidate) => candidate.id === head.id,
+        );
+        return variable !== undefined && !variable.usesContext
+            ? variable.id
+            : null;
+    }, [detail, pin, view]);
+
     useEffect(() => {
-        if (chosen.kind === "none" || pin === null) {
+        if (pin === null) {
+            setOutcomes(null);
+            return;
+        }
+        if (contextFreeVariableId === null && chosen.kind === "none") {
             setOutcomes(null);
             return;
         }
         let stale = false;
-        runPreview(treeId, packagePath, pin, chosen.context).then(
+        setOutcomes(null);
+        let preview: Promise<TraceOutcome[]>;
+        if (contextFreeVariableId !== null) {
+            preview = runVariablePreview(
+                treeId,
+                packagePath,
+                pin,
+                contextFreeVariableId,
+                {},
+            ).then((response) => [response.outcome]);
+        } else {
+            // The no-context case returned above, so this branch always owns
+            // a real chosen context and can run the package batch.
+            if (chosen.kind === "none") {
+                return;
+            }
+            preview = runPreview(treeId, packagePath, pin, chosen.context).then(
+                (response) => response.outcomes,
+            );
+        }
+        preview.then(
             (response) => {
                 if (!stale) {
                     setOutcomes(
                         new Map(
-                            response.outcomes.map((outcome) => [
-                                outcome.id,
-                                outcome,
-                            ]),
+                            response.map((outcome) => [outcome.id, outcome]),
                         ),
                     );
                 }
@@ -312,7 +355,10 @@ export function WorkbenchPage({
                     setOutcomes(null);
                     setBanner({
                         kind: "warn",
-                        text: `The ${contextLabel(chosen)} was refused: ${error.message}`,
+                        text:
+                            contextFreeVariableId !== null
+                                ? `Cannot preview ${contextFreeVariableId}: ${error.message}`
+                                : `The ${contextLabel(chosen)} was refused: ${error.message}`,
                     });
                 }
             },
@@ -320,7 +366,7 @@ export function WorkbenchPage({
         return () => {
             stale = true;
         };
-    }, [treeId, packagePath, pin, chosen]);
+    }, [treeId, packagePath, pin, chosen, contextFreeVariableId]);
 
     const afterSave = useCallback(
         (result: EditResponse) => {
@@ -1936,14 +1982,16 @@ function VariablePanel({
                 />
             </div>
 
-            <ContextPicker
-                inventory={inventory}
-                chosen={chosen}
-                boundaryVariableId={variableId}
-                canPromoteBoundary={editable}
-                onPromoteBoundary={promote}
-                onChange={onUseContext}
-            />
+            {variable.usesContext ? (
+                <ContextPicker
+                    inventory={inventory}
+                    chosen={chosen}
+                    boundaryVariableId={variableId}
+                    canPromoteBoundary={editable}
+                    onPromoteBoundary={promote}
+                    onChange={onUseContext}
+                />
+            ) : null}
 
             <div className="card variable-outcome">
                 <div className="section-header-text">
@@ -1953,6 +2001,7 @@ function VariablePanel({
                     chosen={chosen}
                     outcome={outcome}
                     method={method}
+                    requiresContext={variable.usesContext}
                     stale={resolutionDirty}
                 />
             </div>

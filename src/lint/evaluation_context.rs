@@ -9,6 +9,11 @@ use super::references::ReferenceIndex;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EvaluationContextCompatibility {
     pub(crate) variables: BTreeMap<String, BTreeSet<String>>,
+    /// Variables whose resolution reaches at least one caller-supplied
+    /// `context` path, directly or through another variable. Kept separate
+    /// from `variables`: an empty compatible-context set can also mean the
+    /// variable uses context but no declared schema satisfies it.
+    pub(crate) context_dependent_variables: BTreeSet<String>,
 }
 
 pub(crate) fn compatibility(snapshot: &PackageLintSnapshot) -> EvaluationContextCompatibility {
@@ -26,12 +31,20 @@ pub(in crate::lint) fn compatibility_for(
     };
 
     let mut variables = BTreeMap::new();
+    let mut context_dependent_variables = BTreeSet::new();
     for variable_id in index.variables.keys() {
-        let contexts = builder.variable_contexts(variable_id).unwrap_or_default();
+        let requirement = builder.variable_contexts(variable_id);
+        if requirement.is_some() {
+            context_dependent_variables.insert(variable_id.clone());
+        }
+        let contexts = requirement.unwrap_or_default();
         variables.insert(variable_id.clone(), contexts);
     }
 
-    EvaluationContextCompatibility { variables }
+    EvaluationContextCompatibility {
+        variables,
+        context_dependent_variables,
+    }
 }
 
 struct CompatibilityBuilder<'a> {
@@ -41,10 +54,9 @@ struct CompatibilityBuilder<'a> {
 }
 
 impl<'a> CompatibilityBuilder<'a> {
-    /// The evaluation contexts compatible with a variable's rule expressions,
-    /// following `variables["<id>"]` references transitively. `None` means the
-    /// variable imposes no context requirement (no rules, or no rule carries a
-    /// context-constraining expression).
+    /// The evaluation contexts compatible with every CEL expression involved
+    /// in a variable's resolution, following `variables["<id>"]` references
+    /// transitively. `None` means resolution imposes no context requirement.
     fn variable_contexts(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
         if let Some(contexts) = self.variable_cache.get(variable_id) {
             return contexts.clone();
@@ -80,7 +92,9 @@ impl<'a> CompatibilityBuilder<'a> {
                 {
                     continue;
                 }
-                let expression_contexts = self.expression_contexts(&expression.value);
+                let Some(expression_contexts) = self.expression_contexts(&expression.value) else {
+                    continue;
+                };
                 rule_contexts = Some(match rule_contexts {
                     Some(current) => current
                         .intersection(&expression_contexts)
@@ -107,7 +121,9 @@ impl<'a> CompatibilityBuilder<'a> {
             {
                 continue;
             }
-            let expression_contexts = self.expression_contexts(&expression.value);
+            let Some(expression_contexts) = self.expression_contexts(&expression.value) else {
+                continue;
+            };
             contexts = Some(match contexts {
                 Some(current) => current
                     .intersection(&expression_contexts)
@@ -123,7 +139,9 @@ impl<'a> CompatibilityBuilder<'a> {
             {
                 continue;
             }
-            let expression_contexts = self.expression_contexts(expression);
+            let Some(expression_contexts) = self.expression_contexts(expression) else {
+                continue;
+            };
             contexts = Some(match contexts {
                 Some(current) => current
                     .intersection(&expression_contexts)
@@ -135,7 +153,7 @@ impl<'a> CompatibilityBuilder<'a> {
         contexts
     }
 
-    fn expression_contexts(&mut self, expression: &Expression) -> BTreeSet<String> {
+    fn expression_contexts(&mut self, expression: &Expression) -> Option<BTreeSet<String>> {
         let mut contexts: Option<BTreeSet<String>> = None;
 
         for variable in &expression.references().variables {
@@ -178,7 +196,7 @@ impl<'a> CompatibilityBuilder<'a> {
             });
         }
 
-        contexts.unwrap_or_default()
+        contexts
     }
 }
 

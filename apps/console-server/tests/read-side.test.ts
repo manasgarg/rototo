@@ -100,6 +100,19 @@ test("the batch preview is honest about a partial context", async () => {
     assert.equal(lane.trace.resolution.value, true);
 });
 
+test("a context-free variable previews without a package context", async () => {
+    const response = await harness.post(
+        `${base}/variable-preview?${packageQuery(harness.basePin)}`,
+        { variable: "active_support_banners", context: {} },
+        dev.headers,
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await json(response);
+    assert.equal(body.outcome.id, "active_support_banners");
+    assert.equal(body.outcome.trace.resolution.source.kind, "catalog_array");
+    assert.ok(body.outcome.trace.resolution.source.values.length > 0);
+});
+
 test("upcoming changes surface unpassed env.now boundaries", async () => {
     // The base package schedules nothing.
     const quiet = await json(

@@ -16,6 +16,7 @@ use super::{PackageLintSnapshot, lint_package_snapshot};
 pub(crate) struct RuntimePackage {
     pub(crate) evaluation_contexts: BTreeMap<String, RuntimeEvaluationContext>,
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) context_dependent_variables: BTreeSet<String>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
     pub(crate) lists: BTreeMap<String, RuntimeList>,
@@ -49,22 +50,7 @@ impl RuntimePackage {
             .ok_or_else(|| {
                 RototoError::new(format!("variable not found: variable://{variable}"))
             })?;
-        if allowed.is_empty()
-            && self
-                .variables
-                .get(variable)
-                .is_some_and(|variable| match &variable.resolution {
-                    // Rules that only read `env` (a pure time gate) impose no
-                    // context requirement, matching the compatibility lint.
-                    RuntimeResolution::Rules { rules, .. } => rules.iter().all(|rule| {
-                        let references = rule.when.references();
-                        references.variables.is_empty()
-                            && references.context_paths.iter().all(|path| path.is_empty())
-                    }),
-                    RuntimeResolution::Query(query) => !query.uses_context,
-                    RuntimeResolution::Allocation(allocation) => !allocation.uses_context,
-                })
-        {
+        if !self.context_dependent_variables.contains(variable) {
             return Ok(());
         }
         self.validate_context_against(context, Some(allowed))
@@ -152,8 +138,6 @@ pub(crate) struct RuntimeAllocation {
     pub(crate) eligibility: Option<Expression>,
     pub(crate) arms: Vec<RuntimeArm>,
     pub(crate) default: RuntimeSelectedValue,
-    /// Whether unit/eligibility read `context` or other variables.
-    pub(crate) uses_context: bool,
 }
 
 /// One arm's inclusive bucket claim and the value it assigns.
@@ -177,9 +161,6 @@ pub(crate) struct RuntimeQuery {
     pub(crate) descending: bool,
     pub(crate) limit: Option<usize>,
     pub(crate) default: Option<RuntimeSelectedValue>,
-    /// Whether filter/sort read `context` or other variables, i.e. whether
-    /// resolution needs a validated evaluation context at all.
-    pub(crate) uses_context: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +218,7 @@ impl<'a> RuntimeCompiler<'a> {
             .ok_or_else(|| RototoError::new("package manifest is missing"))?;
         let evaluation_contexts = self.compile_evaluation_contexts(index)?;
         let compatibility = self.snapshot.evaluation_context_compatibility();
+        let context_dependent_variables = compatibility.context_dependent_variables;
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
         let lists = Self::compile_lists(index);
@@ -246,6 +228,7 @@ impl<'a> RuntimeCompiler<'a> {
         Ok(RuntimePackage {
             evaluation_contexts,
             variable_evaluation_contexts: compatibility.variables,
+            context_dependent_variables,
             catalog_schemas,
             catalog_entries,
             lists,
@@ -615,15 +598,6 @@ impl<'a> RuntimeCompiler<'a> {
         )?;
         let default = self.compile_variable_value(index, variable, type_kind, &default.value)?;
 
-        let uses_context = [Some(&unit.value), eligibility.as_ref()]
-            .into_iter()
-            .flatten()
-            .any(|expression| {
-                let references = expression.references();
-                !references.variables.is_empty()
-                    || references.context_paths.iter().any(|path| !path.is_empty())
-            });
-
         Ok(RuntimeResolution::Allocation(Box::new(RuntimeAllocation {
             layer: layer.id.clone(),
             allocation: allocation_id.value.clone(),
@@ -633,7 +607,6 @@ impl<'a> RuntimeCompiler<'a> {
             eligibility,
             arms,
             default,
-            uses_context,
         })))
     }
 
@@ -725,11 +698,6 @@ impl<'a> RuntimeCompiler<'a> {
             }
             ProjectField::Missing { .. } => None,
         };
-        let uses_context = [&filter, &sort].into_iter().flatten().any(|expression| {
-            let references = expression.references();
-            !references.variables.is_empty()
-                || references.context_paths.iter().any(|path| !path.is_empty())
-        });
         Ok(RuntimeResolution::Query(Box::new(RuntimeQuery {
             catalog: catalog.to_owned(),
             single,
@@ -738,7 +706,6 @@ impl<'a> RuntimeCompiler<'a> {
             descending,
             limit,
             default,
-            uses_context,
         })))
     }
 

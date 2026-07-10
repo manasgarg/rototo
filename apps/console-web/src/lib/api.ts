@@ -72,6 +72,7 @@ export type QueryModel = {
 export type VariableModel = {
     id: string;
     location: ModelLocation;
+    usesContext: boolean;
     description?: string;
     declaration: { kind: string; value?: string; location: ModelLocation };
     resolve?: {
@@ -714,6 +715,19 @@ export function runPreview(
     return apiPost(
         `/api/source-trees/${treeId}/preview?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
         { context },
+    );
+}
+
+export function runVariablePreview(
+    treeId: string,
+    packagePath: string,
+    pin: string,
+    variable: string,
+    context: Record<string, unknown>,
+): Promise<{ pin: string; outcome: TraceOutcome }> {
+    return apiPost(
+        `/api/source-trees/${treeId}/variable-preview?path=${encodeURIComponent(packagePath)}&pin=${pin}`,
+        { variable, context },
     );
 }
 

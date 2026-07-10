@@ -17,7 +17,7 @@ use super::index::{
 };
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 4;
+pub const SEMANTIC_MODEL_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,6 +102,10 @@ pub struct ModelValueField {
 pub struct VariableModel {
     pub id: String,
     pub location: ModelLocation,
+    /// Whether resolution reads caller-supplied context, directly or through
+    /// another variable. Derived from parsed CEL references, never source-text
+    /// matching.
+    pub uses_context: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub declaration: DeclarationModel,
@@ -365,6 +369,7 @@ pub enum ModelEntityRef {
 impl PackageLintSnapshot {
     pub(crate) fn semantic_model(&self) -> PackageSemanticModel {
         let index = &self.index;
+        let compatibility = self.evaluation_context_compatibility();
         let variables = index
             .variables
             .values()
@@ -472,6 +477,7 @@ impl PackageLintSnapshot {
                 VariableModel {
                     id: node.id.clone(),
                     location: model_location(&node.location),
+                    uses_context: compatibility.context_dependent_variables.contains(&node.id),
                     description: present_string(&node.description),
                     declaration,
                     values: node
@@ -628,7 +634,6 @@ impl PackageLintSnapshot {
             })
             .collect();
 
-        let compatibility = self.evaluation_context_compatibility();
         let variable_evaluation_contexts = compatibility
             .variables
             .into_iter()

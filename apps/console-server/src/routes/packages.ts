@@ -234,6 +234,46 @@ export function packageRoutes(ctx: ConsoleContext): Hono {
         return c.json({ pin, path: packagePath, outcomes });
     });
 
+    // One variable can resolve without a caller context even when the package
+    // declares required context schemas for other variables. The semantic
+    // index decides whether that is valid; this route lets the entity screen
+    // ask that narrower question instead of running the whole package batch.
+    app.post("/source-trees/:tree/variable-preview", async (c) => {
+        const { tree, token } = await access(c);
+        const pin = stagedPin(c);
+        const packagePath = packagePathOf(c);
+        const body = (await c.req.json().catch(() => null)) as {
+            variable?: string;
+            context?: Record<string, unknown>;
+        } | null;
+        if (
+            body === null ||
+            typeof body.variable !== "string" ||
+            typeof body.context !== "object"
+        ) {
+            throw new ApiError(
+                400,
+                "expected { variable: <id>, context: <object> }",
+            );
+        }
+        const treeRoot = await ctx.stager.stageTree(tree, pin, token);
+        const packageRoot = ctx.stager.packageRoot(treeRoot, packagePath);
+        try {
+            const trace = await native.traceResolution(
+                packageRoot,
+                body.variable,
+                (body.context ?? {}) as Record<string, never>,
+            );
+            return c.json({
+                pin,
+                path: packagePath,
+                outcome: { id: body.variable, trace },
+            });
+        } catch (error) {
+            throw new ApiError(400, (error as Error).message);
+        }
+    });
+
     // Behavior scheduled to change on its own: env.now boundaries that have
     // not passed yet, from the core's expression analysis.
     app.get("/source-trees/:tree/upcoming", async (c) => {

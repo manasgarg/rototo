@@ -9,7 +9,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .await
         .expect("examples/basic should produce a semantic model");
 
-    assert_eq!(model.version, 4);
+    assert_eq!(model.version, 5);
     assert!(!model.variables.is_empty());
     assert!(!model.catalogs.is_empty());
     assert!(!model.linters.is_empty());
@@ -39,6 +39,10 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .find(|variable| variable.id == "support_banner")
         .expect("support_banner variable");
     assert_eq!(variable.declaration.kind, "catalog");
+    assert!(
+        variable.uses_context,
+        "context use follows the referenced condition variable"
+    );
     assert_eq!(
         variable.declaration.value.as_deref(),
         Some("support_banner")
@@ -133,6 +137,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");
     assert!(json["catalogEntries"].is_array());
+    assert!(json["variables"][0]["usesContext"].is_boolean());
     assert_eq!(json["references"][0]["from"]["kind"], "variable");
 }
 
@@ -307,6 +312,30 @@ from = "message_template"
 filter = 'entry.channel == context.channel && entry.active == true && variables["premium"]'
 "#,
     );
+    write_file(
+        root,
+        "variables/static_gate.toml",
+        r#"schema_version = 1
+
+type = "bool"
+
+[resolve]
+default = true
+"#,
+    );
+    write_file(
+        root,
+        "variables/static_templates.toml",
+        r#"schema_version = 1
+
+type = "array<catalog=message_template>"
+
+[resolve]
+method = "query"
+from = "message_template"
+filter = 'entry.active == variables["static_gate"]'
+"#,
+    );
 
     let model = package_semantic_model(root)
         .await
@@ -317,6 +346,7 @@ filter = 'entry.channel == context.channel && entry.active == true && variables[
         .iter()
         .find(|variable| variable.id == "templates")
         .expect("templates variable");
+    assert!(variable.uses_context);
     assert_eq!(variable.declaration.kind, "primitive");
     assert_eq!(
         variable.declaration.value.as_deref(),
@@ -366,6 +396,25 @@ filter = 'entry.channel == context.channel && entry.active == true && variables[
         .find(|entry| entry.variable == "templates")
         .expect("templates evaluation-context compatibility");
     assert_eq!(variable_contexts.evaluation_contexts, vec!["request"]);
+
+    let static_variable = model
+        .variables
+        .iter()
+        .find(|variable| variable.id == "static_templates")
+        .expect("static_templates variable");
+    assert!(
+        !static_variable.uses_context,
+        "a query that reaches only a context-free variable stays context-free"
+    );
+    let static_trace =
+        rototo::trace_variable_resolution(root, "static_templates", &serde_json::json!({}))
+            .await
+            .expect("a transitively context-free query resolves with an empty context");
+    assert!(matches!(
+        static_trace.resolution.source,
+        rototo::model::VariableResolutionSource::CatalogArray { catalog, values }
+            if catalog == "message_template" && values == ["email"]
+    ));
 
     let query_reference_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")
