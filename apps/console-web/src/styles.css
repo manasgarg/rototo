@@ -1747,10 +1747,10 @@ select.input {
     margin-bottom: 14px;
 }
 
-/* Package entity graph */
-.graph-card {
-    overflow: hidden;
-}
+/* Package entity graph. The card must not clip overflow: a clipping
+   ancestor would become the sticky preview's scrollport and pin it to the
+   top of the card instead of letting it follow the page scroll. Wide graph
+   content is already contained by .graph-scroll. */
 
 .graph-toolbar {
     display: flex;
@@ -1774,8 +1774,10 @@ select.input {
     gap: 12px;
 }
 
+/* No overflow clipping here: it would make the canvas the sticky preview's
+   scrollport and pin it to the top instead of following the page scroll.
+   The tinted head rounds its own corners instead. */
 .graph-canvas {
-    overflow: hidden;
     border: 1px solid var(--line-1);
     border-radius: var(--radius-2);
     background: var(--paper-1);
@@ -1789,6 +1791,8 @@ select.input {
     padding: 9px 10px;
     border-bottom: 1px solid var(--line-1);
     background: var(--paper-2);
+    border-top-left-radius: calc(var(--radius-2) - 1px);
+    border-top-right-radius: calc(var(--radius-2) - 1px);
 }
 
 .graph-canvas-body,
