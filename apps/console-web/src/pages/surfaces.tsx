@@ -52,7 +52,7 @@ import {
     type AddressStep,
     type ViewState,
 } from "@/lib/router";
-import { DeleteButton, EditingStrip } from "@/pages/workbench";
+import { ChangeSetControl, DeleteButton } from "@/pages/workbench";
 import type { SourceTreeSummary } from "@/lib/api";
 
 type Banner = { kind: "ok" | "err" | "warn"; text: string };
@@ -262,24 +262,25 @@ export function SurfacesPage({
                             : ""}
                     </p>
                 </div>
+                <div className="section-header-actions">
+                    <ChangeSetControl
+                        treeId={treeId}
+                        canPropose={tree.capabilities.propose}
+                        changeSets={changeSets}
+                        active={active}
+                        onSelect={(id) => {
+                            setBanner(null);
+                            go(surfaceId, { changeSetId: id });
+                        }}
+                        onCreated={(changeSet) => {
+                            setChangeSets((current) => [changeSet, ...current]);
+                            setBanner(null);
+                            go(surfaceId, { changeSetId: changeSet.id });
+                        }}
+                        onError={saveFailed}
+                    />
+                </div>
             </div>
-
-            <EditingStrip
-                treeId={treeId}
-                canPropose={tree.capabilities.propose}
-                changeSets={changeSets}
-                active={active}
-                onSelect={(id) => {
-                    setBanner(null);
-                    go(surfaceId, { changeSetId: id });
-                }}
-                onCreated={(changeSet) => {
-                    setChangeSets((current) => [changeSet, ...current]);
-                    setBanner(null);
-                    go(surfaceId, { changeSetId: changeSet.id });
-                }}
-                onError={saveFailed}
-            />
 
             {banner !== null ? (
                 <div

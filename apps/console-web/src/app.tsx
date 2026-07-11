@@ -253,7 +253,13 @@ export function App() {
                 <nav className="side-nav">{navContent}</nav>
                 <SideUser me={me} />
             </aside>
-            <div className="main">
+            {/* An active change set tints the whole working surface: with the
+                editing strip demoted to a header control, the shell carries
+                the "you are on a branch" signal. */}
+            <div
+                className="main"
+                data-mode={state.changeSetId !== null ? "editing" : undefined}
+            >
                 <header className="topbar">
                     <a
                         className="topbar-brand"

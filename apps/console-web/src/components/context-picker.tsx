@@ -789,7 +789,7 @@ export function ContextPicker({
                 type="button"
                 onClick={() => setExpanded(!expanded)}
             >
-                <span className="label mode-strip-label">given context</span>
+                <span className="label">given context</span>
                 <span className="context-picker-chosen">
                     {contextLabel(chosen)}
                 </span>

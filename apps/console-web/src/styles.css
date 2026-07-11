@@ -527,47 +527,9 @@ h3 {
 }
 
 /* ------------------------------------------------------ branch editing mode --
-   A persistent cyan strip plus a faintly tinted surface: you are on a
-   branch, and what you save commits to it. */
-.mode-strip {
-    flex: none;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 8px 28px;
-    background: var(--cyan-50);
-    border-bottom: 1px solid var(--cyan-200);
-    color: var(--cyan-700);
-    font-size: 12.5px;
-    line-height: 1.4;
-}
-
-.mode-strip svg {
-    align-self: center;
-    flex: none;
-}
-
-.mode-strip-label {
-    color: var(--cyan-700);
-    flex: none;
-}
-
-.mode-strip-branch {
-    font-weight: 600;
-    color: var(--cyan-700);
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.mode-strip-detail {
-    margin-left: auto;
-    flex: none;
-    color: var(--cyan-600);
-}
-
+   An active change set tints the working surface: you are on a branch, and
+   what you save commits to it. The header's branch pill and change-set
+   control carry the words; the shell carries the mood. */
 .main[data-mode="editing"] .content {
     background:
         linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -828,6 +790,18 @@ h3 {
     background: var(--sea-500);
 }
 
+/* cyan is the editing hue: the branch pill wears it while a change set is
+   active, matching the shell's editing tint */
+.pill-cyan {
+    background: var(--cyan-50);
+    color: var(--cyan-700);
+    border-color: var(--cyan-200);
+}
+
+.pill-cyan .d {
+    background: var(--cyan-500);
+}
+
 a.pill {
     transition:
         border-color var(--dur-fast),
@@ -1000,6 +974,81 @@ button.row-link {
 .section-header-text {
     display: grid;
     gap: 4px;
+}
+
+.section-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+}
+
+/* the branch state under the heading: one quiet mono fact */
+.branch-pill {
+    justify-self: start;
+    margin-top: 2px;
+}
+
+/* a right-aligned dropdown menu under a small header button */
+.menu-control {
+    position: relative;
+}
+
+.menu-chevron {
+    color: var(--ink-3);
+    font-size: 11px;
+    line-height: 1;
+}
+
+.menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 260px;
+    padding: 4px;
+    background: var(--paper-0);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-2);
+    box-shadow: var(--shadow-2);
+}
+
+.menu-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 9px;
+    border: none;
+    border-radius: var(--radius-1);
+    background: none;
+    color: var(--ink-0);
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.menu-item:hover {
+    background: var(--sea-50);
+    color: var(--sea-700);
+}
+
+.menu-item[aria-current] {
+    font-weight: 600;
+}
+
+.menu-item-sub {
+    color: var(--ink-3);
+    font-size: 11.5px;
+}
+
+.menu-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
 }
 
 .action-row {
@@ -2939,18 +2988,6 @@ select.input {
 
     .crumbs .label {
         white-space: nowrap;
-    }
-
-    .mode-strip {
-        padding: 8px 16px;
-        flex-wrap: wrap;
-        row-gap: 2px;
-    }
-
-    .mode-strip-detail {
-        margin-left: 0;
-        padding-left: 23px;
-        flex-basis: 100%;
     }
 
     .topbar-actions {

@@ -429,38 +429,37 @@ export function WorkbenchPage({
                     <h1 className={heading.mono ? "mono" : undefined}>
                         {heading.label}
                     </h1>
-                    <p className="hint">
-                        {state.pin !== null
-                            ? `viewing ${state.pin.slice(0, 10)} (historical)`
-                            : listing === null
-                              ? "Resolving…"
-                              : `${listing.ref} @ ${listing.pin.slice(0, 10)}`}
-                    </p>
-                </div>
-                {detail !== null ? (
-                    <LintStatusPill
-                        diagnostics={detail.lint.diagnostics}
-                        href={hrefView({ kind: "diagnostics" })}
+                    <BranchPill
+                        listing={listing}
+                        pin={state.pin}
+                        active={active}
                     />
-                ) : null}
+                </div>
+                <div className="section-header-actions">
+                    {detail !== null ? (
+                        <LintStatusPill
+                            diagnostics={detail.lint.diagnostics}
+                            href={hrefView({ kind: "diagnostics" })}
+                        />
+                    ) : null}
+                    <ChangeSetControl
+                        treeId={treeId}
+                        canPropose={tree.capabilities.propose}
+                        changeSets={changeSets}
+                        active={active}
+                        onSelect={(id) => {
+                            setBanner(null);
+                            go(view, { changeSetId: id });
+                        }}
+                        onCreated={(changeSet) => {
+                            setChangeSets((current) => [changeSet, ...current]);
+                            setBanner(null);
+                            go(view, { changeSetId: changeSet.id });
+                        }}
+                        onError={saveFailed}
+                    />
+                </div>
             </div>
-
-            <EditingStrip
-                treeId={treeId}
-                canPropose={tree.capabilities.propose}
-                changeSets={changeSets}
-                active={active}
-                onSelect={(id) => {
-                    setBanner(null);
-                    go(view, { changeSetId: id });
-                }}
-                onCreated={(changeSet) => {
-                    setChangeSets((current) => [changeSet, ...current]);
-                    setBanner(null);
-                    go(view, { changeSetId: changeSet.id });
-                }}
-                onError={saveFailed}
-            />
 
             {/* The context parameterizes resolution; only the overview and
                 variable screens resolve, so no other screen asks for one. */}
@@ -604,9 +603,10 @@ function screenHeading(
 
 // The editing context: which change set commits accumulate on. Viewing the
 // default branch is read-only by design; the branch is the durable draft.
-// The domain lens reuses this strip so "which change set am I on" looks the
-// same everywhere.
-export function EditingStrip({
+// One quiet header control carries the whole story: a menu of open change
+// sets, the way back to read-only, and creation. The domain lens reuses it
+// so "which change set am I on" looks the same everywhere.
+export function ChangeSetControl({
     treeId,
     canPropose,
     changeSets,
@@ -623,91 +623,176 @@ export function EditingStrip({
     onCreated: (changeSet: ChangeSet) => void;
     onError: (error: unknown) => void;
 }) {
+    const [open, setOpen] = useState(false);
     const [creating, setCreating] = useState(false);
     const [title, setTitle] = useState("");
-    const open = changeSets.filter(
+    const wrapper = useRef<HTMLDivElement>(null);
+
+    const openSets = changeSets.filter(
         (entry) => entry.state === "draft" || entry.state === "proposed",
     );
+    const close = () => {
+        setOpen(false);
+        setCreating(false);
+        setTitle("");
+    };
+    const pick = (id: string | null) => {
+        onSelect(id);
+        close();
+    };
 
+    // A viewer without propose rights keeps the button as the explanation:
+    // disabled, with the server's reason a hover away.
     return (
-        <div className="mode-strip">
-            <span className="label mode-strip-label">
-                {active === null ? "viewing" : "editing on"}
-            </span>
-            <select
-                className="input"
-                value={active?.id ?? ""}
-                onChange={(event) =>
-                    onSelect(
-                        event.target.value === "" ? null : event.target.value,
-                    )
+        <div
+            className="menu-control"
+            ref={wrapper}
+            onBlur={(event) => {
+                if (!wrapper.current?.contains(event.relatedTarget as Node)) {
+                    close();
                 }
+            }}
+        >
+            <button
+                aria-expanded={open}
+                className="btn btn-secondary btn-sm"
+                disabled={!canPropose.allow}
+                title={
+                    canPropose.allow
+                        ? active === null
+                            ? "Pick or start the change set your edits commit to"
+                            : `Edits accumulate on ${active.branch}`
+                        : `read-only: ${canPropose.reason}`
+                }
+                type="button"
+                onClick={() => (open ? close() : setOpen(true))}
             >
-                <option value="">Base branch (read-only)</option>
-                {open.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                        {entry.title} ({entry.state})
-                    </option>
-                ))}
-            </select>
-            {active !== null ? (
-                <a
-                    className="row-link mono mode-strip-branch"
-                    href={`#${changeSetUrl(treeId, active.id)}`}
-                    title="Open this change set"
-                >
-                    {active.branch}
-                </a>
-            ) : null}
-            {creating ? (
-                <form
-                    className="inline-form"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        const changeSetTitle = title.trim();
-                        setCreating(false);
-                        setTitle("");
-                        createChangeSet(treeId, changeSetTitle).then(
-                            onCreated,
-                            onError,
-                        );
-                    }}
-                >
-                    <input
-                        autoFocus
-                        className="input"
-                        placeholder="What is this change about?"
-                        value={title}
-                        onChange={(event) => setTitle(event.target.value)}
-                    />
-                    <button
-                        className="btn btn-primary btn-sm"
-                        type="submit"
-                        disabled={title.trim() === ""}
-                    >
-                        Start
-                    </button>
-                    <button
-                        className="btn btn-ghost btn-sm"
-                        type="button"
-                        onClick={() => setCreating(false)}
-                    >
-                        Cancel
-                    </button>
-                </form>
-            ) : canPropose.allow ? (
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setCreating(true)}
-                >
-                    New change set
-                </button>
-            ) : (
-                <span className="hint" title={canPropose.reason}>
-                    read-only: {canPropose.reason}
+                {active === null ? "Edit in a change set" : active.title}
+                <span aria-hidden="true" className="menu-chevron">
+                    ⌄
                 </span>
-            )}
+            </button>
+            {open ? (
+                <div className="menu" role="menu">
+                    {active !== null ? (
+                        <>
+                            <a
+                                className="menu-item"
+                                href={`#${changeSetUrl(treeId, active.id)}`}
+                                role="menuitem"
+                                onClick={close}
+                            >
+                                Open this change set
+                            </a>
+                            <button
+                                className="menu-item"
+                                role="menuitem"
+                                type="button"
+                                onClick={() => pick(null)}
+                            >
+                                Base branch (read-only)
+                            </button>
+                        </>
+                    ) : null}
+                    {openSets.map((entry) => (
+                        <button
+                            aria-current={entry.id === active?.id || undefined}
+                            className="menu-item"
+                            key={entry.id}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => pick(entry.id)}
+                        >
+                            {entry.title}
+                            <span className="menu-item-sub">{entry.state}</span>
+                        </button>
+                    ))}
+                    {creating ? (
+                        <form
+                            className="menu-form"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                const changeSetTitle = title.trim();
+                                close();
+                                createChangeSet(treeId, changeSetTitle).then(
+                                    onCreated,
+                                    onError,
+                                );
+                            }}
+                        >
+                            <input
+                                autoFocus
+                                className="input"
+                                placeholder="What is this change about?"
+                                value={title}
+                                onChange={(event) =>
+                                    setTitle(event.target.value)
+                                }
+                            />
+                            <button
+                                className="btn btn-primary btn-sm"
+                                type="submit"
+                                disabled={title.trim() === ""}
+                            >
+                                Start
+                            </button>
+                        </form>
+                    ) : (
+                        <button
+                            className="menu-item"
+                            role="menuitem"
+                            type="button"
+                            onClick={() => setCreating(true)}
+                        >
+                            New change set…
+                        </button>
+                    )}
+                </div>
+            ) : null}
         </div>
+    );
+}
+
+// The branch state as one quiet mono pill under the heading: the ref and
+// pin when reading, the change-set branch when editing, the pinned instant
+// when time-travelling. The pill states a fact; the control beside the
+// heading is the action.
+function BranchPill({
+    listing,
+    pin,
+    active,
+}: {
+    listing: PackageListing | null;
+    pin: string | null;
+    active: ChangeSet | null;
+}) {
+    if (active !== null) {
+        return (
+            <span
+                className="pill pill-cyan mono branch-pill"
+                title={`Edits accumulate on ${active.branch}`}
+            >
+                ⎇ {active.branch} · editing
+            </span>
+        );
+    }
+    if (pin !== null) {
+        return (
+            <span
+                className="pill pill-info mono branch-pill"
+                title="Viewing the package as it was at this commit"
+            >
+                @ {pin.slice(0, 10)} · historical
+            </span>
+        );
+    }
+    if (listing === null) {
+        return <p className="hint">Resolving…</p>;
+    }
+    return (
+        <span className="pill pill-neutral mono branch-pill">
+            ⎇ {listing.ref} @ {listing.pin.slice(0, 10)} · read-only
+        </span>
     );
 }
 
