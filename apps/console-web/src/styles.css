@@ -3267,6 +3267,27 @@ button.context-fact-add:hover {
     flex: 1 1 100%;
 }
 
+/* the new-list form: id and type on one line, member chips below, the
+   actions on their own row */
+.new-list-form {
+    display: grid;
+    gap: 10px;
+}
+
+.new-list-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+}
+
+.member-add-input {
+    width: auto;
+    flex: 0 1 20ch;
+    min-height: 0;
+    padding: 3px 9px;
+    font-size: 12px;
+}
+
 /* the context combobox: an input that filters its dropdown */
 .combo {
     position: relative;

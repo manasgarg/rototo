@@ -3177,6 +3177,121 @@ function NewContextForm({
     );
 }
 
+// The members of a list being created, as editable chips: type a value and
+// Enter (or comma) adds it, click a chip's text to change it, × drops it.
+// Values stay raw text here; the declared member type converts them on
+// submit, so switching the type mid-form never strands a chip.
+function MemberChipsEditor({
+    type,
+    members,
+    disabled,
+    onChange,
+}: {
+    type: string;
+    members: string[];
+    disabled: boolean;
+    onChange: (members: string[]) => void;
+}) {
+    const [draft, setDraft] = useState("");
+    // null shows the chips; an index is the member being edited in place.
+    const [editing, setEditing] = useState<number | null>(null);
+    const [editText, setEditText] = useState("");
+
+    const addDraft = () => {
+        const parts = draft
+            .split(",")
+            .map((text) => text.trim())
+            .filter((text) => text !== "");
+        if (parts.length > 0) {
+            onChange([...members, ...parts]);
+        }
+        setDraft("");
+    };
+    const commitEdit = () => {
+        if (editing !== null) {
+            const text = editText.trim();
+            onChange(
+                text === ""
+                    ? members.filter((_, index) => index !== editing)
+                    : replaceAt(members, editing, text),
+            );
+        }
+        setEditing(null);
+        setEditText("");
+    };
+
+    return (
+        <div className="context-facts">
+            {members.map((member, index) =>
+                editing === index ? (
+                    <input
+                        autoFocus
+                        aria-label={`Edit member ${member}`}
+                        className="input mono context-fact-input"
+                        key={index}
+                        size={Math.max(editText.length + 2, 6)}
+                        value={editText}
+                        onBlur={commitEdit}
+                        onChange={(event) => setEditText(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitEdit();
+                            }
+                        }}
+                    />
+                ) : (
+                    <span className="context-fact" key={index}>
+                        <button
+                            className="context-fact-value"
+                            disabled={disabled}
+                            title="Edit this member"
+                            type="button"
+                            onClick={() => {
+                                setEditing(index);
+                                setEditText(member);
+                            }}
+                        >
+                            {member}
+                        </button>
+                        <button
+                            className="context-fact-remove"
+                            disabled={disabled}
+                            title={`Remove ${member}`}
+                            type="button"
+                            onClick={() =>
+                                onChange(members.filter((_, i) => i !== index))
+                            }
+                        >
+                            ×
+                        </button>
+                    </span>
+                ),
+            )}
+            <input
+                aria-label="Add member"
+                className="input mono member-add-input"
+                disabled={disabled}
+                placeholder={`add ${type} member`}
+                value={draft}
+                onBlur={addDraft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                    // Enter adds the typed member; with nothing typed it
+                    // falls through and submits the surrounding form.
+                    if (
+                        (event.key === "Enter" || event.key === ",") &&
+                        draft.trim() !== ""
+                    ) {
+                        event.preventDefault();
+                        addDraft();
+                    }
+                }}
+            />
+        </div>
+    );
+}
+
 function NewListForm({
     detail,
     changeSet,
@@ -3187,7 +3302,7 @@ function NewListForm({
     const [open, setOpen] = useState(false);
     const [id, setId] = useState("");
     const [type, setType] = useState("string");
-    const [membersText, setMembersText] = useState("");
+    const [memberTexts, setMemberTexts] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
     if (changeSet === null) {
         return null;
@@ -3205,11 +3320,7 @@ function NewListForm({
     const submit = () => {
         let members: unknown[];
         try {
-            members = membersText
-                .split(",")
-                .map((text) => text.trim())
-                .filter((text) => text !== "")
-                .map((text) => textToValue(text, type));
+            members = memberTexts.map((text) => textToValue(text, type));
         } catch (error) {
             onError(error);
             return;
@@ -3234,51 +3345,57 @@ function NewListForm({
     };
     return (
         <form
-            className="inline-form"
+            className="new-list-form"
             onSubmit={(event) => {
                 event.preventDefault();
                 submit();
             }}
         >
-            <input
-                autoFocus
-                className="input mono"
-                placeholder="list_id"
-                value={id}
-                onChange={(event) => setId(event.target.value)}
-            />
-            <select
-                className="input"
-                value={type}
-                onChange={(event) => setType(event.target.value)}
-            >
-                {["string", "int", "number", "bool"].map((option) => (
-                    <option key={option} value={option}>
-                        {option}
-                    </option>
-                ))}
-            </select>
-            <input
-                className="input mono"
-                placeholder="member, member, member"
-                value={membersText}
-                onChange={(event) => setMembersText(event.target.value)}
-            />
-            <button
-                className="btn btn-primary btn-sm"
-                type="submit"
-                disabled={busy || id.trim() === ""}
-            >
-                Create
-            </button>
-            <button
-                className="btn btn-ghost btn-sm"
-                type="button"
+            <div className="new-list-head">
+                <input
+                    autoFocus
+                    aria-label="List id"
+                    className="input mono"
+                    placeholder="list_id"
+                    value={id}
+                    onChange={(event) => setId(event.target.value)}
+                />
+                <select
+                    aria-label="Member type"
+                    className="input"
+                    value={type}
+                    onChange={(event) => setType(event.target.value)}
+                >
+                    {["string", "int", "number", "bool"].map((option) => (
+                        <option key={option} value={option}>
+                            {option}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            <MemberChipsEditor
+                type={type}
+                members={memberTexts}
                 disabled={busy}
-                onClick={() => setOpen(false)}
-            >
-                Cancel
-            </button>
+                onChange={setMemberTexts}
+            />
+            <div className="action-row">
+                <button
+                    className="btn btn-primary btn-sm"
+                    type="submit"
+                    disabled={busy || id.trim() === ""}
+                >
+                    Create
+                </button>
+                <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setOpen(false)}
+                >
+                    Cancel
+                </button>
+            </div>
         </form>
     );
 }
