@@ -106,6 +106,10 @@ pub struct VariableModel {
     /// another variable. Derived from parsed CEL references, never source-text
     /// matching.
     pub uses_context: bool,
+    /// The `context.*` paths resolution reads, directly or through referenced
+    /// variables; what a console highlights to say "these are the facts this
+    /// variable looks at". Same derivation discipline as `uses_context`.
+    pub context_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub declaration: DeclarationModel,
@@ -370,6 +374,7 @@ impl PackageLintSnapshot {
     pub(crate) fn semantic_model(&self) -> PackageSemanticModel {
         let index = &self.index;
         let compatibility = self.evaluation_context_compatibility();
+        let mut context_paths = super::evaluation_context::context_paths(self);
         let variables = index
             .variables
             .values()
@@ -478,6 +483,10 @@ impl PackageLintSnapshot {
                     id: node.id.clone(),
                     location: model_location(&node.location),
                     uses_context: compatibility.context_dependent_variables.contains(&node.id),
+                    context_paths: context_paths
+                        .remove(&node.id)
+                        .map(|paths| paths.into_iter().collect())
+                        .unwrap_or_default(),
                     description: present_string(&node.description),
                     declaration,
                     values: node

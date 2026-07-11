@@ -73,6 +73,9 @@ export type VariableModel = {
     id: string;
     location: ModelLocation;
     usesContext: boolean;
+    // The context.* paths resolution reads, transitively through referenced
+    // variables; the variable screen highlights these among the chips.
+    contextPaths: string[];
     description?: string;
     declaration: { kind: string; value?: string; location: ModelLocation };
     resolve?: {

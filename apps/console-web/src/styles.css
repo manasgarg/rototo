@@ -3143,9 +3143,6 @@ button.context-fact-value:hover {
 
 /* a just-added key flashes, then settles in with its siblings */
 .context-fact-added {
-    padding: 1px 4px;
-    margin: -1px -4px;
-    border-radius: var(--radius-1);
     animation: context-fact-flash 2.5s ease-out;
 }
 
@@ -3161,23 +3158,68 @@ button.context-fact-value:hover {
     }
 }
 
-/* a chosen context, flattened to dotted-path facts */
+/* a chosen context, flattened to dotted-path fact chips */
 .context-facts {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px 16px;
+    align-items: center;
+    gap: 6px 8px;
     min-width: 0;
     font-family: var(--font-mono), ui-monospace, monospace;
     font-size: 12px;
 }
 
 .context-fact {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0 4px;
+    padding: 3px 9px;
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-1);
     white-space: nowrap;
     color: var(--ink-2);
 }
 
 .context-fact-value {
     color: var(--ink-0);
+}
+
+/* read-key highlighting: with the resolution's read set known, chips it
+   reads take the sea treatment and every other chip stays quiet */
+.context-fact[data-read="true"] {
+    background: var(--sea-50);
+    border-color: var(--sea-300);
+    color: var(--sea-700);
+}
+
+.context-fact[data-read="true"] .context-fact-value,
+.context-fact[data-read="true"] button.context-fact-value {
+    color: var(--sea-700);
+}
+
+.context-fact[data-read="false"] .context-fact-value,
+.context-fact[data-read="false"] button.context-fact-value {
+    color: var(--ink-2);
+}
+
+button.context-fact-add {
+    border-style: dashed;
+    border-color: var(--line-2);
+    background: none;
+    font: inherit;
+    cursor: pointer;
+    transition:
+        color var(--dur-fast),
+        border-color var(--dur-fast);
+}
+
+button.context-fact-add:hover {
+    color: var(--sea-700);
+    border-color: var(--sea-300);
+}
+
+.context-read-caption {
+    font-size: 12px;
 }
 
 .context-picker .context-facts {

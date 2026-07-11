@@ -47,6 +47,83 @@ pub(in crate::lint) fn compatibility_for(
     }
 }
 
+/// The caller-supplied context paths each variable's resolution reads,
+/// directly or through referenced variables: rule conditions, the query
+/// pipeline, and an allocation's layer expressions all contribute. A union
+/// where compatibility intersects, because the question here is "which facts
+/// does this variable look at", not "which schemas satisfy it".
+pub(crate) fn context_paths(snapshot: &PackageLintSnapshot) -> BTreeMap<String, BTreeSet<String>> {
+    let mut builder = ContextPathsBuilder {
+        index: &snapshot.index,
+        cache: BTreeMap::new(),
+        visiting: BTreeSet::new(),
+    };
+    snapshot
+        .index
+        .variables
+        .keys()
+        .map(|variable_id| (variable_id.clone(), builder.variable_paths(variable_id)))
+        .collect()
+}
+
+struct ContextPathsBuilder<'a> {
+    index: &'a SemanticIndex,
+    cache: BTreeMap<String, BTreeSet<String>>,
+    visiting: BTreeSet<String>,
+}
+
+impl ContextPathsBuilder<'_> {
+    fn variable_paths(&mut self, variable_id: &str) -> BTreeSet<String> {
+        if let Some(paths) = self.cache.get(variable_id) {
+            return paths.clone();
+        }
+        if !self.visiting.insert(variable_id.to_owned()) {
+            // A reference cycle; the graph lint owns reporting it.
+            return BTreeSet::new();
+        }
+        let paths = self.variable_paths_uncached(variable_id);
+        self.visiting.remove(variable_id);
+        self.cache.insert(variable_id.to_owned(), paths.clone());
+        paths
+    }
+
+    fn variable_paths_uncached(&mut self, variable_id: &str) -> BTreeSet<String> {
+        let Some(variable) = self.index.variables.get(variable_id) else {
+            return BTreeSet::new();
+        };
+        let mut paths = BTreeSet::new();
+        for rule in variable.resolve.as_rules().unwrap_or_default() {
+            for expression in [&rule.when].into_iter().flatten() {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                self.expression_paths(&expression.value, &mut paths);
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            self.expression_paths(&expression.value, &mut paths);
+        }
+        for expression in variable_allocation_expressions(self.index, variable) {
+            self.expression_paths(expression, &mut paths);
+        }
+        paths
+    }
+
+    fn expression_paths(&mut self, expression: &Expression, paths: &mut BTreeSet<String>) {
+        let references = expression.references();
+        paths.extend(
+            references
+                .context_paths
+                .iter()
+                .filter(|path| !path.is_empty())
+                .cloned(),
+        );
+        for variable in &references.variables {
+            paths.extend(self.variable_paths(variable));
+        }
+    }
+}
+
 struct CompatibilityBuilder<'a> {
     index: &'a SemanticIndex,
     variable_cache: BTreeMap<String, Option<BTreeSet<String>>>,

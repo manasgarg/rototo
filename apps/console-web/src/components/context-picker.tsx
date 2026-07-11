@@ -180,16 +180,33 @@ export function syntheticLabel(entry: SynthesizedContext): string {
     return `${entry.target.id} · ${entry.caseId}`;
 }
 
+// Whether a chip's dotted path is one the resolution reads. Prefix-aware in
+// both directions: a rule reading `account.plan` lights the `account.plan`
+// chip, a rule reading `account` lights every `account.*` chip, and a rule
+// reading `account.plan` still lights a bare `account` chip (the read walks
+// into it, whatever it finds there).
+function pathIsRead(path: string, readPaths: string[]): boolean {
+    return readPaths.some(
+        (read) =>
+            read === path ||
+            read.startsWith(`${path}.`) ||
+            path.startsWith(`${read}.`),
+    );
+}
+
 // A context shown as flattened dotted-path facts: nested JSON braces are
 // noise when the question is "which facts does this resolution see". The
 // full JSON stays a hover away. With `onEdit` the chips become an editor:
 // click a value to change it, × drops the key, "+ Add key" grows the
-// context by one dotted path.
+// context by one dotted path. With `readPaths` the chips explain: paths the
+// resolution reads get the sea treatment, the rest dim.
 export function ContextFacts({
     context,
+    readPaths,
     onEdit,
 }: {
     context: Record<string, unknown>;
+    readPaths?: string[];
     onEdit?: (context: Record<string, unknown>) => void;
 }) {
     // The freshly added path flashes for a moment so the eye lands where
@@ -207,14 +224,21 @@ export function ContextFacts({
     const added = (path: string): boolean =>
         justAdded !== null &&
         (path === justAdded || path.startsWith(`${justAdded}.`));
+    const read = (path: string): boolean | undefined =>
+        readPaths === undefined ? undefined : pathIsRead(path, readPaths);
     return (
         <span
             className="context-facts"
+            data-highlights={readPaths !== undefined || undefined}
             title={JSON.stringify(context, null, 2)}
         >
             {flattenContext(context).map((fact) =>
                 onEdit === undefined ? (
-                    <span className="context-fact" key={fact.path}>
+                    <span
+                        className="context-fact"
+                        data-read={read(fact.path)}
+                        key={fact.path}
+                    >
                         <span className="context-fact-path">{fact.path}</span>
                         {" = "}
                         <span className="context-fact-value">
@@ -226,6 +250,7 @@ export function ContextFacts({
                         added={added(fact.path)}
                         key={fact.path}
                         path={fact.path}
+                        read={read(fact.path)}
                         value={fact.value}
                         onCommit={(text) =>
                             onEdit(
@@ -266,12 +291,14 @@ export function ContextFacts({
 function EditableFact({
     added,
     path,
+    read,
     value,
     onCommit,
     onRemove,
 }: {
     added?: boolean;
     path: string;
+    read?: boolean;
     value: unknown;
     onCommit: (text: string) => void;
     onRemove: () => void;
@@ -291,6 +318,7 @@ function EditableFact({
                     ? "context-fact context-fact-added"
                     : "context-fact"
             }
+            data-read={read}
         >
             <span className="context-fact-path">{path}</span>
             {" = "}
@@ -340,7 +368,7 @@ function AddFact({ onAdd }: { onAdd: (path: string, text: string) => void }) {
     if (!open) {
         return (
             <button
-                className="btn btn-ghost btn-sm"
+                className="context-fact context-fact-add"
                 type="button"
                 onClick={() => setOpen(true)}
             >
@@ -509,6 +537,9 @@ export function ContextPickerBody({
     // The overview reads an empty pick as "show structure only"; the
     // variable screen's try-it card just has no context yet.
     emptyOptionLabel = "None (structure only)",
+    // The context paths the surrounding screen's resolution reads; chips on
+    // those paths highlight, the rest dim, and a caption explains why.
+    readPaths,
     onPromoteBoundary,
     onChange,
 }: {
@@ -517,6 +548,7 @@ export function ContextPickerBody({
     boundaryVariableId?: string;
     canPromoteBoundary?: boolean;
     emptyOptionLabel?: string;
+    readPaths?: string[];
     onPromoteBoundary?: (entry: SynthesizedContext) => void;
     onChange: (chosen: ChosenContext) => void;
 }) {
@@ -670,10 +702,21 @@ export function ContextPickerBody({
                 </div>
             </div>
             {display === "chips" ? (
-                <ContextFacts
-                    context={chosen.kind === "none" ? {} : chosen.context}
-                    onEdit={(context) => onChange({ kind: "adhoc", context })}
-                />
+                <>
+                    <ContextFacts
+                        context={chosen.kind === "none" ? {} : chosen.context}
+                        readPaths={readPaths}
+                        onEdit={(context) =>
+                            onChange({ kind: "adhoc", context })
+                        }
+                    />
+                    {readPaths !== undefined && chosen.kind !== "none" ? (
+                        <div className="hint context-read-caption">
+                            Highlighted keys are the ones this variable&apos;s
+                            resolution actually reads.
+                        </div>
+                    ) : null}
+                </>
             ) : (
                 <span className="inline-form context-picker-editor">
                     <CodeEditor

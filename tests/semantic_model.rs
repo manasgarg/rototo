@@ -43,6 +43,13 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         variable.uses_context,
         "context use follows the referenced condition variable"
     );
+    assert!(
+        variable
+            .context_paths
+            .iter()
+            .any(|path| path == "device.platform"),
+        "read context paths follow the referenced condition variable"
+    );
     assert_eq!(
         variable.declaration.value.as_deref(),
         Some("support_banner")

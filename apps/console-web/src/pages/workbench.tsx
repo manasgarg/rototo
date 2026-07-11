@@ -2012,6 +2012,7 @@ function VariablePanel({
                                 boundaryVariableId={variableId}
                                 canPromoteBoundary={editable}
                                 emptyOptionLabel="None (no context)"
+                                readPaths={variable.contextPaths}
                                 onPromoteBoundary={promote}
                                 onChange={onUseContext}
                             />
