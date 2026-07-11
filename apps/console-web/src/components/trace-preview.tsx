@@ -1,20 +1,26 @@
 // The read side of the variable screen (design/console-semantic.md
-// "Previews"). OutcomeStrip states the resolved value and its provenance
-// for the chosen context. The same trace powers `rototo resolve`, so console
-// and CLI cannot disagree. Boundary contexts belong to the context picker,
-// where every other context is selected.
+// "Previews"). AnswerStrip is the closing zone of the try-it card: one
+// tinted band stating the resolved value and why. Sea-tinted when a rule
+// matched, neutral when the default answered, warn when the context cannot
+// evaluate. The same trace powers `rototo resolve`, so console and CLI
+// cannot disagree.
+
+import type { ReactNode } from "react";
 
 import type { TraceOutcome } from "@/lib/api";
+import type { AddressStep } from "@/lib/router";
 import { CodeEditor } from "@/components/code-editor";
 import { type ChosenContext, contextLabel } from "@/components/context-picker";
+import { ExpressionText } from "@/components/entity-link";
 import { resolvedValueText } from "@/lib/format";
 
-export function OutcomeStrip({
+export function AnswerStrip({
     chosen,
     outcome,
     method,
     requiresContext,
     stale,
+    hrefEntity,
 }: {
     chosen: ChosenContext;
     outcome: TraceOutcome | null;
@@ -22,25 +28,34 @@ export function OutcomeStrip({
     // query's entries already say how the value was selected.
     method: "rules" | "query" | "allocation";
     requiresContext: boolean;
-    // The draft has unsaved edits: the outcome still describes the saved
+    // The draft has unsaved edits: the answer still describes the saved
     // definition, and says so rather than silently mismatching the form.
     stale: boolean;
+    hrefEntity: (steps: AddressStep[]) => string;
 }) {
     if (chosen.kind === "none" && requiresContext) {
         return (
-            <p className="hint">
-                Pick a context above to watch this variable resolve.
-            </p>
+            <Strip tone="idle">
+                <span className="answer-why">
+                    Pick a context above and the answer appears here.
+                </span>
+            </Strip>
         );
     }
     if (outcome === null) {
-        return <p className="muted">Resolving…</p>;
+        return (
+            <Strip tone="idle">
+                <span className="answer-why">Resolving…</span>
+            </Strip>
+        );
     }
     if (outcome.error !== undefined) {
         return (
-            <div className="banner banner-warn">
-                Cannot resolve under this context: {outcome.error}
-            </div>
+            <Strip tone="warn">
+                <span className="answer-why">
+                    Can&apos;t evaluate: {outcome.error}
+                </span>
+            </Strip>
         );
     }
     const trace = outcome.trace;
@@ -57,15 +72,24 @@ export function OutcomeStrip({
         source?.kind === "catalog" || source?.kind === "catalog_array";
     const composite =
         typeof value === "object" && value !== null && !catalogBacked;
+    const why: ReactNode =
+        method === "rules" ? (
+            matched !== undefined ? (
+                <>
+                    Rule {matched.index + 1} matched:{" "}
+                    <span className="mono">
+                        <ExpressionText
+                            text={matched.condition}
+                            hrefFor={hrefEntity}
+                        />
+                    </span>
+                </>
+            ) : (
+                "No rule matched: the default answers."
+            )
+        ) : null;
     const parts: string[] = [];
-    if (method === "rules") {
-        parts.push(
-            matched !== undefined
-                ? `rule ${matched.index + 1} matched`
-                : "no rule matched; the default answers",
-        );
-    }
-    if (source?.kind === "catalog" || source?.kind === "catalog_array") {
+    if (catalogBacked && source !== undefined) {
         parts.push(`from catalog ${source.catalog}`);
     }
     if (trace.provenance !== undefined) {
@@ -80,18 +104,20 @@ export function OutcomeStrip({
         parts.push("before your unsaved edits");
     }
     return (
-        <div className="trace-walk">
-            <div className="trace-result">
-                <span className="label">resolves to</span>
-                {!composite ? (
-                    <span className="mono trace-value">
-                        {catalogBacked
-                            ? resolvedValueText(trace) || "(no entries)"
-                            : JSON.stringify(value)}
-                    </span>
-                ) : null}
-                <span className="hint">{parts.join(" · ")}</span>
-            </div>
+        <Strip
+            tone={
+                method === "rules" && matched === undefined ? "neutral" : "ok"
+            }
+        >
+            {!composite ? (
+                <span className="mono answer-value">
+                    {catalogBacked
+                        ? resolvedValueText(trace) || "(no entries)"
+                        : JSON.stringify(value)}
+                </span>
+            ) : null}
+            {why !== null ? <span className="answer-why">{why}</span> : null}
+            <span className="hint answer-prov">{parts.join(" · ")}</span>
             {composite ? (
                 <CodeEditor
                     className="trace-value-block"
@@ -102,7 +128,7 @@ export function OutcomeStrip({
                 />
             ) : null}
             {trace.allocation !== undefined ? (
-                <p className="hint">
+                <span className="hint answer-alloc">
                     Allocation {trace.allocation.allocation} on layer{" "}
                     {trace.allocation.layer}:{" "}
                     {trace.allocation.enrolled
@@ -112,8 +138,25 @@ export function OutcomeStrip({
                                   : ", unclaimed"
                           }`
                         : "not enrolled"}
-                </p>
+                </span>
             ) : null}
+        </Strip>
+    );
+}
+
+// The composite value block and allocation line break below the answer row;
+// scalar value, why, and provenance share one wrapping baseline row.
+function Strip({
+    tone,
+    children,
+}: {
+    tone: "ok" | "neutral" | "warn" | "idle";
+    children: ReactNode;
+}) {
+    return (
+        <div className="answer-strip" data-tone={tone}>
+            <span className="label answer-label">answer</span>
+            {children}
         </div>
     );
 }

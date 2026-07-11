@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 import {
     ContextPicker,
+    ContextPickerBody,
     contextLabel,
     syntheticLabel,
     type ChosenContext,
@@ -65,7 +66,7 @@ import {
 } from "@/components/entity-link";
 import { HistoryPanel, UpcomingPanel } from "@/components/insight";
 import { ReferenceGraph } from "@/components/reference-graph";
-import { OutcomeStrip } from "@/components/trace-preview";
+import { AnswerStrip } from "@/components/trace-preview";
 import { resolvedValueText } from "@/lib/format";
 import { SearchableList } from "@/lib/ui-kit";
 import {
@@ -1961,19 +1962,32 @@ function VariablePanel({
 
     return (
         <>
-            <div className="card">
-                <div className="card-head">
-                    <div className="card-head-text">
-                        <h2>Variable TOML</h2>
-                        <p className="hint">
-                            {variable.description ?? "No description yet."} ·{" "}
-                            <TypeLabel type={type} hrefEntity={hrefEntity} /> ·{" "}
-                            <MethodLabel
-                                variable={variable}
-                                hrefEntity={hrefEntity}
-                            />
-                        </p>
-                    </div>
+            <p className="variable-meta">
+                <span>{variable.description ?? "No description yet."}</span>
+                <span className="dot-sep">·</span>
+                <span className="code-chip">
+                    <TypeLabel
+                        type={
+                            variable.declaration.kind === "catalog" ||
+                            variable.declaration.kind === "list"
+                                ? `${variable.declaration.kind}=${type}`
+                                : type
+                        }
+                        hrefEntity={hrefEntity}
+                    />
+                </span>
+                <span className="dot-sep">·</span>
+                <span>
+                    <MethodLabel variable={variable} hrefEntity={hrefEntity} />
+                </span>
+            </p>
+
+            <div className="card definition-card">
+                <div className="definition-head">
+                    <span className="mono definition-file">
+                        {variable.location.path}
+                    </span>
+                    <span className="label">definition</span>
                 </div>
                 <VariableToml
                     treeId={treeId}
@@ -1982,27 +1996,35 @@ function VariablePanel({
                 />
             </div>
 
-            {variable.usesContext ? (
-                <ContextPicker
-                    inventory={inventory}
-                    chosen={chosen}
-                    boundaryVariableId={variableId}
-                    canPromoteBoundary={editable}
-                    onPromoteBoundary={promote}
-                    onChange={onUseContext}
-                />
-            ) : null}
-
-            <div className="card variable-outcome">
-                <div className="section-header-text">
-                    <h2>Resolution</h2>
-                </div>
-                <OutcomeStrip
+            <div className="card try-card">
+                {variable.usesContext ? (
+                    <>
+                        <div className="try-head">
+                            <h2>Try it with a context</h2>
+                            <span className="hint">
+                                Pick a sample context: the answer updates below.
+                            </span>
+                        </div>
+                        <div className="try-body">
+                            <ContextPickerBody
+                                inventory={inventory}
+                                chosen={chosen}
+                                boundaryVariableId={variableId}
+                                canPromoteBoundary={editable}
+                                emptyOptionLabel="None (no context)"
+                                onPromoteBoundary={promote}
+                                onChange={onUseContext}
+                            />
+                        </div>
+                    </>
+                ) : null}
+                <AnswerStrip
                     chosen={chosen}
                     outcome={outcome}
                     method={method}
                     requiresContext={variable.usesContext}
                     stale={resolutionDirty}
+                    hrefEntity={hrefEntity}
                 />
             </div>
 

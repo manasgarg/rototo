@@ -3294,23 +3294,153 @@ button.context-fact-value:hover {
     padding-top: 4px;
 }
 
-.trace-walk {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
+/* ---------------------------------------------------- variable screen ----
+   The reading order is one sentence: this variable (meta line), defined
+   here (definition card), given a context yields this value (try-it card
+   with the answer strip fused to its bottom). */
 
-.trace-result {
+.variable-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 10px;
+    gap: 4px 8px;
+    margin: -4px 0 2px;
+    font-size: 14px;
+    color: var(--ink-1);
 }
 
-.trace-value {
-    font-weight: 600;
+.dot-sep {
+    color: var(--ink-3);
+}
+
+/* an inline code chip: a type or id mentioned in running text */
+.code-chip {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 12px;
+    padding: 1px 6px;
+    background: var(--paper-2);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-1);
     color: var(--sea-700);
+}
+
+/* the definition card: the TOML source under a quiet filename bar */
+.card.definition-card {
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+}
+
+.definition-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 16px;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line-1);
+}
+
+.definition-file {
+    font-size: 12px;
+    color: var(--ink-2);
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+.definition-card .code-editor-shell {
+    border: none;
+    border-radius: 0;
+}
+
+.definition-card > .muted,
+.definition-card > .banner {
+    margin: 14px 16px;
+}
+
+/* the try-it card: context in at the top, answer out at the bottom */
+.card.try-card {
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+}
+
+.try-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--line-1);
+}
+
+.try-head h2 {
+    font-size: 16px;
+}
+
+.try-body {
+    padding: 14px 18px 16px;
+}
+
+/* the answer strip: value and why on one tinted band */
+.answer-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+    padding: 14px 18px;
+    background: var(--paper-2);
+    transition: background var(--dur-base) var(--ease-out);
+}
+
+.answer-strip:not(:first-child) {
+    border-top: 1px solid var(--line-1);
+}
+
+.answer-strip[data-tone="ok"] {
+    background: var(--ok-bg);
+}
+
+.answer-strip[data-tone="ok"] .answer-label,
+.answer-strip[data-tone="ok"] .answer-value {
+    color: var(--ok-700);
+}
+
+.answer-strip[data-tone="warn"] {
+    background: var(--warn-bg);
+}
+
+.answer-strip[data-tone="warn"] .answer-label,
+.answer-strip[data-tone="warn"] .answer-why {
+    color: var(--warn-700);
+}
+
+.answer-strip[data-tone="idle"] .answer-why {
+    color: var(--ink-2);
+}
+
+.answer-value {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink-0);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.answer-why {
+    font-size: 13.5px;
+    color: var(--ink-1);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.answer-prov {
+    font-size: 12.5px;
+}
+
+.answer-strip .trace-value-block,
+.answer-alloc {
+    flex: 1 1 100%;
 }
 
 /* a composite literal value, pretty-printed as highlighted JSON */

@@ -1,10 +1,11 @@
 // The first-class context picker (design/console-system-view.md): a context
 // is chosen once and carried across views, because the execution facet is
-// always parameterized by one. The strip stays collapsed to a one-line
-// summary until clicked. Its dropdown offers the package's saved samples
-// and, on a variable screen, can reveal that variable's synthesized boundary
-// contexts. Both views edit: chips fact by fact, JSON as a whole. Every edit
-// lands on the session's ad-hoc context, never on the sample.
+// always parameterized by one. The dropdown offers the package's saved
+// samples and, on a variable screen, can reveal that variable's synthesized
+// boundary contexts. Both views edit: chips fact by fact, JSON as a whole.
+// Every edit lands on the session's ad-hoc context, never on the sample.
+// Two shells share the working surface (ContextPickerBody): the overview's
+// collapsible strip, and the variable screen's try-it card.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -496,11 +497,18 @@ function removeAtPath(
     };
 }
 
-export function ContextPicker({
+// The picker's working surface: the source combo, the chips/JSON editor,
+// and the boundary-context flows. The overview's collapsible strip and the
+// variable screen's try-it card both render this body; only the shell
+// around it differs.
+export function ContextPickerBody({
     inventory,
     chosen,
     boundaryVariableId,
     canPromoteBoundary = false,
+    // The overview reads an empty pick as "show structure only"; the
+    // variable screen's try-it card just has no context yet.
+    emptyOptionLabel = "None (structure only)",
     onPromoteBoundary,
     onChange,
 }: {
@@ -508,10 +516,10 @@ export function ContextPicker({
     chosen: ChosenContext;
     boundaryVariableId?: string;
     canPromoteBoundary?: boolean;
+    emptyOptionLabel?: string;
     onPromoteBoundary?: (entry: SynthesizedContext) => void;
     onChange: (chosen: ChosenContext) => void;
 }) {
-    const [expanded, setExpanded] = useState(false);
     const [display, setDisplay] = useState<"chips" | "json">("chips");
     const [text, setText] = useState("{}");
     const [problem, setProblem] = useState<string | null>(null);
@@ -597,7 +605,7 @@ export function ContextPicker({
     };
 
     const options: ComboOption[] = [
-        { value: "", label: "None (structure only)" },
+        { value: "", label: emptyOptionLabel },
         ...samples.map((sample) => ({
             value: `sample:${sample.key}`,
             label: `${sample.evaluationContext}/${sample.key}`,
@@ -626,6 +634,110 @@ export function ContextPicker({
               )
             : undefined;
 
+    return (
+        <div className="context-picker-body">
+            <div className="context-picker-controls">
+                <ContextCombo
+                    label="Given context"
+                    options={options}
+                    value={selectValue}
+                    fallbackLabel={
+                        chosen.kind === "synthetic" || chosen.kind === "adhoc"
+                            ? contextLabel(chosen)
+                            : undefined
+                    }
+                    onPick={select}
+                />
+                <div
+                    aria-label="Context display"
+                    className="segmented-control"
+                    role="group"
+                >
+                    <button
+                        className={display === "chips" ? "active" : undefined}
+                        type="button"
+                        onClick={() => setDisplay("chips")}
+                    >
+                        Chips
+                    </button>
+                    <button
+                        className={display === "json" ? "active" : undefined}
+                        type="button"
+                        onClick={() => setDisplay("json")}
+                    >
+                        JSON
+                    </button>
+                </div>
+            </div>
+            {display === "chips" ? (
+                <ContextFacts
+                    context={chosen.kind === "none" ? {} : chosen.context}
+                    onEdit={(context) => onChange({ kind: "adhoc", context })}
+                />
+            ) : (
+                <span className="inline-form context-picker-editor">
+                    <CodeEditor
+                        className="context-json-editor"
+                        language="json"
+                        value={text}
+                        onChange={setText}
+                        onKeyDown={(event) => {
+                            // Enter is a newline in JSON;
+                            // Ctrl/Cmd+Enter applies the context.
+                            if (
+                                event.key === "Enter" &&
+                                (event.metaKey || event.ctrlKey)
+                            ) {
+                                event.preventDefault();
+                                apply();
+                            }
+                        }}
+                    />
+                    <span className="action-row">
+                        <button
+                            className="btn btn-primary btn-sm"
+                            onClick={apply}
+                        >
+                            Use context
+                        </button>
+                        {problem !== null ? (
+                            <span className="hint">{problem}</span>
+                        ) : null}
+                    </span>
+                </span>
+            )}
+            {canPromoteBoundary &&
+            selectedBoundary !== undefined &&
+            onPromoteBoundary !== undefined ? (
+                <div className="action-row">
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        title="Adds this boundary context as a saved sample in the active change set"
+                        onClick={() => onPromoteBoundary(selectedBoundary)}
+                    >
+                        Save as sample
+                    </button>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+// The collapsible given-context strip (design/console-system-view.md): a
+// context is chosen once and carried across views, so the overview keeps
+// this one-line summary until clicked. The variable screen skips the strip
+// and mounts the body inside its try-it card instead.
+export function ContextPicker({
+    inventory,
+    chosen,
+    onChange,
+}: {
+    inventory: ContextInventory | null;
+    chosen: ChosenContext;
+    onChange: (chosen: ChosenContext) => void;
+}) {
+    const [expanded, setExpanded] = useState(false);
     return (
         <div className="context-picker">
             <button
@@ -670,103 +782,11 @@ export function ContextPicker({
                 </svg>
             </button>
             {expanded ? (
-                <div className="context-picker-body">
-                    <div className="context-picker-controls">
-                        <ContextCombo
-                            label="Given context"
-                            options={options}
-                            value={selectValue}
-                            fallbackLabel={
-                                chosen.kind === "synthetic" ||
-                                chosen.kind === "adhoc"
-                                    ? contextLabel(chosen)
-                                    : undefined
-                            }
-                            onPick={select}
-                        />
-                        <div
-                            aria-label="Context display"
-                            className="segmented-control"
-                            role="group"
-                        >
-                            <button
-                                className={
-                                    display === "chips" ? "active" : undefined
-                                }
-                                type="button"
-                                onClick={() => setDisplay("chips")}
-                            >
-                                Chips
-                            </button>
-                            <button
-                                className={
-                                    display === "json" ? "active" : undefined
-                                }
-                                type="button"
-                                onClick={() => setDisplay("json")}
-                            >
-                                JSON
-                            </button>
-                        </div>
-                    </div>
-                    {display === "chips" ? (
-                        <ContextFacts
-                            context={
-                                chosen.kind === "none" ? {} : chosen.context
-                            }
-                            onEdit={(context) =>
-                                onChange({ kind: "adhoc", context })
-                            }
-                        />
-                    ) : (
-                        <span className="inline-form context-picker-editor">
-                            <CodeEditor
-                                className="context-json-editor"
-                                language="json"
-                                value={text}
-                                onChange={setText}
-                                onKeyDown={(event) => {
-                                    // Enter is a newline in JSON;
-                                    // Ctrl/Cmd+Enter applies the context.
-                                    if (
-                                        event.key === "Enter" &&
-                                        (event.metaKey || event.ctrlKey)
-                                    ) {
-                                        event.preventDefault();
-                                        apply();
-                                    }
-                                }}
-                            />
-                            <span className="action-row">
-                                <button
-                                    className="btn btn-primary btn-sm"
-                                    onClick={apply}
-                                >
-                                    Use context
-                                </button>
-                                {problem !== null ? (
-                                    <span className="hint">{problem}</span>
-                                ) : null}
-                            </span>
-                        </span>
-                    )}
-                    {canPromoteBoundary &&
-                    selectedBoundary !== undefined &&
-                    onPromoteBoundary !== undefined ? (
-                        <div className="action-row">
-                            <button
-                                className="btn btn-ghost btn-sm"
-                                type="button"
-                                title="Adds this boundary context as a saved sample in the active change set"
-                                onClick={() =>
-                                    onPromoteBoundary(selectedBoundary)
-                                }
-                            >
-                                Save as sample
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
+                <ContextPickerBody
+                    inventory={inventory}
+                    chosen={chosen}
+                    onChange={onChange}
+                />
             ) : null}
         </div>
     );
