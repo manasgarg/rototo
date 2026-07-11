@@ -3317,7 +3317,6 @@ button.context-fact-add:hover {
 }
 
 .context-picker-editor {
-    flex: 1 1 100%;
     display: flex;
     flex-direction: column;
     gap: 8px;

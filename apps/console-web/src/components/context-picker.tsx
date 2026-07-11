@@ -564,12 +564,17 @@ export function ContextPickerBody({
         ) ?? [];
     const showBoundaries = boundariesGenerated || chosen.kind === "synthetic";
 
+    // An ad-hoc context gets a sentinel no option carries: matching "" would
+    // label the edited context "None" in the combo while the chips and the
+    // answer keep describing the custom context.
     const selectValue =
         chosen.kind === "sample"
             ? `sample:${chosen.key}`
             : chosen.kind === "synthetic"
               ? `synthetic:${chosen.label}`
-              : "";
+              : chosen.kind === "adhoc"
+                ? "adhoc:"
+                : "";
 
     // The JSON tab is the whole-context editor; entering it, or switching
     // the chosen context while on it, re-prefills the draft.
@@ -718,7 +723,7 @@ export function ContextPickerBody({
                     ) : null}
                 </>
             ) : (
-                <span className="inline-form context-picker-editor">
+                <div className="context-picker-editor">
                     <CodeEditor
                         className="context-json-editor"
                         language="json"
@@ -741,13 +746,13 @@ export function ContextPickerBody({
                             className="btn btn-primary btn-sm"
                             onClick={apply}
                         >
-                            Use context
+                            Resolve
                         </button>
                         {problem !== null ? (
                             <span className="hint">{problem}</span>
                         ) : null}
                     </span>
-                </span>
+                </div>
             )}
             {canPromoteBoundary &&
             selectedBoundary !== undefined &&
