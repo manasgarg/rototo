@@ -280,7 +280,7 @@ fn generate_allocation_invocations(
     let target = ResolveTarget::Variable(variable.id.clone());
 
     // The no-arm case: the unit is not enrolled or lands in unclaimed buckets.
-    for context in factory.candidate_contexts() {
+    for context in factory.candidates_for(&variable.id) {
         if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace
                 .allocation
@@ -332,7 +332,7 @@ fn generate_allocation_invocations(
         // Verify by real resolution against each candidate base context; the
         // first base that enrolls the unit (eligibility can depend on other
         // context facts) wins.
-        for base in factory.candidate_contexts() {
+        for base in factory.candidates_for(&variable.id) {
             let mut context = base.clone();
             set_context_path(
                 &mut context,
@@ -444,7 +444,7 @@ fn variable_rule_context(
     rule: &RulePathwayInspectReport,
     factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
-    for context in factory.candidate_contexts() {
+    for context in factory.candidates_for(&variable.id) {
         if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace
                 .rules
@@ -465,7 +465,7 @@ fn variable_default_context(
     variable: &VariableInspectReport,
     factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
-    for context in factory.candidate_contexts() {
+    for context in factory.candidates_for(&variable.id) {
         if let Ok(trace) = trace_candidate(runtime, &variable.id, context)
             && trace.rules.iter().all(|rule| !rule.matched)
         {

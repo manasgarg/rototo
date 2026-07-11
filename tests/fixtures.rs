@@ -103,6 +103,36 @@ fn fixtures_command_synthesizes_a_unit_id_per_arm() {
         ));
 }
 
+/// A fixture context carries exactly the fields the variable's resolution
+/// reads, at boundary values: no whole-sample dumps for a matching rule, no
+/// fields synthesized for other variables in the default case.
+#[test]
+fn fixture_contexts_stay_minimal() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "fixtures",
+            "examples/basic",
+            "--variable",
+            "enterprise_accounts",
+        ])
+        .assert()
+        .success()
+        // The default case falsifies the variable's own rule and nothing else.
+        .stdout(predicate::str::contains(
+            "--context account.plan=fixture-other  # => false (default)",
+        ))
+        // The rule case sets the read fields at the boundary, not a sample's
+        // values.
+        .stdout(predicate::str::contains(
+            "--context account.plan=enterprise --context account.seats=100 ",
+        ))
+        // No pollution from samples or other variables' rules.
+        .stdout(predicate::str::contains("user.tier").not())
+        .stdout(predicate::str::contains("device.platform").not());
+}
+
 /// The printed commands must be runnable: feeding one back through a real shell
 /// (which undoes the shell-quoting) and the real resolve `--context` parser must
 /// succeed, proving rendering is the inverse of parsing.
