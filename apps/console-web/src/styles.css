@@ -3437,11 +3437,22 @@ button.context-fact-add:hover {
     margin: 14px 16px;
 }
 
-/* the try-it card: context in at the top, answer out at the bottom */
+/* the try-it card: context in at the top, answer out at the bottom. No
+   overflow clipping: the context combo's dropdown must escape the card, so
+   the tinted zones round their own corners instead. */
 .card.try-card {
     padding: 0;
     gap: 0;
-    overflow: hidden;
+}
+
+.try-card > :first-child {
+    border-top-left-radius: calc(var(--radius-3) - 1px);
+    border-top-right-radius: calc(var(--radius-3) - 1px);
+}
+
+.try-card > :last-child {
+    border-bottom-left-radius: calc(var(--radius-3) - 1px);
+    border-bottom-right-radius: calc(var(--radius-3) - 1px);
 }
 
 .try-head {
