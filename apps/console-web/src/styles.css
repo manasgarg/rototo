@@ -3468,6 +3468,67 @@ button.context-fact-add:hover {
     padding: 14px 16px;
 }
 
+/* a fact in a form row: the value plus its caveat, no input */
+.form-static {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+/* the resolution method as underlined tabs, its one-line summary beside */
+.method-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    border-bottom: 1px solid var(--line-1);
+}
+
+.method-tab-list {
+    display: flex;
+    gap: 6px;
+}
+
+.method-tab {
+    padding: 6px 10px 9px;
+    margin-bottom: -1px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition:
+        color var(--dur-fast),
+        border-color var(--dur-fast);
+}
+
+.method-tab.active {
+    color: var(--sea-700);
+    font-weight: 600;
+    border-bottom-color: var(--sea-500);
+}
+
+.method-tab:disabled {
+    cursor: default;
+}
+
+.method-tab:not(.active):not(:disabled):hover {
+    color: var(--ink-0);
+}
+
+.definition-card-actions {
+    display: flex;
+    width: 100%;
+}
+
+.definition-save-note {
+    margin-left: auto;
+    text-align: right;
+}
+
 /* the raw half's save row, fused under the editor */
 .definition-actions {
     padding: 10px 16px;
@@ -3616,7 +3677,7 @@ button.context-fact-add:hover {
 
 .ladder-row {
     display: grid;
-    grid-template-columns: 18px minmax(0, 2.2fr) 16px minmax(0, 1fr) auto;
+    grid-template-columns: 64px minmax(0, 2.2fr) 16px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
     padding: 4px 8px;
@@ -3626,12 +3687,13 @@ button.context-fact-add:hover {
 /* the verdict column is fixed-width so pills align across rows */
 .ladder[data-verdicts] .ladder-row {
     grid-template-columns:
-        18px 88px minmax(0, 2.2fr) 16px minmax(0, 1fr)
+        64px 88px minmax(0, 2.2fr) 16px minmax(0, 1fr)
         auto;
 }
 
 .ladder-idx {
-    text-align: right;
+    text-align: left;
+    white-space: nowrap;
 }
 
 .ladder-arrow {

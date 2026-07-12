@@ -1998,6 +1998,12 @@ function VariablePanel({
     // switched in place. Reading defaults to the source of truth.
     const [mode, setMode] = useState<"toml" | "form">("toml");
     const canEdit = editable && changeSet !== null;
+    // The query method reads a catalog's entries as a set, so the form only
+    // offers the tab for list-of-catalog types; a variable already resolving
+    // by query keeps it regardless, because the data wins.
+    const canQuery =
+        /^array<catalog=/.test(variable?.declaration.value ?? "") ||
+        original.method === "query";
 
     // The TOML source and its unsaved draft live here, above the mode
     // switch: flipping to the form and back must be instant, not a refetch,
@@ -2204,20 +2210,90 @@ function VariablePanel({
                                 />
                             </label>
                         ) : null}
-                        <p className="hint">
-                            {method === "allocation"
-                                ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
-                                : method === "query"
-                                  ? "One query selects the value from a catalog; the default answers when nothing matches."
-                                  : "First match wins; the default answers when none do."}
-                        </p>
+                        <div className="form-row">
+                            <span className="label">Type</span>
+                            <span className="form-static">
+                                <span className="code-chip">
+                                    <TypeLabel
+                                        type={
+                                            variable.declaration.kind ===
+                                                "catalog" ||
+                                            variable.declaration.kind === "list"
+                                                ? `${variable.declaration.kind}=${type}`
+                                                : type
+                                        }
+                                        hrefEntity={hrefEntity}
+                                    />
+                                </span>
+                                <span className="hint">
+                                    fixed after creation
+                                </span>
+                            </span>
+                        </div>
+
+                        {method === "allocation" ? (
+                            <p className="hint">
+                                This variable resolves by allocation; adjust the
+                                rollout on its layer, or edit the raw file.
+                            </p>
+                        ) : canQuery ? (
+                            // Tabs only where there is a choice: a variable
+                            // that can only resolve with rules gets the
+                            // summary line, not a one-tab tab bar.
+                            <div className="method-tabs">
+                                <div
+                                    aria-label="Resolution method"
+                                    className="method-tab-list"
+                                    role="tablist"
+                                >
+                                    <button
+                                        aria-selected={method === "rules"}
+                                        className={
+                                            method === "rules"
+                                                ? "method-tab active"
+                                                : "method-tab"
+                                        }
+                                        disabled={!canEdit}
+                                        role="tab"
+                                        type="button"
+                                        onClick={() => setMethod("rules")}
+                                    >
+                                        resolve with rules
+                                    </button>
+                                    <button
+                                        aria-selected={method === "query"}
+                                        className={
+                                            method === "query"
+                                                ? "method-tab active"
+                                                : "method-tab"
+                                        }
+                                        disabled={!canEdit}
+                                        role="tab"
+                                        title="One query selects entries from the catalog this variable is typed over"
+                                        type="button"
+                                        onClick={() => setMethod("query")}
+                                    >
+                                        resolve with a query
+                                    </button>
+                                </div>
+                                <span className="hint">
+                                    {method === "query"
+                                        ? "one query selects entries; the default answers when nothing matches"
+                                        : "first match wins; the default answers when none do"}
+                                </span>
+                            </div>
+                        ) : (
+                            <p className="hint">
+                                First match wins; the default answers when none
+                                do.
+                            </p>
+                        )}
 
                         {method === "query" ? (
                             <QueryFields
                                 editable={canEdit}
                                 query={query}
                                 onChange={setQuery}
-                                onUseRules={() => setMethod("rules")}
                             />
                         ) : null}
 
@@ -2253,19 +2329,11 @@ function VariablePanel({
                                 >
                                     Add rule
                                 </button>
-                                <button
-                                    className="btn btn-ghost btn-sm"
-                                    type="button"
-                                    title="Select the value with one catalog query instead of rules"
-                                    onClick={() => setMethod("query")}
-                                >
-                                    Use a query instead
-                                </button>
                             </div>
                         ) : null}
 
                         {canEdit && changeSet !== null ? (
-                            <div className="card-actions">
+                            <div className="card-actions definition-card-actions">
                                 <button
                                     className="btn btn-primary"
                                     type="submit"
@@ -2305,6 +2373,15 @@ function VariablePanel({
                                         }, onError)
                                     }
                                 />
+                                <span className="hint definition-save-note">
+                                    writes{" "}
+                                    <span className="mono">
+                                        {variable.location.path
+                                            .split("/")
+                                            .pop()}
+                                    </span>{" "}
+                                    to change set {changeSet.id}
+                                </span>
                             </div>
                         ) : (
                             <p className="hint">
@@ -2516,7 +2593,9 @@ function RuleLadder({
                           data-state={verdicts?.rows[index]}
                           key={index}
                       >
-                          <span className="ladder-idx label">{index + 1}</span>
+                          <span className="ladder-idx label">
+                              rule {index + 1}
+                          </span>
                           {verdicts !== null ? (
                               <VerdictCell verdict={verdicts.rows[index]} />
                           ) : null}
@@ -2614,11 +2693,15 @@ function RuleLadder({
                 : null}
             {withOtherwise ? (
                 <div className="ladder-row" data-state={verdicts?.otherwise}>
-                    <span className="ladder-idx" />
+                    <span className="ladder-idx label">default</span>
                     {verdicts !== null ? (
                         <VerdictCell verdict={verdicts.otherwise} />
                     ) : null}
-                    <span className="label">otherwise</span>
+                    <span className="hint">
+                        {withRules
+                            ? "when no rule matches"
+                            : "when nothing matches"}
+                    </span>
                     <span className="ladder-arrow label">→</span>
                     {editable ? (
                         <ValueInput
@@ -2763,7 +2846,9 @@ function QueryFields({
     editable: boolean;
     query: QueryDraft;
     onChange: (query: QueryDraft) => void;
-    onUseRules: () => void;
+    // The variable form switches methods with its own tabs and omits this;
+    // callers without tabs pass the way back to rules.
+    onUseRules?: () => void;
 }) {
     const set = (key: keyof QueryDraft) => (value: string) =>
         onChange({ ...query, [key]: value });
@@ -2833,7 +2918,7 @@ function QueryFields({
                     onChange={(event) => set("limitText")(event.target.value)}
                 />
             </div>
-            {editable ? (
+            {editable && onUseRules !== undefined ? (
                 <div className="action-row">
                     <button
                         className="btn btn-ghost btn-sm"
