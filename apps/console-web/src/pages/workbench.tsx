@@ -1999,6 +1999,39 @@ function VariablePanel({
     const [mode, setMode] = useState<"toml" | "form">("toml");
     const canEdit = editable && changeSet !== null;
 
+    // The TOML source and its unsaved draft live here, above the mode
+    // switch: flipping to the form and back must be instant, not a refetch,
+    // and must not discard what was typed. The panel remounts per pin, so a
+    // save still lands on fresh content.
+    const file = variable?.location.path;
+    const [tomlContent, setTomlContent] = useState<string | null>(null);
+    const [tomlProblem, setTomlProblem] = useState<string | null>(null);
+    const [tomlDraft, setTomlDraft] = useState<string | null>(null);
+    useEffect(() => {
+        if (file === undefined) {
+            return;
+        }
+        let stale = false;
+        setTomlContent(null);
+        setTomlProblem(null);
+        setTomlDraft(null);
+        readPackageFile(treeId, detail.path, detail.pin, file).then(
+            (response) => {
+                if (!stale) {
+                    setTomlContent(response.content);
+                }
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setTomlProblem(error.message);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, detail.path, detail.pin, file]);
+
     if (variable === undefined) {
         return (
             <div className="card">
@@ -2137,9 +2170,12 @@ function VariablePanel({
                 </div>
                 {mode === "toml" ? (
                     <VariableToml
-                        treeId={treeId}
                         detail={detail}
                         file={variable.location.path}
+                        content={tomlContent}
+                        problem={tomlProblem}
+                        draft={tomlDraft}
+                        onDraft={setTomlDraft}
                         changeSet={editable ? changeSet : null}
                         onSaved={onSaved}
                         onError={onError}
@@ -2317,49 +2353,32 @@ function VariablePanel({
 }
 
 // The definition's raw-text editor: read-only without a change set, a
-// live TOML editor with one-commit saves inside one. The panel remounts on
-// every new pin, so a save always refetches the committed content.
+// live TOML editor with one-commit saves inside one. The source and the
+// draft belong to the panel above the TOML/Form switch, so flipping modes
+// neither refetches nor discards typing.
 function VariableToml({
-    treeId,
     detail,
     file,
+    content,
+    problem,
+    draft,
+    onDraft,
     changeSet,
     onSaved,
     onError,
 }: {
-    treeId: string;
     detail: PackageDetail;
     file: string;
+    content: string | null;
+    problem: string | null;
+    // null mirrors the committed content; a string is an unsaved draft.
+    draft: string | null;
+    onDraft: (draft: string | null) => void;
     changeSet: ChangeSet | null;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
 }) {
-    const [content, setContent] = useState<string | null>(null);
-    // null mirrors the committed content; a string is an unsaved draft.
-    const [draft, setDraft] = useState<string | null>(null);
-    const [problem, setProblem] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-
-    useEffect(() => {
-        let stale = false;
-        setContent(null);
-        setProblem(null);
-        readPackageFile(treeId, detail.path, detail.pin, file).then(
-            (response) => {
-                if (!stale) {
-                    setContent(response.content);
-                }
-            },
-            (error: Error) => {
-                if (!stale) {
-                    setProblem(error.message);
-                }
-            },
-        );
-        return () => {
-            stale = true;
-        };
-    }, [treeId, detail.path, detail.pin, file]);
 
     if (problem !== null) {
         return <div className="banner banner-err">{problem}</div>;
@@ -2388,7 +2407,7 @@ function VariableToml({
                 className="variable-toml"
                 disabled={changeSet === null}
                 language="toml"
-                onChange={setDraft}
+                onChange={onDraft}
                 value={draft ?? content}
             />
             {dirty ? (
@@ -2405,7 +2424,7 @@ function VariableToml({
                         className="btn btn-ghost btn-sm"
                         disabled={saving}
                         type="button"
-                        onClick={() => setDraft(null)}
+                        onClick={() => onDraft(null)}
                     >
                         Discard
                     </button>
