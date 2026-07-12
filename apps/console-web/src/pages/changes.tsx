@@ -368,8 +368,22 @@ export function ChangeSetPage({
             </div>
 
             {open ? (
-                <div className="card">
-                    <h2>Collaborators</h2>
+                <details className="card variable-disclosure">
+                    <summary>
+                        <span className="row-text">
+                            <span className="row-title">Collaborators</span>
+                            <span className="row-sub">
+                                {detail.collaborators.length === 0
+                                    ? "None yet; the author edits alone."
+                                    : detail.collaborators
+                                          .map(
+                                              (collaborator) =>
+                                                  collaborator.principalId,
+                                          )
+                                          .join(", ")}
+                            </span>
+                        </span>
+                    </summary>
                     <p className="hint">
                         Collaborators edit, retitle, and share alongside the
                         author; removing one keeps the edits they already made.
@@ -444,7 +458,7 @@ export function ChangeSetPage({
                             Add collaborator
                         </button>
                     </form>
-                </div>
+                </details>
             ) : null}
 
             {open ? (
@@ -755,22 +769,27 @@ function PackageReviewView({
         )}`;
     return (
         <div className="section">
-            <div className="section-header-text">
-                <h3>
-                    <a
-                        className="row-link mono"
-                        href={`#${packageUrl(
-                            changeSet.sourceTreeId,
-                            pkg.path,
-                            { kind: "overview" },
-                            reviewState,
-                        )}`}
-                        title="Open this package in the workbench, on this change set"
-                    >
-                        {pkg.path}
-                    </a>
-                </h3>
-            </div>
+            {/* The root package's path is ".", which reads as a stray dot;
+                the heading only earns its place when packages need telling
+                apart. */}
+            {pkg.path !== "." ? (
+                <div className="section-header-text">
+                    <h3>
+                        <a
+                            className="row-link mono"
+                            href={`#${packageUrl(
+                                changeSet.sourceTreeId,
+                                pkg.path,
+                                { kind: "overview" },
+                                reviewState,
+                            )}`}
+                            title="Open this package in the workbench, on this change set"
+                        >
+                            {pkg.path}
+                        </a>
+                    </h3>
+                </div>
+            ) : null}
             {pkg.surfaces.length > 0 ? (
                 <div className="card">
                     <h3>Surfaces this change touches</h3>
@@ -824,10 +843,21 @@ function PackageReviewView({
                 />
             </div>
 
-            <div className="card">
-                <h3>Whether it is healthy</h3>
-                <LintDeltaView lint={pkg.lint} />
-            </div>
+            {pkg.lint.introduced.length === 0 &&
+            pkg.lint.resolved.length === 0 ? (
+                <div className="card lint-quiet">
+                    <span className="label">lint</span>
+                    <span className="hint">
+                        Unchanged: this change introduces no findings and
+                        resolves none.
+                    </span>
+                </div>
+            ) : (
+                <div className="card">
+                    <h3>Lint</h3>
+                    <LintDeltaView lint={pkg.lint} />
+                </div>
+            )}
         </div>
     );
 }
@@ -1148,18 +1178,13 @@ function ContextImpactView({
     );
 }
 
+// The lint delta when there is one; an unchanged delta renders as the
+// quiet one-line strip in PackageReviewView instead of a card.
 function LintDeltaView({
     lint,
 }: {
     lint: { introduced: LintDiagnostic[]; resolved: LintDiagnostic[] };
 }) {
-    if (lint.introduced.length === 0 && lint.resolved.length === 0) {
-        return (
-            <p className="hint">
-                Lint is unchanged: nothing introduced, nothing resolved.
-            </p>
-        );
-    }
     return (
         <>
             {lint.introduced.map((diagnostic, index) => (

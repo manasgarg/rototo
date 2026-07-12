@@ -3893,3 +3893,11 @@ button.context-fact-add:hover {
     width: 1ch;
     user-select: none;
 }
+
+/* an unchanged lint delta: one quiet line, not a card with a heading */
+.card.lint-quiet {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 12px 18px;
+}
