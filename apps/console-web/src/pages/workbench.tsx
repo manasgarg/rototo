@@ -33,6 +33,7 @@ import {
     type ContextInventory,
     type EditOperation,
     type EditResponse,
+    type LintDiagnostic,
     type MeResponse,
     type ModelEntityRef,
     type PackageDetail,
@@ -107,6 +108,14 @@ export function WorkbenchPage({
     const [outcomes, setOutcomes] = useState<Map<string, TraceOutcome> | null>(
         null,
     );
+    // While a buffer is open against the language server, its live
+    // diagnostics replace the saved pin's findings for that file, so the
+    // header's lint pill judges what the editor shows, not what was
+    // committed.
+    const [liveLint, setLiveLint] = useState<{
+        file: string;
+        diagnostics: LintDiagnostic[];
+    } | null>(null);
 
     const active =
         changeSets.find((entry) => entry.id === state.changeSetId) ?? null;
@@ -434,7 +443,18 @@ export function WorkbenchPage({
                 <div className="section-header-actions">
                     {detail !== null ? (
                         <LintStatusPill
-                            diagnostics={detail.lint.diagnostics}
+                            diagnostics={
+                                liveLint === null
+                                    ? detail.lint.diagnostics
+                                    : [
+                                          ...detail.lint.diagnostics.filter(
+                                              (diagnostic) =>
+                                                  diagnostic.location?.path !==
+                                                  liveLint.file,
+                                          ),
+                                          ...liveLint.diagnostics,
+                                      ]
+                            }
                             href={hrefView({ kind: "diagnostics" })}
                         />
                     ) : null}
@@ -528,6 +548,7 @@ export function WorkbenchPage({
                     onBack={() => go({ kind: "overview" })}
                     onSaved={afterSave}
                     onError={saveFailed}
+                    onLiveLint={setLiveLint}
                 />
             ) : view.kind === "address" ? (
                 <AddressView
@@ -546,6 +567,7 @@ export function WorkbenchPage({
                     onUseContext={chooseContext}
                     onSaved={afterSave}
                     onError={saveFailed}
+                    onLiveLint={setLiveLint}
                 />
             ) : (
                 <Overview
@@ -953,6 +975,7 @@ function AddressView({
     onUseContext,
     onSaved,
     onError,
+    onLiveLint,
 }: {
     treeId: string;
     detail: PackageDetail;
@@ -969,6 +992,7 @@ function AddressView({
     onUseContext: (chosen: ChosenContext) => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
+    onLiveLint: (report: LiveLintReport) => void;
 }) {
     const model = detail.model;
     const head = steps[0] as AddressStep;
@@ -988,6 +1012,7 @@ function AddressView({
             onBack={onBack}
             onSaved={onSaved}
             onError={onError}
+            onLiveLint={onLiveLint}
         />
     );
     const creating = { detail, changeSet, onSaved, onError };
@@ -1040,6 +1065,7 @@ function AddressView({
                 onBack={() => openAddress([{ class: "variable", id: "" }])}
                 onSaved={onSaved}
                 onError={onError}
+                onLiveLint={onLiveLint}
             />
         );
     }
@@ -1937,6 +1963,11 @@ function ContextDetailPanel({
     );
 }
 
+// The lint findings the language server publishes for one open buffer;
+// null when no buffer is open. The workbench header's pill judges these
+// over the saved pin's findings for the same file.
+type LiveLintReport = { file: string; diagnostics: LintDiagnostic[] } | null;
+
 // --- the variable form: a producer of operations, never a TOML rewriter ---
 
 // Form-based editing is parked for now: the TOML editor is the one write
@@ -1960,6 +1991,7 @@ function VariablePanel({
     onBack,
     onSaved,
     onError,
+    onLiveLint,
 }: {
     treeId: string;
     detail: PackageDetail;
@@ -1974,6 +2006,7 @@ function VariablePanel({
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
+    onLiveLint: (report: LiveLintReport) => void;
 }) {
     const variable = detail.model.variables.find(
         (candidate) => candidate.id === variableId,
@@ -2040,8 +2073,8 @@ function VariablePanel({
     }, [treeId, detail.path, detail.pin, file]);
 
     // One language-server session while the definition is editable: the
-    // buffer streams to it and the editor renders its diagnostics,
-    // completion, and hover.
+    // buffer streams to it, the editor renders its diagnostics, completion,
+    // and hover, and the header's lint pill judges the same publications.
     const [lspFile, setLspFile] = useState<LspFile | null>(null);
     useEffect(() => {
         if (!canEdit || file === undefined) {
@@ -2049,11 +2082,24 @@ function VariablePanel({
         }
         const session = new LspFile(treeId, detail.path, detail.pin, file);
         setLspFile(session);
+        const unsubscribe = session.onDiagnostics((published) => {
+            onLiveLint({
+                file,
+                diagnostics: published.map((diagnostic) => ({
+                    severity: diagnostic.severity === 1 ? "error" : "warning",
+                    rule: diagnostic.code,
+                    message: diagnostic.message,
+                    location: { path: file },
+                })),
+            });
+        });
         return () => {
+            unsubscribe();
             session.dispose();
             setLspFile(null);
+            onLiveLint(null);
         };
-    }, [canEdit, treeId, detail.path, detail.pin, file]);
+    }, [canEdit, treeId, detail.path, detail.pin, file, onLiveLint]);
 
     if (variable === undefined) {
         return (
@@ -3010,6 +3056,7 @@ function FilePanel({
     onBack,
     onSaved,
     onError,
+    onLiveLint,
 }: {
     treeId: string;
     detail: PackageDetail;
@@ -3024,6 +3071,7 @@ function FilePanel({
     onBack: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
+    onLiveLint: (report: LiveLintReport) => void;
 }) {
     const [content, setContent] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
@@ -3057,20 +3105,25 @@ function FilePanel({
         const session = new LspFile(treeId, detail.path, detail.pin, file);
         setLspFile(session);
         const unsubscribe = session.onDiagnostics((published) => {
-            setLive(
-                published.map((diagnostic) => ({
-                    severity: diagnostic.severity === 1 ? "error" : "warning",
-                    rule: diagnostic.code,
-                    message: diagnostic.message,
-                })),
-            );
+            const diagnostics = published.map((diagnostic) => ({
+                severity:
+                    diagnostic.severity === 1
+                        ? ("error" as const)
+                        : ("warning" as const),
+                rule: diagnostic.code,
+                message: diagnostic.message,
+                location: { path: file },
+            }));
+            setLive(diagnostics);
+            onLiveLint({ file, diagnostics });
         });
         return () => {
             unsubscribe();
             session.dispose();
             setLspFile(null);
+            onLiveLint(null);
         };
-    }, [treeId, detail.path, detail.pin, file]);
+    }, [treeId, detail.path, detail.pin, file, onLiveLint]);
 
     const diagnostics =
         live ??
