@@ -1275,6 +1275,7 @@ function AddressView({
                 inventory={inventory}
                 editable={editable}
                 hrefEntity={hrefEntity}
+                hrefFile={hrefFile}
                 onOpenSample={(key) =>
                     openAddress([
                         { class: "evaluation-context", id: head.id },
@@ -1410,6 +1411,7 @@ function CatalogPanel({
         model,
         (to) => to.kind === "catalog" && to.id === catalogId,
     );
+    const canEdit = editable && changeSet !== null;
     return (
         <div className="card">
             <div className="card-head">
@@ -1419,21 +1421,55 @@ function CatalogPanel({
                         {entries.length} entr
                         {entries.length === 1 ? "y" : "ies"} · schema{" "}
                         <a
-                            className="row-link mono"
+                            className="expr-link mono"
                             href={hrefFile(catalog.path)}
+                            title={
+                                canEdit
+                                    ? "Open and edit the catalog schema"
+                                    : "Open the catalog schema"
+                            }
                         >
                             {catalog.path}
                         </a>
                     </p>
                 </div>
                 <span className="action-row">
+                    {canEdit && changeSet !== null ? (
+                        <NewIdForm
+                            label="New entry"
+                            placeholder="entry_key"
+                            onSubmit={(key) =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    operations: [
+                                        {
+                                            op: "create_entry",
+                                            catalog: catalogId,
+                                            key,
+                                            fields: {},
+                                        },
+                                    ],
+                                    summary: `Create entry ${key} in ${catalogId}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onOpenEntry(key);
+                                }, onError)
+                            }
+                        />
+                    ) : null}
                     <button
                         className="btn btn-secondary btn-sm"
+                        title={
+                            canEdit
+                                ? "Open the schema file in the editor"
+                                : "Open the schema file"
+                        }
                         onClick={() => onOpenSchema(catalog.path)}
                     >
-                        Schema
+                        {canEdit ? "Edit schema" : "View schema"}
                     </button>
-                    {editable && changeSet !== null ? (
+                    {canEdit && changeSet !== null ? (
                         <DeleteButton
                             label="Delete catalog"
                             warning={blastWarning(
@@ -1463,29 +1499,11 @@ function CatalogPanel({
                     </button>
                 </span>
             </div>
-            {editable && changeSet !== null ? (
-                <NewIdForm
-                    label="New entry"
-                    placeholder="entry_key"
-                    onSubmit={(key) =>
-                        saveEdit(changeSet.id, {
-                            packagePath: detail.path,
-                            expectedPin: detail.pin,
-                            operations: [
-                                {
-                                    op: "create_entry",
-                                    catalog: catalogId,
-                                    key,
-                                    fields: {},
-                                },
-                            ],
-                            summary: `Create entry ${key} in ${catalogId}`,
-                        }).then((result) => {
-                            onSaved(result);
-                            onOpenEntry(key);
-                        }, onError)
-                    }
-                />
+            {!canEdit ? (
+                <p className="hint">
+                    Pick or start a change set (Edit in a change set, above) to
+                    add entries or edit the schema.
+                </p>
             ) : null}
             {entries.length === 0 ? (
                 <p className="hint">
@@ -1755,6 +1773,7 @@ function ContextDetailPanel({
     changeSet,
     detail,
     hrefEntity,
+    hrefFile,
     onOpenSample,
     onOpenSchema,
     onBack,
@@ -1769,6 +1788,7 @@ function ContextDetailPanel({
     changeSet: ChangeSet | null;
     detail: PackageDetail;
     hrefEntity: (steps: AddressStep[]) => string;
+    hrefFile: (path: string) => string;
     onOpenSample: (key: string) => void;
     onOpenSchema: (path: string) => void;
     onBack: () => void;
@@ -1800,14 +1820,32 @@ function ContextDetailPanel({
             <div className="card-head">
                 <div className="card-head-text">
                     <h2 className="mono">{contextId}</h2>
-                    <p className="hint">Evaluation context · {context.path}</p>
+                    <p className="hint">
+                        Evaluation context · schema{" "}
+                        <a
+                            className="expr-link mono"
+                            href={hrefFile(context.path)}
+                            title={
+                                canEdit
+                                    ? "Open and edit the context schema"
+                                    : "Open the context schema"
+                            }
+                        >
+                            {context.path}
+                        </a>
+                    </p>
                 </div>
                 <span className="action-row">
                     <button
                         className="btn btn-secondary btn-sm"
+                        title={
+                            canEdit
+                                ? "Open the schema file in the editor"
+                                : "Open the schema file"
+                        }
                         onClick={() => onOpenSchema(context.path)}
                     >
-                        Schema
+                        {canEdit ? "Edit schema" : "View schema"}
                     </button>
                     {canEdit && changeSet !== null ? (
                         <DeleteButton
