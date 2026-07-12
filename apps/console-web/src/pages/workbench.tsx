@@ -885,10 +885,12 @@ function VariableRows({
     variables,
     outcomes,
     hrefFor,
+    action,
 }: {
     variables: VariableModel[];
     outcomes: Map<string, TraceOutcome> | null;
     hrefFor: (id: string) => string;
+    action?: ReactNode;
 }) {
     return (
         <SearchableList
@@ -896,6 +898,7 @@ function VariableRows({
             placeholder="Search variables"
             emptyLabel="No variable matches that search."
             className="row-list"
+            action={action}
         >
             {variables.map((variable) => {
                 const outcome = outcomes?.get(variable.id);
@@ -1028,26 +1031,22 @@ function AddressView({
             const variables = model.variables.filter((variable) =>
                 variable.id.startsWith(head.id),
             );
+            const action = editable ? (
+                <NewVariableForm
+                    {...creating}
+                    onCreated={(id) => openAddress([{ class: "variable", id }])}
+                />
+            ) : null;
             return (
                 <CollectionPage
-                    title={CLASS_LABELS["variable"] as string}
-                    prefix={head.id}
                     count={variables.length}
                     empty="No variables in this package yet."
-                    action={
-                        editable ? (
-                            <NewVariableForm
-                                {...creating}
-                                onCreated={(id) =>
-                                    openAddress([{ class: "variable", id }])
-                                }
-                            />
-                        ) : null
-                    }
+                    action={action}
                 >
                     <VariableRows
                         variables={variables}
                         outcomes={outcomes}
+                        action={action}
                         hrefFor={(id) =>
                             hrefEntity([{ class: "variable", id }])
                         }
@@ -1080,28 +1079,24 @@ function AddressView({
             const catalogs = model.catalogs.filter((catalog) =>
                 catalog.id.startsWith(head.id),
             );
+            const action = editable ? (
+                <NewCatalogForm
+                    {...creating}
+                    onCreated={(id) => openAddress([{ class: "catalog", id }])}
+                />
+            ) : null;
             return (
                 <CollectionPage
-                    title={CLASS_LABELS["catalog"] as string}
-                    prefix={head.id}
                     count={catalogs.length}
                     empty="No catalogs in this package yet."
-                    action={
-                        editable ? (
-                            <NewCatalogForm
-                                {...creating}
-                                onCreated={(id) =>
-                                    openAddress([{ class: "catalog", id }])
-                                }
-                            />
-                        ) : null
-                    }
+                    action={action}
                 >
                     <SearchableList
                         label="Search catalogs"
                         placeholder="Search catalogs"
                         emptyLabel="No catalog matches that search."
                         className="row-list"
+                        action={action}
                     >
                         {catalogs.map((catalog) => {
                             const entries = model.catalogEntries.filter(
@@ -1166,28 +1161,24 @@ function AddressView({
             const lists = model.lists.filter((list) =>
                 list.id.startsWith(head.id),
             );
+            const action = editable ? (
+                <NewListForm
+                    {...creating}
+                    onCreated={(id) => openAddress([{ class: "list", id }])}
+                />
+            ) : null;
             return (
                 <CollectionPage
-                    title={CLASS_LABELS["list"] as string}
-                    prefix={head.id}
                     count={lists.length}
                     empty="No lists in this package yet."
-                    action={
-                        editable ? (
-                            <NewListForm
-                                {...creating}
-                                onCreated={(id) =>
-                                    openAddress([{ class: "list", id }])
-                                }
-                            />
-                        ) : null
-                    }
+                    action={action}
                 >
                     <SearchableList
                         label="Search lists"
                         placeholder="Search lists"
                         emptyLabel="No list matches that search."
                         className="row-list"
+                        action={action}
                     >
                         {lists.map((list) => (
                             <a
@@ -1196,7 +1187,7 @@ function AddressView({
                                 href={hrefEntity([
                                     { class: "list", id: list.id },
                                 ])}
-                                data-search={`${list.id} ${list.memberType.value ?? "string"} ${list.description ?? ""}`}
+                                data-search={`${list.id} ${list.memberType.value ?? "string"} ${list.description ?? ""} ${list.members.map((member) => String(member.value ?? "")).join(" ")}`}
                             >
                                 <span className="row-text">
                                     <span className="row-title mono">
@@ -1205,7 +1196,12 @@ function AddressView({
                                     <span className="row-sub">
                                         {list.memberType.value ?? "string"} ·{" "}
                                         {list.members.length} member
-                                        {list.members.length === 1 ? "" : "s"}
+                                        {list.members.length === 1
+                                            ? ""
+                                            : "s"}{" "}
+                                        <span className="mono">
+                                            {memberPreview(list.members)}
+                                        </span>
                                         {list.description !== undefined
                                             ? ` — ${list.description}`
                                             : ""}
@@ -1236,30 +1232,26 @@ function AddressView({
             const contexts = model.evaluationContexts.filter((context) =>
                 context.id.startsWith(head.id),
             );
+            const action = editable ? (
+                <NewContextForm
+                    {...creating}
+                    onCreated={(id) =>
+                        openAddress([{ class: "evaluation-context", id }])
+                    }
+                />
+            ) : null;
             return (
                 <CollectionPage
-                    title={CLASS_LABELS["evaluation-context"] as string}
-                    prefix={head.id}
                     count={contexts.length}
                     empty="No evaluation contexts in this package yet."
-                    action={
-                        editable ? (
-                            <NewContextForm
-                                {...creating}
-                                onCreated={(id) =>
-                                    openAddress([
-                                        { class: "evaluation-context", id },
-                                    ])
-                                }
-                            />
-                        ) : null
-                    }
+                    action={action}
                 >
                     <SearchableList
                         label="Search evaluation contexts"
                         placeholder="Search evaluation contexts"
                         emptyLabel="No evaluation context matches that search."
                         className="row-list"
+                        action={action}
                     >
                         {contexts.map((context) => (
                             <a
@@ -1347,39 +1339,53 @@ function AddressView({
     );
 }
 
+// The first few list members inline: enough to recognize the list without
+// opening it. Caps at four members or roughly a phrase of text, whichever
+// comes first, and always shows at least one.
+function memberPreview(members: { value?: unknown }[]): string {
+    const texts = members.map((member) => String(member.value ?? "?"));
+    const shown: string[] = [];
+    let length = 0;
+    for (const text of texts) {
+        if (
+            shown.length > 0 &&
+            (shown.length >= 4 || length + text.length > 36)
+        ) {
+            break;
+        }
+        shown.push(text);
+        length += text.length + 2;
+    }
+    const suffix = shown.length < texts.length ? ", …" : "";
+    return `[${shown.join(", ")}${suffix}]`;
+}
+
 // A collection page: one entity class, optionally narrowed to a namespace
-// subtree by the address's trailing-slash prefix.
+// subtree. The page heading already names the class, so the body is just
+// the toolbar (search plus the create action, inside the list) and the
+// rows; an empty collection keeps the create action reachable.
 function CollectionPage({
-    title,
-    prefix,
     count,
     empty,
     action,
     children,
 }: {
-    title: string;
-    prefix: string;
     count: number;
     empty: string;
     action?: ReactNode;
     children: ReactNode;
 }) {
-    return (
-        <>
-            <div className="section-header-text">
-                <h2>
-                    {title}
-                    {prefix !== "" ? (
-                        <span className="mono"> · {prefix}</span>
-                    ) : null}
-                </h2>
-            </div>
-            {action !== undefined && action !== null ? (
-                <div className="action-row">{action}</div>
-            ) : null}
-            {count === 0 ? <p className="hint">{empty}</p> : children}
-        </>
-    );
+    if (count === 0) {
+        return (
+            <>
+                {action !== undefined && action !== null ? (
+                    <div className="action-row">{action}</div>
+                ) : null}
+                <p className="hint">{empty}</p>
+            </>
+        );
+    }
+    return <>{children}</>;
 }
 
 function CatalogPanel({

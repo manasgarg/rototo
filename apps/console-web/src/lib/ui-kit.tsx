@@ -151,12 +151,15 @@ export function SearchableList({
     children,
     className,
     emptyLabel,
+    action,
 }: {
     label: string;
     placeholder: string;
     children: ReactNode;
     className?: string;
     emptyLabel: string;
+    /** Rendered beside the search input: the collection's create action. */
+    action?: ReactNode;
 }) {
     const [query, setQuery] = useState("");
     const items = useMemo(() => Children.toArray(children), [children]);
@@ -168,12 +171,15 @@ export function SearchableList({
 
     return (
         <div className="searchable-list">
-            <SearchControl
-                label={label}
-                placeholder={placeholder}
-                query={query}
-                onChange={setQuery}
-            />
+            <div className="searchable-toolbar">
+                <SearchControl
+                    label={label}
+                    placeholder={placeholder}
+                    query={query}
+                    onChange={setQuery}
+                />
+                {action}
+            </div>
             {visibleItems.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">

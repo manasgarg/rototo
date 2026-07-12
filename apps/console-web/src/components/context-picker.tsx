@@ -795,7 +795,9 @@ export function ContextPicker({
                 onClick={() => setExpanded(!expanded)}
             >
                 <span className="label">given context</span>
-                <span className="context-picker-chosen">
+                {/* The chosen context wears a pill so its name never reads
+                    as another entity row. */}
+                <span className="pill pill-cyan mono context-picker-chosen">
                     {contextLabel(chosen)}
                 </span>
                 {!expanded && chosen.kind !== "none" ? (
