@@ -3778,3 +3778,118 @@ button.context-fact-add:hover {
 .review-after {
     color: var(--ok-700);
 }
+
+/* the change-set header meta: one line of facts under the title */
+.changeset-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    font-size: 13px;
+    color: var(--ink-1);
+}
+
+.menu-item-danger {
+    color: var(--err-700);
+}
+
+.menu-item-danger:hover {
+    background: var(--err-bg);
+    color: var(--err-700);
+}
+
+/* the semantic changes, plan-style: totals up top, one bordered row per
+   change with its verb as a colored marker, the changed value as
+   unified-diff lines fused under the row */
+.change-summary-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.change-list {
+    display: grid;
+    gap: 8px;
+}
+
+.change-row {
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+    background: var(--paper-0);
+    overflow: hidden;
+}
+
+.change-row-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 9px 12px;
+}
+
+.change-marker {
+    flex: none;
+    font-weight: 700;
+}
+
+.change-row[data-op="add"] .change-marker {
+    color: var(--ok-700);
+}
+
+.change-row[data-op="del"] .change-marker {
+    color: var(--err-700);
+}
+
+.change-row[data-op="mod"] .change-marker {
+    color: var(--warn-700);
+}
+
+.change-path {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.change-row .review-values {
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+}
+
+.change-diff {
+    padding: 6px 0;
+    border-top: 1px solid var(--line-1);
+    background: var(--paper-1);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.change-diff-line {
+    display: flex;
+    gap: 10px;
+    padding: 0 12px;
+    white-space: pre;
+}
+
+.change-diff-line[data-op="del"] {
+    background: var(--err-bg);
+    color: var(--err-700);
+}
+
+.change-diff-line[data-op="add"] {
+    background: var(--ok-bg);
+    color: var(--ok-700);
+}
+
+.change-diff-gutter {
+    flex: none;
+    width: 1ch;
+    user-select: none;
+}

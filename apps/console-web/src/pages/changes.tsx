@@ -5,7 +5,7 @@
 // the denominator stated), whether it is healthy — the panels an approver
 // reads before pressing merge on GitHub.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
     abandonChangeSet,
@@ -242,120 +242,81 @@ export function ChangeSetPage({
                     ) : (
                         <h1>{changeSet.title}</h1>
                     )}
-                    <p className="hint mono">
-                        {branchUrl !== null ? (
-                            <a
-                                className="row-link"
-                                href={branchUrl}
-                                rel="noreferrer"
-                                target="_blank"
-                                title="Open this branch on GitHub"
-                            >
-                                {changeSet.branch}
-                            </a>
-                        ) : (
-                            changeSet.branch
-                        )}
-                        {changeSet.headSha !== null ? (
-                            <>
-                                {" @ "}
-                                {headUrl !== null ? (
-                                    <a
-                                        className="row-link"
-                                        href={headUrl}
-                                        rel="noreferrer"
-                                        target="_blank"
-                                        title="Open the head commit on GitHub"
-                                    >
-                                        {changeSet.headSha.slice(0, 10)}
-                                    </a>
-                                ) : (
-                                    changeSet.headSha.slice(0, 10)
-                                )}
-                            </>
-                        ) : null}
-                    </p>
-                </div>
-                <StatePill changeSet={changeSet} />
-            </div>
-
-            <div className="card">
-                <div className="meta-grid">
-                    <div className="meta-item">
-                        <span className="label">Base</span>
-                        <span className="meta-value mono">
-                            {changeSet.baseRef}
+                    <p className="changeset-meta">
+                        <span className="pill pill-neutral mono branch-pill">
+                            ⎇{" "}
+                            {branchUrl !== null ? (
+                                <a
+                                    className="row-link"
+                                    href={branchUrl}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                    title="Open this branch on GitHub"
+                                >
+                                    {changeSet.branch}
+                                </a>
+                            ) : (
+                                changeSet.branch
+                            )}
+                            {changeSet.headSha !== null ? (
+                                <>
+                                    {" @ "}
+                                    {headUrl !== null ? (
+                                        <a
+                                            className="row-link"
+                                            href={headUrl}
+                                            rel="noreferrer"
+                                            target="_blank"
+                                            title="Open the head commit on GitHub"
+                                        >
+                                            {changeSet.headSha.slice(0, 10)}
+                                        </a>
+                                    ) : (
+                                        changeSet.headSha.slice(0, 10)
+                                    )}
+                                </>
+                            ) : null}
                         </span>
-                    </div>
-                    <div className="meta-item">
-                        <span className="label">Author</span>
-                        <span className="meta-value mono">
-                            {changeSet.authorPrincipal}
+                        <span className="dot-sep">·</span>
+                        <span>
+                            base{" "}
+                            <span className="mono">{changeSet.baseRef}</span>
                         </span>
-                    </div>
-                    <div className="meta-item">
-                        <span className="label">Pull request</span>
-                        <span className="meta-value">
+                        <span className="dot-sep">·</span>
+                        <span>
+                            author{" "}
+                            <span className="mono">
+                                {changeSet.authorPrincipal}
+                            </span>
+                        </span>
+                        <span className="dot-sep">·</span>
+                        <span>
                             {changeSet.prUrl !== null ? (
                                 <a
-                                    className="pill-link"
+                                    className="row-link"
                                     href={changeSet.prUrl}
                                     rel="noreferrer"
                                     target="_blank"
                                 >
-                                    #{changeSet.prNumber}
+                                    PR #{changeSet.prNumber}
                                 </a>
                             ) : (
-                                "not yet"
+                                "no PR yet"
                             )}
                         </span>
-                    </div>
-                    <div className="meta-item">
-                        <span className="label">Observed</span>
-                        <span className="meta-value">
+                        <span className="dot-sep">·</span>
+                        <span>
+                            observed{" "}
                             {changeSet.lastReconciledAt === null
                                 ? "never"
                                 : formatInstant(changeSet.lastReconciledAt)}
                         </span>
-                    </div>
+                    </p>
                 </div>
-                <div className="card-actions">
-                    {changeSet.state === "draft" ? (
-                        <button
-                            className="btn btn-primary btn-sm"
-                            disabled={busy}
-                            onClick={() => act(submitChangeSet(changeSet.id))}
-                        >
-                            Submit (open PR)
-                        </button>
-                    ) : null}
-                    {open ? (
-                        <button
-                            className="btn btn-ghost btn-sm"
-                            disabled={busy || titleDraft !== null}
-                            onClick={() => setTitleDraft(changeSet.title)}
-                        >
-                            Rename
-                        </button>
-                    ) : null}
-                    {open ? (
-                        <button
-                            className="btn btn-danger btn-sm"
-                            disabled={busy}
-                            onClick={() => act(abandonChangeSet(changeSet.id))}
-                        >
-                            Abandon
-                        </button>
-                    ) : null}
+                <div className="section-header-actions">
+                    <StatePill changeSet={changeSet} />
                     <button
-                        className="btn btn-ghost btn-sm"
-                        disabled={busy}
-                        onClick={() => act(reconcileChangeSet(changeSet.id))}
-                    >
-                        Check GitHub now
-                    </button>
-                    <button
-                        className="btn btn-ghost btn-sm"
+                        className="btn btn-secondary btn-sm"
                         title="Open the workbench with this change set active"
                         onClick={() =>
                             navigate(
@@ -365,6 +326,44 @@ export function ChangeSetPage({
                     >
                         Open workbench
                     </button>
+                    {changeSet.state === "draft" ? (
+                        <button
+                            className="btn btn-primary btn-sm"
+                            disabled={busy}
+                            onClick={() => act(submitChangeSet(changeSet.id))}
+                        >
+                            Submit (open PR)
+                        </button>
+                    ) : null}
+                    <ActionsMenu
+                        disabled={busy}
+                        items={[
+                            ...(open
+                                ? [
+                                      {
+                                          label: "Rename",
+                                          onPick: () =>
+                                              setTitleDraft(changeSet.title),
+                                      },
+                                      {
+                                          label: "Abandon",
+                                          danger: true,
+                                          onPick: () =>
+                                              act(
+                                                  abandonChangeSet(
+                                                      changeSet.id,
+                                                  ),
+                                              ),
+                                      },
+                                  ]
+                                : []),
+                            {
+                                label: "Check GitHub now",
+                                onPick: () =>
+                                    act(reconcileChangeSet(changeSet.id)),
+                            },
+                        ]}
+                    />
                 </div>
             </div>
 
@@ -488,6 +487,66 @@ export function ChangeSetPage({
                     </div>
                 ))}
             </div>
+        </div>
+    );
+}
+
+// The header's overflow menu: the secondary actions (rename, abandon,
+// reconcile) that would otherwise crowd the primary pair.
+function ActionsMenu({
+    disabled,
+    items,
+}: {
+    disabled: boolean;
+    items: { label: string; danger?: boolean; onPick: () => void }[];
+}) {
+    const [open, setOpen] = useState(false);
+    const wrapper = useRef<HTMLDivElement>(null);
+    if (items.length === 0) {
+        return null;
+    }
+    return (
+        <div
+            className="menu-control"
+            ref={wrapper}
+            onBlur={(event) => {
+                if (!wrapper.current?.contains(event.relatedTarget as Node)) {
+                    setOpen(false);
+                }
+            }}
+        >
+            <button
+                aria-expanded={open}
+                aria-label="More actions"
+                className="btn btn-secondary btn-sm"
+                disabled={disabled}
+                type="button"
+                onClick={() => setOpen(!open)}
+            >
+                …
+            </button>
+            {open ? (
+                <div className="menu" role="menu">
+                    {items.map((item) => (
+                        <button
+                            className={
+                                item.danger === true
+                                    ? "menu-item menu-item-danger"
+                                    : "menu-item"
+                            }
+                            key={item.label}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                                setOpen(false);
+                                item.onPick();
+                            }}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -735,11 +794,14 @@ function PackageReviewView({
             ) : null}
 
             <div className="card">
-                <h3>What changed</h3>
+                <div className="change-summary-head">
+                    <h3>Changes</h3>
+                    <ChangeCounts changes={pkg.changes} />
+                </div>
                 {pkg.changes.length === 0 ? (
                     <p className="hint">No semantic changes.</p>
                 ) : (
-                    <div className="row-list">
+                    <div className="change-list">
                         {pkg.changes.map((change, index) => (
                             <SemanticChangeRow
                                 key={index}
@@ -770,6 +832,66 @@ function PackageReviewView({
     );
 }
 
+// Whether a change adds, removes, or reshapes its target, read off the
+// stable kind suffix.
+function changeOp(kind: string): "add" | "del" | "mod" {
+    return kind.endsWith("_added")
+        ? "add"
+        : kind.endsWith("_removed")
+          ? "del"
+          : "mod";
+}
+
+// The plan-style totals beside the Changes heading: how much of each verb,
+// at a glance, before reading a single row.
+function ChangeCounts({ changes }: { changes: SemanticChange[] }) {
+    const count = (op: "add" | "del" | "mod") =>
+        changes.filter((change) => changeOp(change.kind) === op).length;
+    return (
+        <span className="label">
+            {count("mod")} changed · {count("add")} added · {count("del")}{" "}
+            removed
+        </span>
+    );
+}
+
+// The changed value as unified-diff lines: the removed shape in red, the
+// added shape in green, keyed by the JSON path segment the change names.
+// Composite values pretty-print so a nested change is still readable.
+function DiffLines({ change }: { change: SemanticChange }) {
+    const path = (change.target.field as { path?: string[] } | undefined)?.path;
+    const key = path !== undefined ? (path[path.length - 1] ?? null) : null;
+    const side = (
+        op: "add" | "del",
+        value: unknown,
+    ): { op: "add" | "del"; text: string }[] => {
+        const text = JSON.stringify(value, null, 2) ?? "null";
+        return text.split("\n").map((line, index) => ({
+            op,
+            text: index === 0 && key !== null ? `"${key}": ${line}` : line,
+        }));
+    };
+    const lines = [
+        ...(change.before !== undefined ? side("del", change.before) : []),
+        ...(change.after !== undefined ? side("add", change.after) : []),
+    ];
+    if (lines.length === 0) {
+        return null;
+    }
+    return (
+        <div className="change-diff">
+            {lines.map((line, index) => (
+                <div className="change-diff-line" data-op={line.op} key={index}>
+                    <span aria-hidden="true" className="change-diff-gutter">
+                        {line.op === "del" ? "-" : "+"}
+                    </span>
+                    {line.text}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function SemanticChangeRow({
     change,
     hrefEntity,
@@ -778,37 +900,50 @@ function SemanticChangeRow({
     hrefEntity: (steps: AddressStep[]) => string;
 }) {
     const steps = entitySteps(change.target.entity);
-    // The row title already names the change kind; this line names the
-    // entity (review targets carry snake_case kinds, handled by the
-    // entity-link helpers).
+    // Review targets carry snake_case kinds; the entity-link helpers accept
+    // both spellings. The change kind itself rides on the marker's tooltip.
     const label = entityLabel(change.target.entity);
-    const pointer = fieldPointer(change.target.field);
+    const path = (change.target.field as { path?: string[] } | undefined)?.path;
+    const op = changeOp(change.kind);
     return (
-        <div className="row row-static">
-            <span className="row-text">
-                <span className="row-title mono">
-                    {change.kind.replaceAll("_", " ")}
+        <div className="change-row" data-op={op}>
+            <div
+                className="change-row-head"
+                title={change.kind.replaceAll("_", " ")}
+            >
+                <span aria-hidden="true" className="change-marker mono">
+                    {op === "add" ? "+" : op === "del" ? "-" : "~"}
                 </span>
-                <span className="row-sub mono">
+                <span className="change-path mono">
                     {steps === null ? (
                         label
                     ) : (
                         <a href={hrefEntity(steps)}>{label}</a>
                     )}
-                    {pointer}
+                    {(path ?? []).map((segment, index) => (
+                        <span key={index}>
+                            <span className="crumb-sep"> › </span>
+                            {segment}
+                        </span>
+                    ))}
                 </span>
-            </span>
-            <span className="row-side mono review-values">
-                {change.before !== undefined ? (
-                    <span className="review-before">{clip(change.before)}</span>
-                ) : null}
-                {change.before !== undefined && change.after !== undefined
-                    ? " → "
-                    : null}
-                {change.after !== undefined ? (
-                    <span className="review-after">{clip(change.after)}</span>
-                ) : null}
-            </span>
+                <span className="mono review-values">
+                    {change.before !== undefined ? (
+                        <span className="review-before">
+                            {clip(change.before)}
+                        </span>
+                    ) : null}
+                    {change.before !== undefined && change.after !== undefined
+                        ? " → "
+                        : null}
+                    {change.after !== undefined ? (
+                        <span className="review-after">
+                            {clip(change.after)}
+                        </span>
+                    ) : null}
+                </span>
+            </div>
+            <DiffLines change={change} />
         </div>
     );
 }
@@ -1051,13 +1186,6 @@ function LintDeltaView({
             ))}
         </>
     );
-}
-
-function fieldPointer(field: SemanticChange["target"]["field"]): string {
-    const path = (field as { path?: string[] } | undefined)?.path;
-    return path !== undefined && Array.isArray(path)
-        ? `#/${path.join("/")}`
-        : "";
 }
 
 function stripLabel(label: string): string {
