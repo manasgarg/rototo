@@ -1217,13 +1217,14 @@ function AddressView({
             <ListPanel
                 key={`${head.id}@${detail.pin}`}
                 {...creating}
+                treeId={treeId}
                 model={model}
                 listId={head.id}
                 editable={editable}
                 hrefEntity={hrefEntity}
-                onOpenFile={(path) => go({ kind: "files", file: path })}
                 onBack={() => openAddress([{ class: "list", id: "" }])}
                 onDeleted={() => openAddress([{ class: "list", id: "" }])}
+                onLiveLint={onLiveLint}
             />
         );
     }
@@ -1595,33 +1596,53 @@ function CatalogPanel({
 // so an inherited list can later compile to update markers instead of a
 // whole-file rewrite.
 function ListPanel({
+    treeId,
     model,
     listId,
     editable,
     changeSet,
     detail,
     hrefEntity,
-    onOpenFile,
     onBack,
     onDeleted,
     onSaved,
     onError,
+    onLiveLint,
 }: {
+    treeId: string;
     model: SemanticModel;
     listId: string;
     editable: boolean;
     changeSet: ChangeSet | null;
     detail: PackageDetail;
     hrefEntity: (steps: AddressStep[]) => string;
-    onOpenFile: (path: string) => void;
     onBack: () => void;
     onDeleted: () => void;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
+    onLiveLint: (report: LiveLintReport) => void;
 }) {
     const list = model.lists.find((candidate) => candidate.id === listId);
-    const [adding, setAdding] = useState("");
     const [saving, setSaving] = useState(false);
+    // One list, two editors: the member chips and the raw TOML, switched in
+    // place like the variable definition.
+    const [editorMode, setEditorMode] = useState<"chips" | "toml">("chips");
+    const memberType = list?.memberType.value ?? "string";
+    const path = `lists/${listId}.toml`;
+    const canEdit = editable && changeSet !== null;
+    const toml = useTomlFile(treeId, detail, path, canEdit, onLiveLint);
+    // Members edit as local chips and land as one commit: a git round trip
+    // per added or removed member made every click feel stuck.
+    const originalTexts = useMemo(
+        () =>
+            (list?.members ?? []).map((member) =>
+                memberType === "string"
+                    ? String(member.value)
+                    : JSON.stringify(member.value),
+            ),
+        [list, memberType],
+    );
+    const [memberTexts, setMemberTexts] = useState<string[]>(originalTexts);
     if (list === undefined) {
         return (
             <div className="card">
@@ -1634,9 +1655,9 @@ function ListPanel({
             </div>
         );
     }
-    const memberType = list.memberType.value ?? "string";
-    const path = `lists/${listId}.toml`;
-    const canEdit = editable && changeSet !== null;
+    const dirty =
+        JSON.stringify([...memberTexts].sort()) !==
+        JSON.stringify([...originalTexts].sort());
     const oneOp = (
         operation: EditOperation,
         summary: string,
@@ -1658,6 +1679,47 @@ function ListPanel({
             }, onError)
             .finally(() => setSaving(false));
     };
+    const saveMembers = () => {
+        if (changeSet === null) {
+            return;
+        }
+        let operations: EditOperation[];
+        try {
+            const drafts = new Set(memberTexts);
+            const originals = new Set(originalTexts);
+            operations = [
+                ...originalTexts
+                    .filter((text) => !drafts.has(text))
+                    .map((text) => ({
+                        op: "remove_member",
+                        list: listId,
+                        value: textToValue(text, memberType),
+                    })),
+                ...memberTexts
+                    .filter((text) => !originals.has(text))
+                    .map((text) => ({
+                        op: "add_member",
+                        list: listId,
+                        value: textToValue(text, memberType),
+                    })),
+            ];
+        } catch (error) {
+            onError(error);
+            return;
+        }
+        if (operations.length === 0) {
+            return;
+        }
+        setSaving(true);
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            operations,
+            summary: `Edit members of ${listId}`,
+        })
+            .then(onSaved, onError)
+            .finally(() => setSaving(false));
+    };
     return (
         <div className="card">
             <div className="card-head">
@@ -1672,12 +1734,30 @@ function ListPanel({
                     </p>
                 </div>
                 <span className="action-row">
-                    <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => onOpenFile(path)}
+                    <div
+                        aria-label="List editor"
+                        className="segmented-control"
+                        role="group"
                     >
-                        Raw file
-                    </button>
+                        <button
+                            className={
+                                editorMode === "chips" ? "active" : undefined
+                            }
+                            type="button"
+                            onClick={() => setEditorMode("chips")}
+                        >
+                            Chips
+                        </button>
+                        <button
+                            className={
+                                editorMode === "toml" ? "active" : undefined
+                            }
+                            type="button"
+                            onClick={() => setEditorMode("toml")}
+                        >
+                            TOML
+                        </button>
+                    </div>
                     {canEdit ? (
                         <DeleteButton
                             label="Delete list"
@@ -1703,86 +1783,67 @@ function ListPanel({
                     </button>
                 </span>
             </div>
-            <SearchableList
-                label="Search members"
-                placeholder="Search members"
-                emptyLabel="No member matches that search."
-                className="row-list"
-            >
-                {list.members.map((member, index) => (
-                    <div
-                        className="row"
-                        key={index}
-                        data-search={String(member.value)}
-                    >
-                        <span className="row-text">
-                            <span className="row-title mono">
-                                {memberType === "string"
-                                    ? String(member.value)
-                                    : JSON.stringify(member.value)}
-                            </span>
-                        </span>
-                        {canEdit ? (
-                            <span className="row-side">
-                                <button
-                                    className="btn btn-icon btn-sm btn-remove"
-                                    title="Remove member"
-                                    disabled={saving}
-                                    onClick={() =>
-                                        oneOp(
-                                            {
-                                                op: "remove_member",
-                                                list: listId,
-                                                value: member.value,
-                                            },
-                                            `Remove ${String(member.value)} from ${listId}`,
-                                        )
-                                    }
-                                >
-                                    ×
-                                </button>
-                            </span>
-                        ) : null}
-                    </div>
-                ))}
-            </SearchableList>
-            {canEdit ? (
-                <form
-                    className="action-row"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        let value: unknown;
-                        try {
-                            value = textToValue(adding.trim(), memberType);
-                        } catch (error) {
-                            onError(error);
-                            return;
-                        }
-                        oneOp(
-                            { op: "add_member", list: listId, value },
-                            `Add ${adding.trim()} to ${listId}`,
-                            () => setAdding(""),
-                        );
-                    }}
-                >
-                    <input
-                        className="input mono"
-                        placeholder={`new ${memberType} member`}
-                        value={adding}
-                        onChange={(event) => setAdding(event.target.value)}
+            {editorMode === "toml" ? (
+                <TomlEditor
+                    detail={detail}
+                    file={path}
+                    content={toml.content}
+                    problem={toml.problem}
+                    draft={toml.draft}
+                    onDraft={toml.setDraft}
+                    lsp={toml.lsp}
+                    changeSet={canEdit ? changeSet : null}
+                    onSaved={onSaved}
+                    onError={onError}
+                />
+            ) : canEdit ? (
+                <>
+                    <MemberChipsEditor
+                        type={memberType}
+                        members={memberTexts}
+                        disabled={saving}
+                        onChange={setMemberTexts}
                     />
-                    <button
-                        className="btn btn-secondary btn-sm"
-                        type="submit"
-                        disabled={saving || adding.trim() === ""}
-                    >
-                        Add member
-                    </button>
-                </form>
+                    <div className="card-actions definition-card-actions">
+                        <button
+                            className="btn btn-primary btn-sm"
+                            disabled={saving || !dirty}
+                            type="button"
+                            onClick={saveMembers}
+                        >
+                            {saving ? "Saving…" : "Save (one commit)"}
+                        </button>
+                        {dirty ? (
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                disabled={saving}
+                                type="button"
+                                onClick={() => setMemberTexts(originalTexts)}
+                            >
+                                Discard
+                            </button>
+                        ) : null}
+                        <span className="hint definition-save-note">
+                            writes <span className="mono">{path}</span> to
+                            change set {changeSet?.id}
+                        </span>
+                    </div>
+                </>
             ) : (
-                <p className="hint">
-                    Start or pick a change set above to edit.
-                </p>
+                <>
+                    <div className="context-facts">
+                        {memberTexts.map((text, index) => (
+                            <span className="context-fact" key={index}>
+                                <span className="context-fact-value">
+                                    {text}
+                                </span>
+                            </span>
+                        ))}
+                    </div>
+                    <p className="hint">
+                        Start or pick a change set above to edit.
+                    </p>
+                </>
             )}
             <ReferencePills
                 title="Used by"
@@ -1980,6 +2041,75 @@ function ContextDetailPanel({
 // over the saved pin's findings for the same file.
 type LiveLintReport = { file: string; diagnostics: LintDiagnostic[] } | null;
 
+// One editable TOML buffer: the committed content, the unsaved draft, and
+// (while editable) a language-server session whose publications feed both
+// the editor and the header's lint pill. Every screen with a raw TOML
+// surface holds one of these.
+function useTomlFile(
+    treeId: string,
+    detail: PackageDetail,
+    file: string | undefined,
+    withLsp: boolean,
+    onLiveLint: (report: LiveLintReport) => void,
+) {
+    const [content, setContent] = useState<string | null>(null);
+    const [problem, setProblem] = useState<string | null>(null);
+    const [draft, setDraft] = useState<string | null>(null);
+    const [lsp, setLsp] = useState<LspFile | null>(null);
+
+    useEffect(() => {
+        if (file === undefined) {
+            return;
+        }
+        let stale = false;
+        setContent(null);
+        setProblem(null);
+        setDraft(null);
+        readPackageFile(treeId, detail.path, detail.pin, file).then(
+            (response) => {
+                if (!stale) {
+                    setContent(response.content);
+                }
+            },
+            (error: Error) => {
+                if (!stale) {
+                    setProblem(error.message);
+                }
+            },
+        );
+        return () => {
+            stale = true;
+        };
+    }, [treeId, detail.path, detail.pin, file]);
+
+    useEffect(() => {
+        if (!withLsp || file === undefined) {
+            return;
+        }
+        const session = new LspFile(treeId, detail.path, detail.pin, file);
+        setLsp(session);
+        const unsubscribe = session.onDiagnostics((published) => {
+            onLiveLint({
+                file,
+                diagnostics: published.map((diagnostic) => ({
+                    severity: diagnostic.severity === 1 ? "error" : "warning",
+                    rule: diagnostic.code,
+                    message: diagnostic.message,
+                    location: { path: file },
+                })),
+            });
+        });
+        return () => {
+            unsubscribe();
+            session.dispose();
+            setLsp(null);
+            onLiveLint(null);
+        };
+    }, [withLsp, treeId, detail.path, detail.pin, file, onLiveLint]);
+
+    return { content, problem, draft, setDraft, lsp };
+}
+
 // --- the variable form: a producer of operations, never a TOML rewriter ---
 
 // Form-based editing is parked for now: the TOML editor is the one write
@@ -2052,66 +2182,11 @@ function VariablePanel({
         original.method === "query";
 
     // The TOML source and its unsaved draft live here, above the mode
-    // switch: flipping to the form and back must be instant, not a refetch,
-    // and must not discard what was typed. The panel remounts per pin, so a
-    // save still lands on fresh content.
+    // switch: flipping editors must be instant, not a refetch, and must not
+    // discard what was typed. The panel remounts per pin, so a save still
+    // lands on fresh content.
     const file = variable?.location.path;
-    const [tomlContent, setTomlContent] = useState<string | null>(null);
-    const [tomlProblem, setTomlProblem] = useState<string | null>(null);
-    const [tomlDraft, setTomlDraft] = useState<string | null>(null);
-    useEffect(() => {
-        if (file === undefined) {
-            return;
-        }
-        let stale = false;
-        setTomlContent(null);
-        setTomlProblem(null);
-        setTomlDraft(null);
-        readPackageFile(treeId, detail.path, detail.pin, file).then(
-            (response) => {
-                if (!stale) {
-                    setTomlContent(response.content);
-                }
-            },
-            (error: Error) => {
-                if (!stale) {
-                    setTomlProblem(error.message);
-                }
-            },
-        );
-        return () => {
-            stale = true;
-        };
-    }, [treeId, detail.path, detail.pin, file]);
-
-    // One language-server session while the definition is editable: the
-    // buffer streams to it, the editor renders its diagnostics, completion,
-    // and hover, and the header's lint pill judges the same publications.
-    const [lspFile, setLspFile] = useState<LspFile | null>(null);
-    useEffect(() => {
-        if (!canEdit || file === undefined) {
-            return;
-        }
-        const session = new LspFile(treeId, detail.path, detail.pin, file);
-        setLspFile(session);
-        const unsubscribe = session.onDiagnostics((published) => {
-            onLiveLint({
-                file,
-                diagnostics: published.map((diagnostic) => ({
-                    severity: diagnostic.severity === 1 ? "error" : "warning",
-                    rule: diagnostic.code,
-                    message: diagnostic.message,
-                    location: { path: file },
-                })),
-            });
-        });
-        return () => {
-            unsubscribe();
-            session.dispose();
-            setLspFile(null);
-            onLiveLint(null);
-        };
-    }, [canEdit, treeId, detail.path, detail.pin, file, onLiveLint]);
+    const toml = useTomlFile(treeId, detail, file, canEdit, onLiveLint);
 
     if (variable === undefined) {
         return (
@@ -2292,14 +2367,14 @@ function VariablePanel({
                     )}
                 </div>
                 {(FORM_EDITING_ENABLED ? mode : "toml") === "toml" ? (
-                    <VariableToml
+                    <TomlEditor
                         detail={detail}
                         file={variable.location.path}
-                        content={tomlContent}
-                        problem={tomlProblem}
-                        draft={tomlDraft}
-                        onDraft={setTomlDraft}
-                        lsp={lspFile}
+                        content={toml.content}
+                        problem={toml.problem}
+                        draft={toml.draft}
+                        onDraft={toml.setDraft}
+                        lsp={toml.lsp}
                         changeSet={editable ? changeSet : null}
                         onSaved={onSaved}
                         onError={onError}
@@ -2547,11 +2622,11 @@ function VariablePanel({
     );
 }
 
-// The definition's raw-text editor: read-only without a change set, a
-// live TOML editor with one-commit saves inside one. The source and the
-// draft belong to the panel above the TOML/Form switch, so flipping modes
-// neither refetches nor discards typing.
-function VariableToml({
+// A raw TOML editor over one package file: read-only without a change set,
+// a live editor with one-commit saves inside one. The source and the draft
+// belong to the owning panel (useTomlFile), so switching editor modes
+// neither refetches nor discards typing. Variables and lists both ride it.
+function TomlEditor({
     detail,
     file,
     content,
