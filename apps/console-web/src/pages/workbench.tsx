@@ -477,9 +477,15 @@ export function WorkbenchPage({
                 </div>
             </div>
 
-            {/* The context parameterizes resolution; only the overview and
-                variable screens resolve, so no other screen asks for one. */}
-            {view.kind === "overview" ? (
+            {/* The context parameterizes resolution; every screen that shows
+                resolved values names the context they are under. The overview
+                and the variables collection carry this strip; the variable
+                screen mounts the picker inside its try-it card. */}
+            {view.kind === "overview" ||
+            (view.kind === "address" &&
+                view.steps[0] !== undefined &&
+                view.steps[0].class === "variable" &&
+                isCollective(view.steps[0])) ? (
                 <ContextPicker
                     inventory={inventory}
                     chosen={chosen}
