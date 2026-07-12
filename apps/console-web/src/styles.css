@@ -3461,6 +3461,27 @@ button.context-fact-add:hover {
     margin: 14px 16px;
 }
 
+/* the structured half of the definition toggle */
+.definition-form {
+    display: grid;
+    gap: 14px;
+    padding: 14px 16px;
+}
+
+/* the raw half's save row, fused under the editor */
+.definition-actions {
+    padding: 10px 16px;
+    border-top: 1px solid var(--line-1);
+}
+
+.definition-head .segmented-control {
+    font-size: 12px;
+}
+
+.definition-head .segmented-control button {
+    padding: 4px 10px;
+}
+
 /* the try-it card: context in at the top, answer out at the bottom. No
    overflow clipping: the context combo's dropdown must escape the card, so
    the tinted zones round their own corners instead. */

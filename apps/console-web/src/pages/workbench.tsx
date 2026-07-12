@@ -1994,6 +1994,10 @@ function VariablePanel({
     const [method, setMethod] = useState(original.method);
     const [query, setQuery] = useState<QueryDraft>(original.query);
     const [saving, setSaving] = useState(false);
+    // One definition, two editors: the raw TOML and the structured form,
+    // switched in place. Reading defaults to the source of truth.
+    const [mode, setMode] = useState<"toml" | "form">("toml");
+    const canEdit = editable && changeSet !== null;
 
     if (variable === undefined) {
         return (
@@ -2110,13 +2114,170 @@ function VariablePanel({
                     <span className="mono definition-file">
                         {variable.location.path}
                     </span>
-                    <span className="label">definition</span>
+                    <div
+                        aria-label="Definition editor"
+                        className="segmented-control"
+                        role="group"
+                    >
+                        <button
+                            className={mode === "toml" ? "active" : undefined}
+                            type="button"
+                            onClick={() => setMode("toml")}
+                        >
+                            TOML
+                        </button>
+                        <button
+                            className={mode === "form" ? "active" : undefined}
+                            type="button"
+                            onClick={() => setMode("form")}
+                        >
+                            Form
+                        </button>
+                    </div>
                 </div>
-                <VariableToml
-                    treeId={treeId}
-                    detail={detail}
-                    file={variable.location.path}
-                />
+                {mode === "toml" ? (
+                    <VariableToml
+                        treeId={treeId}
+                        detail={detail}
+                        file={variable.location.path}
+                        changeSet={editable ? changeSet : null}
+                        onSaved={onSaved}
+                        onError={onError}
+                    />
+                ) : (
+                    <form
+                        className="definition-form"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            if (canEdit) {
+                                save();
+                            }
+                        }}
+                    >
+                        {canEdit ? (
+                            <label className="form-row">
+                                <span className="label">Description</span>
+                                <input
+                                    aria-label="Description"
+                                    className="input"
+                                    placeholder="What this variable controls"
+                                    value={description}
+                                    onChange={(event) =>
+                                        setDescription(event.target.value)
+                                    }
+                                />
+                            </label>
+                        ) : null}
+                        <p className="hint">
+                            {method === "allocation"
+                                ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
+                                : method === "query"
+                                  ? "One query selects the value from a catalog; the default answers when nothing matches."
+                                  : "First match wins; the default answers when none do."}
+                        </p>
+
+                        {method === "query" ? (
+                            <QueryFields
+                                editable={canEdit}
+                                query={query}
+                                onChange={setQuery}
+                                onUseRules={() => setMethod("rules")}
+                            />
+                        ) : null}
+
+                        {method !== "allocation" ? (
+                            <RuleLadder
+                                type={type}
+                                editable={canEdit}
+                                withRules={method === "rules"}
+                                rules={rules}
+                                defaultText={defaultText}
+                                verdicts={verdicts}
+                                hrefEntity={hrefEntity}
+                                onRules={setRules}
+                                onDefaultText={setDefaultText}
+                            />
+                        ) : null}
+
+                        {canEdit && method === "rules" ? (
+                            <div className="action-row">
+                                <button
+                                    className="btn btn-secondary btn-sm"
+                                    type="button"
+                                    onClick={() =>
+                                        setRules([
+                                            ...rules,
+                                            {
+                                                when: "",
+                                                valueText:
+                                                    defaultRuleValue(type),
+                                            },
+                                        ])
+                                    }
+                                >
+                                    Add rule
+                                </button>
+                                <button
+                                    className="btn btn-ghost btn-sm"
+                                    type="button"
+                                    title="Select the value with one catalog query instead of rules"
+                                    onClick={() => setMethod("query")}
+                                >
+                                    Use a query instead
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {canEdit && changeSet !== null ? (
+                            <div className="card-actions">
+                                <button
+                                    className="btn btn-primary"
+                                    type="submit"
+                                    disabled={saving}
+                                >
+                                    {saving ? "Saving…" : "Save (one commit)"}
+                                </button>
+                                <DeleteButton
+                                    label="Delete variable"
+                                    warning={blastWarning(
+                                        `variables/${variableId}.toml`,
+                                        referenceLabels(
+                                            detail.model,
+                                            (to) =>
+                                                to.kind === "variable" &&
+                                                to.id === variableId,
+                                        ).filter(
+                                            (label) =>
+                                                label !==
+                                                `variable ${variableId}`,
+                                        ),
+                                    )}
+                                    onConfirm={() =>
+                                        saveEdit(changeSet.id, {
+                                            packagePath: detail.path,
+                                            expectedPin: detail.pin,
+                                            operations: [
+                                                {
+                                                    op: "delete",
+                                                    target: `variable=${variableId}`,
+                                                },
+                                            ],
+                                            summary: `Delete ${variableId}`,
+                                        }).then((result) => {
+                                            onSaved(result);
+                                            onBack();
+                                        }, onError)
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            <p className="hint">
+                                Pick or start a change set (Edit in a change
+                                set, above) to edit this definition.
+                            </p>
+                        )}
+                    </form>
+                )}
             </div>
 
             <div className="card try-card">
@@ -2151,160 +2312,33 @@ function VariablePanel({
                     hrefEntity={hrefEntity}
                 />
             </div>
-
-            {editable && changeSet !== null ? (
-                <details className="card variable-disclosure">
-                    <summary>
-                        <span className="row-text">
-                            <span className="row-title">Edit variable</span>
-                            <span className="row-sub">
-                                Change its description, rules, query, or
-                                default.
-                            </span>
-                        </span>
-                    </summary>
-                    <form
-                        className="variable-editor"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            save();
-                        }}
-                    >
-                        <div className="form-fields">
-                            <label className="form-row">
-                                <span className="label">Description</span>
-                                <input
-                                    aria-label="Description"
-                                    className="input"
-                                    placeholder="What this variable controls"
-                                    value={description}
-                                    onChange={(event) =>
-                                        setDescription(event.target.value)
-                                    }
-                                />
-                            </label>
-                            <div className="section-header-text">
-                                <h3>Resolution definition</h3>
-                                <p className="hint">
-                                    {method === "allocation"
-                                        ? "This variable resolves by allocation; adjust the rollout on its layer, or edit the raw file."
-                                        : method === "query"
-                                          ? "One query selects the value from a catalog; the default answers when nothing matches."
-                                          : "First match wins; the default answers when none do."}
-                                </p>
-                            </div>
-
-                            {method === "query" ? (
-                                <QueryFields
-                                    editable
-                                    query={query}
-                                    onChange={setQuery}
-                                    onUseRules={() => setMethod("rules")}
-                                />
-                            ) : null}
-
-                            {method !== "allocation" ? (
-                                <RuleLadder
-                                    type={type}
-                                    editable
-                                    withRules={method === "rules"}
-                                    rules={rules}
-                                    defaultText={defaultText}
-                                    verdicts={verdicts}
-                                    hrefEntity={hrefEntity}
-                                    onRules={setRules}
-                                    onDefaultText={setDefaultText}
-                                />
-                            ) : null}
-
-                            {method === "rules" ? (
-                                <div className="action-row">
-                                    <button
-                                        className="btn btn-secondary btn-sm"
-                                        type="button"
-                                        onClick={() =>
-                                            setRules([
-                                                ...rules,
-                                                {
-                                                    when: "",
-                                                    valueText:
-                                                        defaultRuleValue(type),
-                                                },
-                                            ])
-                                        }
-                                    >
-                                        Add rule
-                                    </button>
-                                    <button
-                                        className="btn btn-ghost btn-sm"
-                                        type="button"
-                                        title="Select the value with one catalog query instead of rules"
-                                        onClick={() => setMethod("query")}
-                                    >
-                                        Use a query instead
-                                    </button>
-                                </div>
-                            ) : null}
-                        </div>
-
-                        <div className="card-actions">
-                            <button
-                                className="btn btn-primary"
-                                type="submit"
-                                disabled={saving}
-                            >
-                                {saving ? "Saving…" : "Save (one commit)"}
-                            </button>
-                            <DeleteButton
-                                label="Delete variable"
-                                warning={blastWarning(
-                                    `variables/${variableId}.toml`,
-                                    referenceLabels(
-                                        detail.model,
-                                        (to) =>
-                                            to.kind === "variable" &&
-                                            to.id === variableId,
-                                    ).filter(
-                                        (label) =>
-                                            label !== `variable ${variableId}`,
-                                    ),
-                                )}
-                                onConfirm={() =>
-                                    saveEdit(changeSet.id, {
-                                        packagePath: detail.path,
-                                        expectedPin: detail.pin,
-                                        operations: [
-                                            {
-                                                op: "delete",
-                                                target: `variable=${variableId}`,
-                                            },
-                                        ],
-                                        summary: `Delete ${variableId}`,
-                                    }).then((result) => {
-                                        onSaved(result);
-                                        onBack();
-                                    }, onError)
-                                }
-                            />
-                        </div>
-                    </form>
-                </details>
-            ) : null}
         </>
     );
 }
 
+// The definition's raw-text editor: read-only without a change set, a
+// live TOML editor with one-commit saves inside one. The panel remounts on
+// every new pin, so a save always refetches the committed content.
 function VariableToml({
     treeId,
     detail,
     file,
+    changeSet,
+    onSaved,
+    onError,
 }: {
     treeId: string;
     detail: PackageDetail;
     file: string;
+    changeSet: ChangeSet | null;
+    onSaved: (result: EditResponse) => void;
+    onError: (error: unknown) => void;
 }) {
     const [content, setContent] = useState<string | null>(null);
+    // null mirrors the committed content; a string is an unsaved draft.
+    const [draft, setDraft] = useState<string | null>(null);
     const [problem, setProblem] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         let stale = false;
@@ -2333,14 +2367,51 @@ function VariableToml({
     if (content === null) {
         return <p className="muted">Loading definition…</p>;
     }
+    const dirty = draft !== null && draft !== content;
+    const save = () => {
+        if (changeSet === null || draft === null) {
+            return;
+        }
+        setSaving(true);
+        saveEdit(changeSet.id, {
+            packagePath: detail.path,
+            expectedPin: detail.pin,
+            files: [{ path: file, content: draft }],
+            summary: `Edit ${file}`,
+        })
+            .then(onSaved, onError)
+            .finally(() => setSaving(false));
+    };
     return (
-        <CodeEditor
-            className="variable-toml"
-            disabled
-            language="toml"
-            onChange={() => {}}
-            value={content}
-        />
+        <>
+            <CodeEditor
+                className="variable-toml"
+                disabled={changeSet === null}
+                language="toml"
+                onChange={setDraft}
+                value={draft ?? content}
+            />
+            {dirty ? (
+                <div className="action-row definition-actions">
+                    <button
+                        className="btn btn-primary btn-sm"
+                        disabled={saving}
+                        type="button"
+                        onClick={save}
+                    >
+                        {saving ? "Saving…" : "Save (one commit)"}
+                    </button>
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={saving}
+                        type="button"
+                        onClick={() => setDraft(null)}
+                    >
+                        Discard
+                    </button>
+                </div>
+            ) : null}
+        </>
     );
 }
 
