@@ -20,14 +20,10 @@ import {
 
 import {
     ApiError,
-    closeLspSession,
     createChangeSet,
     fetchContexts,
     listChangeSets,
     listPackages,
-    lspNotifications,
-    lspNotify,
-    openLspSession,
     readPackage,
     readPackageFile,
     runPreview,
@@ -37,7 +33,6 @@ import {
     type ContextInventory,
     type EditOperation,
     type EditResponse,
-    type LspServerMessage,
     type MeResponse,
     type ModelEntityRef,
     type PackageDetail,
@@ -50,6 +45,7 @@ import {
     type TraceOutcome,
     type VariableModel,
 } from "@/lib/api";
+import { LspFile } from "@/lib/lsp";
 import {
     ContextPicker,
     ContextPickerBody,
@@ -2043,6 +2039,22 @@ function VariablePanel({
         };
     }, [treeId, detail.path, detail.pin, file]);
 
+    // One language-server session while the definition is editable: the
+    // buffer streams to it and the editor renders its diagnostics,
+    // completion, and hover.
+    const [lspFile, setLspFile] = useState<LspFile | null>(null);
+    useEffect(() => {
+        if (!canEdit || file === undefined) {
+            return;
+        }
+        const session = new LspFile(treeId, detail.path, detail.pin, file);
+        setLspFile(session);
+        return () => {
+            session.dispose();
+            setLspFile(null);
+        };
+    }, [canEdit, treeId, detail.path, detail.pin, file]);
+
     if (variable === undefined) {
         return (
             <div className="card">
@@ -2229,6 +2241,7 @@ function VariablePanel({
                         problem={tomlProblem}
                         draft={tomlDraft}
                         onDraft={setTomlDraft}
+                        lsp={lspFile}
                         changeSet={editable ? changeSet : null}
                         onSaved={onSaved}
                         onError={onError}
@@ -2487,6 +2500,7 @@ function VariableToml({
     problem,
     draft,
     onDraft,
+    lsp,
     changeSet,
     onSaved,
     onError,
@@ -2498,6 +2512,7 @@ function VariableToml({
     // null mirrors the committed content; a string is an unsaved draft.
     draft: string | null;
     onDraft: (draft: string | null) => void;
+    lsp: LspFile | null;
     changeSet: ChangeSet | null;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
@@ -2531,6 +2546,7 @@ function VariableToml({
                 className="variable-toml"
                 disabled={changeSet === null}
                 language="toml"
+                lsp={lsp}
                 onChange={onDraft}
                 value={draft ?? content}
             />
@@ -3016,9 +3032,7 @@ function FilePanel({
     const [live, setLive] = useState<
         { severity: string; rule?: string; message: string }[] | null
     >(null);
-    const [sessionId, setSessionId] = useState<string | null>(null);
-    const opened = useRef(false);
-    const version = useRef(1);
+    const [lspFile, setLspFile] = useState<LspFile | null>(null);
 
     useEffect(() => {
         let stale = false;
@@ -3035,93 +3049,28 @@ function FilePanel({
         };
     }, [treeId, detail.path, detail.pin, file, onError]);
 
-    // One editing session per open file; a bridge failure just means the
-    // static lint diagnostics stand.
+    // One language-server session per open file: the editor streams the
+    // buffer to it and renders its squiggles, completion, and hover; this
+    // panel keeps the same publications as its diagnostics list. A bridge
+    // failure just means the static lint diagnostics stand.
     useEffect(() => {
-        let stale = false;
-        let id: string | null = null;
-        openLspSession(treeId, detail.path, detail.pin).then(
-            (response) => {
-                if (stale) {
-                    void closeLspSession(response.session).catch(() => {});
-                    return;
-                }
-                id = response.session;
-                setSessionId(id);
-            },
-            () => {},
-        );
-        return () => {
-            stale = true;
-            if (id !== null) {
-                void closeLspSession(id).catch(() => {});
-            }
-        };
-    }, [treeId, detail.path, detail.pin]);
-
-    // The buffer rides as an LSP overlay: didOpen once, then debounced
-    // full-document didChange while typing.
-    useEffect(() => {
-        if (sessionId === null || content === null) {
-            return;
-        }
-        if (!opened.current) {
-            opened.current = true;
-            void lspNotify(sessionId, "textDocument/didOpen", {
-                textDocument: {
-                    uri: file,
-                    languageId: "toml",
-                    version: version.current,
-                    text: content,
-                },
-            }).catch(() => {});
-            return;
-        }
-        const handle = setTimeout(() => {
-            version.current += 1;
-            void lspNotify(sessionId, "textDocument/didChange", {
-                textDocument: { uri: file, version: version.current },
-                contentChanges: [{ text: content }],
-            }).catch(() => {});
-        }, 300);
-        return () => clearTimeout(handle);
-    }, [sessionId, content, file]);
-
-    // Diagnostics arrive from the server's debounced build; poll and keep
-    // the latest publication for this file.
-    useEffect(() => {
-        if (sessionId === null) {
-            return;
-        }
-        const interval = setInterval(() => {
-            lspNotifications(sessionId).then(
-                (response) => {
-                    for (const message of response.notifications) {
-                        if (
-                            message.method ===
-                                "textDocument/publishDiagnostics" &&
-                            message.params?.uri === file
-                        ) {
-                            setLive(
-                                (message.params.diagnostics ?? []).map(
-                                    (diagnostic) => ({
-                                        severity:
-                                            diagnostic.severity === 1
-                                                ? "error"
-                                                : "warning",
-                                        rule: diagnostic.code,
-                                        message: diagnostic.message,
-                                    }),
-                                ),
-                            );
-                        }
-                    }
-                },
-                () => {},
+        const session = new LspFile(treeId, detail.path, detail.pin, file);
+        setLspFile(session);
+        const unsubscribe = session.onDiagnostics((published) => {
+            setLive(
+                published.map((diagnostic) => ({
+                    severity: diagnostic.severity === 1 ? "error" : "warning",
+                    rule: diagnostic.code,
+                    message: diagnostic.message,
+                })),
             );
-        }, 500);
-        return () => clearInterval(interval);
-    }, [sessionId, file]);
+        });
+        return () => {
+            unsubscribe();
+            session.dispose();
+            setLspFile(null);
+        };
+    }, [treeId, detail.path, detail.pin, file]);
 
     const diagnostics =
         live ??
@@ -3197,6 +3146,7 @@ function FilePanel({
                     className="raw-file-editor"
                     disabled={!editable}
                     language={codeLanguageForPath(file)}
+                    lsp={lspFile}
                     value={content}
                     onChange={setContent}
                     onKeyDown={(event) => {
