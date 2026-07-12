@@ -1943,6 +1943,11 @@ function ContextDetailPanel({
 
 // --- the variable form: a producer of operations, never a TOML rewriter ---
 
+// Form-based editing is parked for now: the TOML editor is the one write
+// path, and the definition card hides its Form tab. Flip this to bring the
+// form back; the machinery below stays live.
+const FORM_EDITING_ENABLED: boolean = false;
+
 type RuleDraft = { when: string; valueText: string };
 
 function VariablePanel({
@@ -2153,28 +2158,70 @@ function VariablePanel({
                     <span className="mono definition-file">
                         {variable.location.path}
                     </span>
-                    <div
-                        aria-label="Definition editor"
-                        className="segmented-control"
-                        role="group"
-                    >
-                        <button
-                            className={mode === "toml" ? "active" : undefined}
-                            type="button"
-                            onClick={() => setMode("toml")}
+                    {FORM_EDITING_ENABLED ? (
+                        <div
+                            aria-label="Definition editor"
+                            className="segmented-control"
+                            role="group"
                         >
-                            TOML
-                        </button>
-                        <button
-                            className={mode === "form" ? "active" : undefined}
-                            type="button"
-                            onClick={() => setMode("form")}
-                        >
-                            Form
-                        </button>
-                    </div>
+                            <button
+                                className={
+                                    mode === "toml" ? "active" : undefined
+                                }
+                                type="button"
+                                onClick={() => setMode("toml")}
+                            >
+                                TOML
+                            </button>
+                            <button
+                                className={
+                                    mode === "form" ? "active" : undefined
+                                }
+                                type="button"
+                                onClick={() => setMode("form")}
+                            >
+                                Form
+                            </button>
+                        </div>
+                    ) : canEdit && changeSet !== null ? (
+                        // With the form parked, deletion moves up here so
+                        // the entity-level action stays reachable.
+                        <DeleteButton
+                            label="Delete variable"
+                            warning={blastWarning(
+                                `variables/${variableId}.toml`,
+                                referenceLabels(
+                                    detail.model,
+                                    (to) =>
+                                        to.kind === "variable" &&
+                                        to.id === variableId,
+                                ).filter(
+                                    (label) =>
+                                        label !== `variable ${variableId}`,
+                                ),
+                            )}
+                            onConfirm={() =>
+                                saveEdit(changeSet.id, {
+                                    packagePath: detail.path,
+                                    expectedPin: detail.pin,
+                                    operations: [
+                                        {
+                                            op: "delete",
+                                            target: `variable=${variableId}`,
+                                        },
+                                    ],
+                                    summary: `Delete ${variableId}`,
+                                }).then((result) => {
+                                    onSaved(result);
+                                    onBack();
+                                }, onError)
+                            }
+                        />
+                    ) : (
+                        <span className="label">definition</span>
+                    )}
                 </div>
-                {mode === "toml" ? (
+                {(FORM_EDITING_ENABLED ? mode : "toml") === "toml" ? (
                     <VariableToml
                         detail={detail}
                         file={variable.location.path}
