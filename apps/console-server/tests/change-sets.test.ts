@@ -255,6 +255,33 @@ test("only the author or a collaborator edits; only the author submits", async (
     assert.equal(submit.status, 403);
 });
 
+test("collaborators are added by GitHub login and described as people", async () => {
+    const changeSet = await createChangeSet("Shared by login");
+    harness.signIn({
+        login: "priya",
+        token: "priya-token",
+        displayName: "Priya N",
+    });
+
+    const unknown = await harness.post(
+        `/api/change-sets/${changeSet.id}/collaborators`,
+        { login: "nobody-here" },
+        dev.headers,
+    );
+    assert.equal(unknown.status, 404);
+
+    const shared = await harness.post(
+        `/api/change-sets/${changeSet.id}/collaborators`,
+        { login: "priya" },
+        dev.headers,
+    );
+    assert.equal(shared.status, 200, await shared.clone().text());
+    const { collaborators } = await json(shared);
+    assert.equal(collaborators.length, 1);
+    assert.equal(collaborators[0].login, "priya");
+    assert.equal(collaborators[0].displayName, "Priya N");
+});
+
 test("submit opens the marked PR; abandon closes it and deletes the branch", async () => {
     const changeSet = await createChangeSet("Submit and abandon");
     await harness.post(

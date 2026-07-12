@@ -192,7 +192,17 @@ export type ChangeSetEvent = {
 export type ChangeSetDetail = {
     changeSet: ChangeSet;
     events: ChangeSetEvent[];
-    collaborators: { principalId: string; addedBy: string; addedAt: string }[];
+    collaborators: ChangeSetCollaborator[];
+};
+
+// A collaborator as a person: the server joins the display name and GitHub
+// login so screens never show a bare principal id.
+export type ChangeSetCollaborator = {
+    principalId: string;
+    addedBy: string;
+    addedAt: string;
+    displayName: string | null;
+    login: string | null;
 };
 
 // One operation on the structured edit path; the server-side engine defines
@@ -811,17 +821,13 @@ export function retitleChangeSet(
     return apiPost(`/api/change-sets/${id}/title`, { title });
 }
 
+// Adds name the person by GitHub login; removals carry the principal id
+// from the listed row.
 export function changeSetCollaborator(
     id: string,
-    principalId: string,
-    remove: boolean,
-): Promise<{
-    collaborators: { principalId: string; addedBy: string; addedAt: string }[];
-}> {
-    return apiPost(`/api/change-sets/${id}/collaborators`, {
-        principalId,
-        ...(remove ? { remove: true } : {}),
-    });
+    member: { login: string } | { principalId: string; remove: true },
+): Promise<{ collaborators: ChangeSetCollaborator[] }> {
+    return apiPost(`/api/change-sets/${id}/collaborators`, member);
 }
 
 export function withdrawApproval(

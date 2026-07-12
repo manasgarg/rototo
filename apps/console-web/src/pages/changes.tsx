@@ -24,6 +24,7 @@ import {
     type ApprovalPolicyStatus,
     type ApprovalRecord,
     type ChangeSet,
+    type ChangeSetCollaborator,
     type ChangeSetDetail,
     type ChangeSetReview,
     type ContextImpact,
@@ -367,7 +368,9 @@ export function ChangeSetPage({
                 </div>
             </div>
 
-            {open ? (
+            {/* Sharing is a team-mode idea: local mode has one implicit
+                principal, so the panel would only ever say no. */}
+            {open && me?.authMode === "team" ? (
                 <details className="card variable-disclosure">
                     <summary>
                         <span className="row-text">
@@ -376,21 +379,12 @@ export function ChangeSetPage({
                                 {detail.collaborators.length === 0
                                     ? "None yet; the author edits alone."
                                     : detail.collaborators
-                                          .map(
-                                              (collaborator) =>
-                                                  collaborator.principalId,
-                                          )
+                                          .map(collaboratorName)
                                           .join(", ")}
                             </span>
                         </span>
                     </summary>
-                    <p className="hint">
-                        Collaborators edit, retitle, and share alongside the
-                        author; removing one keeps the edits they already made.
-                    </p>
-                    {detail.collaborators.length === 0 ? (
-                        <p className="hint">No collaborators yet.</p>
-                    ) : (
+                    {detail.collaborators.length > 0 ? (
                         <div className="row-list">
                             {detail.collaborators.map((collaborator) => (
                                 <div
@@ -398,24 +392,29 @@ export function ChangeSetPage({
                                     key={collaborator.principalId}
                                 >
                                     <span className="row-text">
-                                        <span className="row-title mono">
-                                            {collaborator.principalId}
+                                        <span className="row-title">
+                                            {collaboratorName(collaborator)}
                                         </span>
-                                        <span className="row-sub">
-                                            added by {collaborator.addedBy}
-                                        </span>
+                                        {collaborator.login !== null ? (
+                                            <span className="row-sub mono">
+                                                @{collaborator.login}
+                                            </span>
+                                        ) : null}
                                     </span>
                                     <span className="row-side">
                                         <button
                                             className="btn btn-icon btn-sm btn-remove"
                                             disabled={busy}
-                                            title="Remove collaborator"
+                                            title="Remove; edits they already made stay"
                                             onClick={() =>
                                                 act(
                                                     changeSetCollaborator(
                                                         changeSet.id,
-                                                        collaborator.principalId,
-                                                        true,
+                                                        {
+                                                            principalId:
+                                                                collaborator.principalId,
+                                                            remove: true,
+                                                        },
                                                     ),
                                                 )
                                             }
@@ -426,25 +425,20 @@ export function ChangeSetPage({
                                 </div>
                             ))}
                         </div>
-                    )}
+                    ) : null}
                     <form
                         className="action-row"
                         onSubmit={(event) => {
                             event.preventDefault();
-                            const principal = collaboratorDraft.trim();
+                            const login = collaboratorDraft.trim();
                             setCollaboratorDraft("");
-                            act(
-                                changeSetCollaborator(
-                                    changeSet.id,
-                                    principal,
-                                    false,
-                                ),
-                            );
+                            act(changeSetCollaborator(changeSet.id, { login }));
                         }}
                     >
                         <input
+                            aria-label="Teammate's GitHub login"
                             className="input mono"
-                            placeholder="principal id"
+                            placeholder="GitHub login"
                             value={collaboratorDraft}
                             onChange={(event) =>
                                 setCollaboratorDraft(event.target.value)
@@ -502,6 +496,16 @@ export function ChangeSetPage({
                 ))}
             </div>
         </div>
+    );
+}
+
+// A collaborator's human name: the display name, the GitHub login, or as a
+// last resort the principal id.
+function collaboratorName(collaborator: ChangeSetCollaborator): string {
+    return (
+        collaborator.displayName ??
+        collaborator.login ??
+        collaborator.principalId
     );
 }
 

@@ -170,6 +170,20 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         });
     });
 
+    // Collaborator rows as people, not keys: the display name and GitHub
+    // login ride along so no screen has to show a bare principal id.
+    const describeCollaborators = (changeSetId: string) =>
+        ctx.store.listChangeSetCollaborators(changeSetId).map((row) => ({
+            ...row,
+            displayName:
+                ctx.store.getPrincipal(row.principalId)?.displayName ?? null,
+            login:
+                ctx.store
+                    .identitiesForPrincipal(row.principalId)
+                    .find((identity) => identity.provider === "github")
+                    ?.login ?? null,
+        }));
+
     app.get("/change-sets/:id", async (c) => {
         const subject = subjectOf(c);
         const changeSet = changeSetOf(c);
@@ -178,7 +192,7 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
         return c.json({
             changeSet: payload(changeSet),
             events: ctx.store.listChangeSetEvents(changeSet.id),
-            collaborators: ctx.store.listChangeSetCollaborators(changeSet.id),
+            collaborators: describeCollaborators(changeSet.id),
         });
     });
 
@@ -389,10 +403,10 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
             );
         }
         const input = await body(c);
-        if (typeof input.principalId !== "string") {
-            throw new ApiError(400, "principalId is required");
-        }
         if (input.remove === true) {
+            if (typeof input.principalId !== "string") {
+                throw new ApiError(400, "principalId is required");
+            }
             if (input.principalId === changeSet.authorPrincipal) {
                 throw new ApiError(
                     400,
@@ -410,20 +424,43 @@ export function changeSetRoutes(ctx: ConsoleContext): Hono {
                 JSON.stringify({ with: input.principalId }),
             );
         } else {
-            if (
-                ctx.config.authMode === "team" &&
-                ctx.store.getPrincipal(input.principalId) === null
-            ) {
-                throw new ApiError(404, "no such principal");
+            // Local mode has one implicit principal: there is no one to
+            // share with, and the console never shows the affordance.
+            if (ctx.config.authMode !== "team") {
+                throw new ApiError(
+                    400,
+                    "local mode has a single principal; there is no one to share with",
+                );
+            }
+            // Adds name a person the way teammates know them: a GitHub
+            // login. A raw principal id stays accepted for tooling.
+            let principalId: string;
+            if (typeof input.login === "string" && input.login.trim() !== "") {
+                const login = input.login.trim();
+                const identity = ctx.store.identityByLogin("github", login);
+                if (identity === null) {
+                    throw new ApiError(
+                        404,
+                        `no enrolled teammate has the GitHub login ${login}`,
+                    );
+                }
+                principalId = identity.principalId;
+            } else if (typeof input.principalId === "string") {
+                if (ctx.store.getPrincipal(input.principalId) === null) {
+                    throw new ApiError(404, "no such principal");
+                }
+                principalId = input.principalId;
+            } else {
+                throw new ApiError(400, "login or principalId is required");
             }
             ctx.changeSets.share({
                 changeSet,
-                principalId: input.principalId,
+                principalId,
                 actor,
             });
         }
         return c.json({
-            collaborators: ctx.store.listChangeSetCollaborators(changeSet.id),
+            collaborators: describeCollaborators(changeSet.id),
         });
     });
 
