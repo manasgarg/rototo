@@ -597,12 +597,14 @@ function partitionGraph(data: GraphData): {
 
 /* --- the layered-columns canvas --- */
 
-const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
-    { kind: "condition", title: "conditions" },
-    { kind: "variable", title: "variables" },
-    { kind: "list", title: "lists" },
-    { kind: "catalog", title: "catalogs" },
-    { kind: "catalogEntry", title: "values" },
+// Lists and catalogs share one column: both are the named sets a variable's
+// resolution reaches for, and two sparse columns read as dead space. Lists
+// stack first, catalogs beneath, split by a dashed rule inside the column.
+const COLUMNS: Array<{ kinds: GraphNodeKind[]; title: string }> = [
+    { kinds: ["condition"], title: "conditions" },
+    { kinds: ["variable"], title: "variables" },
+    { kinds: ["list", "catalog"], title: "lists · catalogs" },
+    { kinds: ["catalogEntry"], title: "values" },
 ];
 
 const KIND_COLOR: Record<GraphNodeKind, string> = {
@@ -614,6 +616,7 @@ const KIND_COLOR: Record<GraphNodeKind, string> = {
 };
 
 const ROW_GAP = 8;
+const GROUP_GAP = 22;
 const CLUSTER_GAP = 36;
 const HEADER_HEIGHT = 34;
 const NODE_HEIGHT = 22;
@@ -678,7 +681,9 @@ function ColumnsGraph({
         // Columns are shared across every cluster so the whole canvas reads
         // as one aligned diagram in resolution order.
         const columns = COLUMNS.filter((column) =>
-            merged.nodes.some((node) => node.kind === column.kind),
+            column.kinds.some((kind) =>
+                merged.nodes.some((node) => node.kind === kind),
+            ),
         );
         const count = Math.max(columns.length, 1);
         const gap = Math.max(28, Math.min(56, containerWidth * 0.04));
@@ -693,8 +698,10 @@ function ColumnsGraph({
             string,
             { x: number; y: number; column: number; height: number }
         >();
-        // Clusters stack one after another, separated by a hairline.
+        // Clusters stack one after another, separated by a hairline; kind
+        // groups sharing a column separate with a short dashed rule.
         const dividers: number[] = [];
+        const groupDividers: { x1: number; x2: number; y: number }[] = [];
         let clusterTop = HEADER_HEIGHT;
         components.forEach((component, clusterIndex) => {
             if (clusterIndex > 0) {
@@ -702,22 +709,37 @@ function ColumnsGraph({
             }
             let clusterBottom = clusterTop;
             columns.forEach((column, columnIndex) => {
-                const height = nodeHeight(column.kind);
-                const nodes = component.nodes.filter(
-                    (node) => node.kind === column.kind,
-                );
-                nodes.forEach((node, rowIndex) => {
-                    positions.set(node.id, {
-                        x: PADDING + columnIndex * (colWidth + gap),
-                        y: clusterTop + rowIndex * (height + ROW_GAP),
-                        column: columnIndex,
-                        height,
+                const x = PADDING + columnIndex * (colWidth + gap);
+                let rowTop = clusterTop;
+                let hasEarlierGroup = false;
+                column.kinds.forEach((kind) => {
+                    const height = nodeHeight(kind);
+                    const nodes = component.nodes.filter(
+                        (node) => node.kind === kind,
+                    );
+                    if (nodes.length === 0) {
+                        return;
+                    }
+                    if (hasEarlierGroup) {
+                        groupDividers.push({
+                            x1: x,
+                            x2: x + colWidth,
+                            y: rowTop + (GROUP_GAP - ROW_GAP) / 2,
+                        });
+                        rowTop += GROUP_GAP;
+                    }
+                    nodes.forEach((node, rowIndex) => {
+                        positions.set(node.id, {
+                            x,
+                            y: rowTop + rowIndex * (height + ROW_GAP),
+                            column: columnIndex,
+                            height,
+                        });
                     });
+                    rowTop += nodes.length * (height + ROW_GAP);
+                    hasEarlierGroup = true;
                 });
-                clusterBottom = Math.max(
-                    clusterBottom,
-                    clusterTop + nodes.length * (height + ROW_GAP) - ROW_GAP,
-                );
+                clusterBottom = Math.max(clusterBottom, rowTop - ROW_GAP);
             });
             clusterTop = clusterBottom + CLUSTER_GAP;
         });
@@ -725,6 +747,7 @@ function ColumnsGraph({
             columns,
             positions,
             dividers,
+            groupDividers,
             colWidth,
             gap,
             maxLabelChars: Math.max(
@@ -866,7 +889,7 @@ function ColumnsGraph({
                     <text
                         fill="var(--ink-2)"
                         fontSize={11}
-                        key={column.kind}
+                        key={column.title}
                         letterSpacing="0.1em"
                         x={
                             PADDING +
@@ -886,6 +909,17 @@ function ColumnsGraph({
                         x2={layout.width - PADDING}
                         y1={y}
                         y2={y}
+                    />
+                ))}
+                {layout.groupDividers.map((divider, index) => (
+                    <line
+                        key={`group-divider-${index}`}
+                        stroke="var(--line-2)"
+                        strokeDasharray="2 4"
+                        x1={divider.x1}
+                        x2={divider.x2}
+                        y1={divider.y}
+                        y2={divider.y}
                     />
                 ))}
                 {merged.nodes.map((node) => {
