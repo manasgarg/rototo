@@ -156,6 +156,15 @@ pub(super) fn semantic_change_description(kind: &str) -> &'static str {
         "catalog_entry_added" => "catalog value added",
         "catalog_entry_removed" => "catalog value removed",
         "catalog_entry_changed" => "catalog value changed",
+        "list_added" => "list added",
+        "list_removed" => "list removed",
+        "list_changed" => "list changed",
+        "evaluation_context_added" => "evaluation context added",
+        "evaluation_context_removed" => "evaluation context removed",
+        "evaluation_context_schema_changed" => "evaluation context schema changed",
+        "sample_added" => "sample added",
+        "sample_removed" => "sample removed",
+        "sample_changed" => "sample changed",
         _ => "semantic change",
     }
 }

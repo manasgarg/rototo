@@ -27,6 +27,8 @@ pub(crate) async fn diff_packages(
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
     diff_catalogs(&before_model, &after_model, &mut changes);
+    diff_lists(&before_model, &after_model, &mut changes);
+    diff_evaluation_contexts(&before_model, &after_model, &mut changes);
     diff_layers(&before_model, &after_model, &mut changes);
 
     let resolution_impacts = match context {
@@ -59,6 +61,8 @@ pub(crate) async fn diff_packages_with_contexts(
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
     diff_catalogs(&before_model, &after_model, &mut changes);
+    diff_lists(&before_model, &after_model, &mut changes);
+    diff_evaluation_contexts(&before_model, &after_model, &mut changes);
     diff_layers(&before_model, &after_model, &mut changes);
 
     let runtimes = compile_runtime_package_from_snapshot(&before)
@@ -155,6 +159,9 @@ struct PackageSemanticModel {
     variables: BTreeMap<String, VariableSemantic>,
     catalogs: BTreeMap<String, CatalogSemantic>,
     catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
+    lists: BTreeMap<String, ListSemantic>,
+    evaluation_contexts: BTreeMap<String, EvaluationContextSemantic>,
+    evaluation_context_samples: BTreeMap<(String, String), SampleSemantic>,
     layers: BTreeMap<String, LayerSemantic>,
     allocations: BTreeMap<(String, String), AllocationSemantic>,
 }
@@ -183,6 +190,35 @@ impl PackageSemanticModel {
                     (
                         (entry.catalog_id.clone(), entry.key.clone()),
                         CatalogEntrySemantic::from_node(entry),
+                    )
+                })
+                .collect(),
+            lists: snapshot
+                .index
+                .lists
+                .values()
+                .map(|list| (list.id.clone(), ListSemantic::from_node(list)))
+                .collect(),
+            evaluation_contexts: snapshot
+                .index
+                .evaluation_contexts
+                .values()
+                .map(|context| {
+                    (
+                        context.id.clone(),
+                        EvaluationContextSemantic::from_node(context),
+                    )
+                })
+                .collect(),
+            evaluation_context_samples: snapshot
+                .index
+                .evaluation_context_samples
+                .values()
+                .flat_map(|samples| samples.values())
+                .map(|sample| {
+                    (
+                        (sample.evaluation_context_id.clone(), sample.key.clone()),
+                        SampleSemantic::from_node(sample),
                     )
                 })
                 .collect(),
@@ -429,6 +465,68 @@ impl CatalogEntrySemantic {
             target: entry.target(),
             location: entry.location.clone(),
             value: entry.value.clone(),
+        }
+    }
+}
+
+struct ListSemantic {
+    target: SemanticTarget,
+    location: DiagnosticLocation,
+    /// The contract and the set as one comparable value: the declared member
+    /// type and the members in declared order. Pointer-scoped diffing then
+    /// names what moved (`#/type`, `#/members`).
+    value: JsonValue,
+}
+
+impl ListSemantic {
+    fn from_node(list: &ListNode) -> Self {
+        Self {
+            target: list.target(),
+            location: list.location.clone(),
+            value: serde_json::json!({
+                "type": match &list.member_type {
+                    ProjectField::Present(member_type) => JsonValue::from(member_type.value.clone()),
+                    _ => JsonValue::Null,
+                },
+                "members": match &list.members {
+                    ProjectField::Present(members) => JsonValue::Array(
+                        members.value.iter().map(|member| member.value.clone()).collect(),
+                    ),
+                    _ => JsonValue::Null,
+                },
+            }),
+        }
+    }
+}
+
+struct EvaluationContextSemantic {
+    target: SemanticTarget,
+    location: DiagnosticLocation,
+    json: Option<JsonValue>,
+}
+
+impl EvaluationContextSemantic {
+    fn from_node(context: &EvaluationContextNode) -> Self {
+        Self {
+            target: context.target(),
+            location: context.location.clone(),
+            json: context.json.clone(),
+        }
+    }
+}
+
+struct SampleSemantic {
+    target: SemanticTarget,
+    location: DiagnosticLocation,
+    value: JsonValue,
+}
+
+impl SampleSemantic {
+    fn from_node(sample: &EvaluationContextSampleNode) -> Self {
+        Self {
+            target: sample.target(),
+            location: sample.location.clone(),
+            value: sample.value.clone().unwrap_or(JsonValue::Null),
         }
     }
 }
@@ -815,6 +913,136 @@ fn diff_catalogs(
     }
 }
 
+fn diff_lists(
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
+    changes: &mut Vec<SemanticChange>,
+) {
+    for id in sorted_keys(before.lists.keys(), after.lists.keys()) {
+        match (before.lists.get(&id), after.lists.get(&id)) {
+            (None, Some(after)) => push_added_value(
+                changes,
+                "list_added",
+                &after.target,
+                &after.location,
+                &after.value,
+            ),
+            (Some(before), None) => push_removed_value(
+                changes,
+                "list_removed",
+                &before.target,
+                &before.location,
+                &before.value,
+            ),
+            (Some(before), Some(after)) => diff_json_value(
+                changes,
+                JsonDiffSide {
+                    target: &before.target,
+                    location: &before.location,
+                    value: &before.value,
+                },
+                JsonDiffSide {
+                    target: &after.target,
+                    location: &after.location,
+                    value: &after.value,
+                },
+                Vec::new(),
+                "list_changed",
+            ),
+            (None, None) => {}
+        }
+    }
+}
+
+fn diff_evaluation_contexts(
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
+    changes: &mut Vec<SemanticChange>,
+) {
+    for id in sorted_keys(
+        before.evaluation_contexts.keys(),
+        after.evaluation_contexts.keys(),
+    ) {
+        match (
+            before.evaluation_contexts.get(&id),
+            after.evaluation_contexts.get(&id),
+        ) {
+            (None, Some(after)) => push_added(
+                changes,
+                "evaluation_context_added",
+                &after.target,
+                &after.location,
+            ),
+            (Some(before), None) => push_removed(
+                changes,
+                "evaluation_context_removed",
+                &before.target,
+                &before.location,
+            ),
+            (Some(before), Some(after)) => {
+                if let (Some(before_json), Some(after_json)) = (&before.json, &after.json) {
+                    diff_json_value(
+                        changes,
+                        JsonDiffSide {
+                            target: &before.target,
+                            location: &before.location,
+                            value: before_json,
+                        },
+                        JsonDiffSide {
+                            target: &after.target,
+                            location: &after.location,
+                            value: after_json,
+                        },
+                        Vec::new(),
+                        "evaluation_context_schema_changed",
+                    );
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    for key in sorted_keys(
+        before.evaluation_context_samples.keys(),
+        after.evaluation_context_samples.keys(),
+    ) {
+        match (
+            before.evaluation_context_samples.get(&key),
+            after.evaluation_context_samples.get(&key),
+        ) {
+            (None, Some(after)) => push_added_value(
+                changes,
+                "sample_added",
+                &after.target,
+                &after.location,
+                &after.value,
+            ),
+            (Some(before), None) => push_removed_value(
+                changes,
+                "sample_removed",
+                &before.target,
+                &before.location,
+                &before.value,
+            ),
+            (Some(before), Some(after)) => diff_json_value(
+                changes,
+                JsonDiffSide {
+                    target: &before.target,
+                    location: &before.location,
+                    value: &before.value,
+                },
+                JsonDiffSide {
+                    target: &after.target,
+                    location: &after.location,
+                    value: &after.value,
+                },
+                Vec::new(),
+                "sample_changed",
+            ),
+            (None, None) => {}
+        }
+    }
+}
+
 fn diff_optional_field<T: serde::Serialize + PartialEq>(
     changes: &mut Vec<SemanticChange>,
     kind: &'static str,
@@ -965,8 +1193,18 @@ fn target_with_json_path(target: &SemanticTarget, path: Vec<String>) -> Semantic
     }
 
     match &target.entity {
-        SemanticEntity::Value { .. } | SemanticEntity::CatalogEntry { .. } => {
+        SemanticEntity::Value { .. }
+        | SemanticEntity::CatalogEntry { .. }
+        | SemanticEntity::List { .. }
+        | SemanticEntity::EvaluationContextSample { .. } => {
             SemanticTarget::field(target.entity.clone(), SemanticField::ValueJsonPath { path })
+        }
+        // Schema-holding entities point into their JSON Schema document.
+        SemanticEntity::Catalog { .. } | SemanticEntity::EvaluationContext { .. } => {
+            SemanticTarget::field(
+                target.entity.clone(),
+                SemanticField::SchemaJsonPath { path },
+            )
         }
         _ => target.clone(),
     }

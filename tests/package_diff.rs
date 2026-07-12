@@ -65,6 +65,91 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
     );
 }
 
+/// Lists, samples, and evaluation-context schemas are semantic surface too:
+/// a change set touching them must say so, not just show the commits.
+#[test]
+fn diff_json_reports_list_sample_and_context_schema_changes() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let before = temp.path().join("before");
+    let after = temp.path().join("after");
+    copy_dir(Path::new("examples/basic"), &before);
+    copy_dir(Path::new("examples/basic"), &after);
+
+    // A list changes membership, and a brand-new list appears.
+    let list = "schema_version = 1\ntype = \"string\"\nmembers = [\"starter\", \"growth\"]\n";
+    fs::create_dir_all(before.join("lists")).unwrap();
+    fs::create_dir_all(after.join("lists")).unwrap();
+    fs::write(before.join("lists/plan_tiers.toml"), list).unwrap();
+    fs::write(
+        after.join("lists/plan_tiers.toml"),
+        list.replace("\"growth\"", "\"growth\", \"enterprise\""),
+    )
+    .unwrap();
+    fs::write(after.join("lists/regions.toml"), list).unwrap();
+
+    // A saved sample changes one fact.
+    let sample_path = "model/context/request-samples/premium_enterprise.json";
+    let sample = fs::read_to_string(before.join(sample_path)).unwrap();
+    fs::write(
+        after.join(sample_path),
+        sample.replace("\"premium\"", "\"basic\""),
+    )
+    .unwrap();
+
+    // The evaluation context schema grows a property.
+    let schema_path = "model/context/request.schema.json";
+    let schema = fs::read_to_string(before.join(schema_path)).unwrap();
+    fs::write(
+        after.join(schema_path),
+        schema.replacen(
+            "\"properties\"",
+            "\"x-note\": \"reviewed\", \"properties\"",
+            1,
+        ),
+    )
+    .unwrap();
+
+    let diff = diff_json(&before, &after, &[]);
+    let changes = diff["changes"].as_array().unwrap();
+
+    let members_change = changes
+        .iter()
+        .find(|change| change["kind"] == "list_changed")
+        .expect("list membership change");
+    assert_eq!(members_change["target"]["entity"]["id"], "plan_tiers");
+    assert_eq!(
+        members_change["target"]["field"]["path"],
+        serde_json::json!(["members"])
+    );
+
+    let added = changes
+        .iter()
+        .find(|change| change["kind"] == "list_added")
+        .expect("list added");
+    assert_eq!(added["target"]["entity"]["id"], "regions");
+
+    let sample_change = changes
+        .iter()
+        .find(|change| change["kind"] == "sample_changed")
+        .expect("sample change");
+    assert_eq!(
+        sample_change["target"]["entity"]["evaluation_context"],
+        "request"
+    );
+    assert_eq!(
+        sample_change["target"]["entity"]["key"],
+        "premium_enterprise"
+    );
+    assert_eq!(sample_change["before"], "premium");
+    assert_eq!(sample_change["after"], "basic");
+
+    let schema_change = changes
+        .iter()
+        .find(|change| change["kind"] == "evaluation_context_schema_changed")
+        .expect("evaluation context schema change");
+    assert_eq!(schema_change["target"]["entity"]["id"], "request");
+}
+
 #[test]
 fn diff_json_reports_layer_allocation_and_resolution_changes() {
     let temp = tempfile::TempDir::new().unwrap();

@@ -10,15 +10,25 @@ import type { ModelEntityRef } from "@/lib/api";
 import type { AddressStep } from "@/lib/router";
 
 // The address a model entity ref names, or null for refs that have no page
-// of their own (context attributes, allocations).
+// of their own (context attributes, allocations). Two spellings arrive
+// here: the semantic model's camelCase refs, and the review/diagnostics
+// SemanticTarget kinds, which are snake_case (src/diagnostics.rs).
 export function entitySteps(ref: ModelEntityRef): AddressStep[] | null {
     const id = typeof ref.id === "string" ? ref.id : null;
     switch (ref.kind) {
         case "variable":
             return id === null ? null : [{ class: "variable", id }];
+        case "value":
+        case "rule": {
+            const variable = ref["variable"];
+            return typeof variable === "string"
+                ? [{ class: "variable", id: variable }]
+                : null;
+        }
         case "catalog":
             return id === null ? null : [{ class: "catalog", id }];
-        case "catalogEntry": {
+        case "catalogEntry":
+        case "catalog_entry": {
             const catalog = ref["catalog"];
             const key = ref["key"];
             return typeof catalog === "string" && typeof key === "string"
@@ -31,9 +41,14 @@ export function entitySteps(ref: ModelEntityRef): AddressStep[] | null {
         case "list":
             return id === null ? null : [{ class: "list", id }];
         case "evaluationContext":
+        case "evaluation_context":
             return id === null ? null : [{ class: "evaluation-context", id }];
-        case "sample": {
-            const context = ref["evaluationContext"] ?? ref["context"];
+        case "sample":
+        case "evaluation_context_sample": {
+            const context =
+                ref["evaluationContext"] ??
+                ref["evaluation_context"] ??
+                ref["context"];
             const key = ref["key"];
             return typeof context === "string" && typeof key === "string"
                 ? [
@@ -50,14 +65,18 @@ export function entitySteps(ref: ModelEntityRef): AddressStep[] | null {
 }
 
 export function entityLabel(ref: ModelEntityRef): string {
-    if (ref.kind === "catalogEntry") {
+    if (ref.kind === "catalogEntry" || ref.kind === "catalog_entry") {
         return `${String(ref["catalog"])}/${String(ref["key"])}`;
     }
     if (ref.kind === "contextAttribute") {
         return `context.${String(ref["name"])}`;
     }
-    if (ref.kind === "sample") {
-        return `${String(ref["evaluationContext"] ?? ref["context"])}/${String(ref["key"])}`;
+    if (ref.kind === "sample" || ref.kind === "evaluation_context_sample") {
+        return `${String(ref["evaluationContext"] ?? ref["evaluation_context"] ?? ref["context"])}/${String(ref["key"])}`;
+    }
+    if (ref.kind === "value" || ref.kind === "rule") {
+        const detail = ref.kind === "value" ? ref["key"] : ref["index"];
+        return `${String(ref["variable"])} ${ref.kind} ${String(detail)}`;
     }
     return typeof ref.id === "string" ? ref.id : ref.kind;
 }

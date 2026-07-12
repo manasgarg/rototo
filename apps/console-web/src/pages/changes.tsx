@@ -778,7 +778,10 @@ function SemanticChangeRow({
     hrefEntity: (steps: AddressStep[]) => string;
 }) {
     const steps = entitySteps(change.target.entity);
-    const label = `${change.target.entity.kind} ${entityLabel(change.target.entity)}`;
+    // The row title already names the change kind; this line names the
+    // entity (review targets carry snake_case kinds, handled by the
+    // entity-link helpers).
+    const label = entityLabel(change.target.entity);
     const pointer = fieldPointer(change.target.field);
     return (
         <div className="row row-static">
