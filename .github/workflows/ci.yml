@@ -137,6 +137,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/ci-logs
+          npm --prefix apps/console-server ci
+          npm --prefix apps/console-web ci
           just test 2>&1 | tee target/ci-logs/test.log
       - name: Reproduce locally
         if: failure()
