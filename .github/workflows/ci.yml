@@ -49,7 +49,7 @@ jobs:
         run: 'echo "Run locally: just fmt-check"'
       - name: Upload fmt logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-fmt-logs
           path: target/ci-logs
@@ -91,7 +91,7 @@ jobs:
         run: 'echo "Run locally: just lint"'
       - name: Upload lint logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-lint-logs
           path: target/ci-logs
@@ -145,7 +145,7 @@ jobs:
         run: 'echo "Run locally: just test"'
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-test-logs
           path: target/ci-logs
@@ -177,7 +177,7 @@ jobs:
         run: 'echo "Run locally: just console-build"'
       - name: Upload console build logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-console-build-logs
           path: target/ci-logs
@@ -210,7 +210,7 @@ jobs:
         run: 'echo "Run locally: just release-check <version>"'
       - name: Upload release-check logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-release-check-logs
           path: target/ci-logs
@@ -259,7 +259,7 @@ jobs:
         run: 'echo "Run locally: just check"'
       - name: Upload check logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-check-logs
           path: target/ci-logs
