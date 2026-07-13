@@ -267,12 +267,21 @@ export function WorkbenchPage({
             const entry = inventory.synthesized.find(
                 (candidate) => syntheticLabel(candidate) === label,
             );
-            return entry !== undefined
+            // A boundary context is a deliberately minimal probe of one
+            // variable; it only means something on that variable's screen.
+            // Everywhere else fall back to no context instead of dimming
+            // the whole package under a context that carries almost nothing.
+            const onTargetScreen =
+                entry !== undefined &&
+                view.kind === "address" &&
+                view.steps[0]?.class === "variable" &&
+                view.steps[0].id === entry.target.id;
+            return entry !== undefined && onTargetScreen
                 ? { kind: "synthetic", label, context: entry.context }
                 : { kind: "none" };
         }
         return { kind: "none" };
-    }, [adhoc, state.context, inventory]);
+    }, [adhoc, state.context, inventory, view]);
 
     const chooseContext = useCallback(
         (next: ChosenContext) => {
