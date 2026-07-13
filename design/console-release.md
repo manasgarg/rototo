@@ -124,7 +124,7 @@ Added to `release.yml`, gated on `validate` like the others:
    - `npm ci` and `npm run stage:web` to place the built SPA in `web/`;
    - `npm pack --dry-run` to confirm the tarball contains `bin`, `src`,
      `web/index.html`, and all four `.node` files;
-   - `npm publish --provenance --access public`.
+   - `npm publish --provenance --access public --tag latest`.
 
 `stage:web` in the pipeline is not optional. A published package with an
 empty `web/` is an API-only server that looks broken to anyone expecting the

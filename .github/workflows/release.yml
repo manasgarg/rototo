@@ -411,7 +411,7 @@ jobs:
       # `latest` has to move with the publish itself.
       - name: Publish TypeScript SDK
         working-directory: sdks/typescript
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag latest
 
       - name: Download Java native libraries
         uses: actions/download-artifact@v4
@@ -483,7 +483,7 @@ jobs:
       # all, leaving the documented run command unresolvable.
       - name: Publish the console
         working-directory: apps/console-server
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag latest
 
       - name: Generate release artifact manifest
         run: node scripts/release-artifact-manifest.mjs "${GITHUB_REF_NAME#v}"
