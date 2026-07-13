@@ -22,7 +22,7 @@ To accomplish this, we would do two things:
 
 First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.6
+cargo install rototo --version 0.1.0-alpha.7
 ```
 
 Now, create a configuration package for the application:
@@ -89,7 +89,7 @@ rototo resolve app-config --variable free_shipping_threshold --context account.t
 Now let's read that value from an application. Install the rototo Java SDK:
 
 ```gradle
-implementation("dev.rototo:rototo:0.1.0-alpha.6")
+implementation("dev.rototo:rototo:0.1.0-alpha.7")
 ```
 
 Or with Maven:
@@ -98,7 +98,7 @@ Or with Maven:
 <dependency>
   <groupId>dev.rototo</groupId>
   <artifactId>rototo</artifactId>
-  <version>0.1.0-alpha.6</version>
+  <version>0.1.0-alpha.7</version>
 </dependency>
 ```
 

@@ -1,6 +1,6 @@
 {
     "name": "@rototo/console-web",
-    "version": "0.1.0-alpha.6",
+    "version": "0.1.0-alpha.7",
     "description": "The new rototo console frontend: a static SPA over the TypeScript console server.",
     "private": true,
     "type": "module",

@@ -447,6 +447,8 @@ release-prep version:
     done
 
     (cd sdks/typescript && npm version "$version" --no-git-tag-version --allow-same-version)
+    (cd apps/console-server && npm version "$version" --no-git-tag-version --allow-same-version)
+    (cd apps/console-web && npm version "$version" --no-git-tag-version --allow-same-version)
     perl -0pi -e 's|<version>[^<]+</version>|<version>'"$version"'</version>|' sdks/java/pom.xml
     cargo update -w
     cargo run --locked -- docs --package-readme python --out sdks/python/README.md

@@ -42,6 +42,16 @@ fn sdk_package_versions_match_root_package() {
         root_version,
         "sdks/typescript/package.json should use the canonical rototo version"
     );
+    assert_eq!(
+        json_manifest_version("apps/console-server/package.json", &["version"]),
+        root_version,
+        "apps/console-server/package.json should use the canonical rototo version"
+    );
+    assert_eq!(
+        json_manifest_version("apps/console-web/package.json", &["version"]),
+        root_version,
+        "apps/console-web/package.json should use the canonical rototo version"
+    );
 }
 
 fn manifest_version(path: &str, keys: &[&str]) -> String {

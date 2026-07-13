@@ -22,7 +22,7 @@ To accomplish this, we would do two things:
 
 First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.6
+cargo install rototo --version 0.1.0-alpha.7
 ```
 
 Now, create a configuration package for the application:
@@ -89,7 +89,7 @@ rototo resolve app-config --variable free_shipping_threshold --context account.t
 Now let's read that value from an application. Install the rototo Go SDK:
 
 ```sh
-go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.6
+go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.7
 ```
 
 Save this as `main.go`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
