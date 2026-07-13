@@ -27,7 +27,7 @@ All notable changes to rototo are documented here.
   SDKs: apps follow catalog references explicitly and receive raw entries.
   Enumeration APIs are now `<noun>_ids`; a fallback package source covers
   degraded starts.
-- Replaced the in-binary console with `@rototo/console`, a standalone Node
+- Replaced the in-binary console with `rototo-console`, a standalone Node
   app (`apps/console-server` and `apps/console-web`): change sets as
   branches and pull requests over the GitHub API, a workbench with
   semantic editing and raw TOML editing backed by live lint diagnostics,

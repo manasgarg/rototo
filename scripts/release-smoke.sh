@@ -24,10 +24,10 @@ if [[ "$npm_version" != "$version" ]]; then
     exit 1
 fi
 
-echo "Checking npm @rototo/console $version"
-console_version="$(npm view "@rototo/console@$version" version)"
+echo "Checking npm rototo-console $version"
+console_version="$(npm view "rototo-console@$version" version)"
 if [[ "$console_version" != "$version" ]]; then
-    echo "npm @rototo/console@$version returned version $console_version" >&2
+    echo "npm rototo-console@$version returned version $console_version" >&2
     exit 1
 fi
 

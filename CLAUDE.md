@@ -156,7 +156,7 @@ rototo resolve examples/basic --variable checkout_redesign \
 
 The console is its own product, fully decoupled from the CLI: there is no
 `rototo console` command and the rototo binary carries no server stack. It
-ships as `@rototo/console` (Node 24+): the TypeScript server in
+ships as `rototo-console` (Node 24+): the TypeScript server in
 `apps/console-server` serves the JSON API and the built web app from one
 process, reaching the Rust core through an internal napi binding crate
 (`rototo-console-native`, a workspace member; TypeScript resolves refs, the

@@ -297,4 +297,4 @@ Hence, Rototo is designed from ground up to work well both for people and agents
 - `rototo inspect` to reason about the package structure and how everything resolves at runtime.
 - `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).
 - `rototo lsp` to provide feedback (and help) during editing.
-- The rototo console, a companion web app that ships separately as `@rototo/console`, for a friendly UI over inspecting and editing the package.
+- The rototo console, a companion web app that ships separately as `rototo-console`, for a friendly UI over inspecting and editing the package.

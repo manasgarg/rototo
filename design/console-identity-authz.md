@@ -548,6 +548,6 @@ Two consequences worth recording:
   same format and key semantics as `token_crypto` today.
 
 One consequence belonged to the product-shape layer, not here, and is now
-decided (C7): the console ships as its own product, `@rototo/console`,
+decided (C7): the console ships as its own product, `rototo-console`,
 serving the web app and API from one Node process. The rototo binary
 carries no console and no `rototo console` command.

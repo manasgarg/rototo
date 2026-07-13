@@ -17,7 +17,7 @@ In team mode a change set can also carry collaborators: add a teammate by
 their GitHub login and they edit the same branch with you, as themselves.
 
 The console ships separately from the CLI as its own npm package,
-`@rototo/console`. It is a Node server that serves both a JSON API and the
+`rototo-console`. It is a Node server that serves both a JSON API and the
 web app from one process, and it reaches the same Rust core the CLI and SDKs
 use, so what you see in the console resolves exactly the way your services
 will.
@@ -27,7 +27,7 @@ will.
 You need Node 24 or newer. That is the only prerequisite.
 
 ```sh
-npx @rototo/console
+npx rototo-console
 ```
 
 With nothing else set, the console starts in **local mode**: no login, bound

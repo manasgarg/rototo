@@ -1,7 +1,7 @@
 // The console's entry point. The console ships as its own product (the C7
 // product-shape decision): this server serves the JSON API and the built
 // web app from one process, with no rototo CLI anywhere in the path. Run
-// it with `npx @rototo/console` (or `npm run dev` in the repo).
+// it with `npx rototo-console` (or `npm run dev` in the repo).
 
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";

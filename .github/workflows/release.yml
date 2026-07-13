@@ -478,7 +478,7 @@ jobs:
             exit 1
           fi
 
-      # Default dist-tag here too: `npx @rototo/console` resolves `latest`,
+      # Default dist-tag here too: `npx rototo-console` resolves `latest`,
       # and a first publish under an explicit tag would set no `latest` at
       # all, leaving the documented run command unresolvable.
       - name: Publish the console

@@ -151,7 +151,7 @@ jobs:
           path: target/ci-logs
 
   console:
-    # The console ships as its own product (@rototo/console): build the web
+    # The console ships as its own product (rototo-console): build the web
     # bundle and stage it into the server's serving layout.
     name: console
     runs-on: ubuntu-latest
