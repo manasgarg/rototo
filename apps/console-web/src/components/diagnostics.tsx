@@ -1,9 +1,9 @@
 // Lint surfacing, two pieces working together: a status pill that is
-// visible from every package screen (clean / N warnings / N errors, always
-// a link here), and the diagnostics view itself — every finding lint
-// reports at this pin, grouped by what it is about, searchable, each card
-// carrying the rule, the location, the fix hint, and a way to jump to the
-// thing being complained about.
+// visible from every package screen (clean / N warnings / N errors, a link
+// here unless the count tracks an unsaved buffer), and the diagnostics view
+// itself — every finding lint reports at this pin, grouped by what it is
+// about, searchable, each card carrying the rule, the location, the fix
+// hint, and a way to jump to the thing being complained about.
 
 import type { LintDiagnostic } from "@/lib/api";
 import { SearchableList } from "@/lib/ui-kit";
@@ -12,9 +12,15 @@ import type { AddressStep } from "@/lib/router";
 export function LintStatusPill({
     diagnostics,
     href,
+    buffered = false,
 }: {
     diagnostics: LintDiagnostic[];
     href: string;
+    // True when the count includes unsaved-buffer findings. The diagnostics
+    // screen only knows the saved pin, so linking there would show a
+    // different report than the pill claims; the findings themselves sit
+    // under the open editor instead.
+    buffered?: boolean;
 }) {
     const errors = count(diagnostics, "error");
     const warnings = diagnostics.length - errors;
@@ -24,12 +30,22 @@ export function LintStatusPill({
             : warnings > 0
               ? ["pill-warn", `${warnings} warning${warnings === 1 ? "" : "s"}`]
               : ["pill-ok", "lint clean"];
+    const pill = (
+        <span className={`pill ${tone}`}>
+            <span className="d" />
+            {text}
+        </span>
+    );
+    if (buffered) {
+        return (
+            <span title="Counts the unsaved buffer; the findings are listed under the editor.">
+                {pill}
+            </span>
+        );
+    }
     return (
         <a className="pill-link" href={href} title="Open diagnostics">
-            <span className={`pill ${tone}`}>
-                <span className="d" />
-                {text}
-            </span>
+            {pill}
         </a>
     );
 }

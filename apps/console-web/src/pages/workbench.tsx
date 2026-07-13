@@ -465,6 +465,10 @@ export function WorkbenchPage({
                                       ]
                             }
                             href={hrefView({ kind: "diagnostics" })}
+                            buffered={
+                                liveLint !== null &&
+                                liveLint.diagnostics.length > 0
+                            }
                         />
                     ) : null}
                     <ChangeSetControl
@@ -1812,6 +1816,7 @@ function ListPanel({
                     draft={toml.draft}
                     onDraft={toml.setDraft}
                     lsp={toml.lsp}
+                    live={toml.live}
                     changeSet={canEdit ? changeSet : null}
                     onSaved={onSaved}
                     onError={onError}
@@ -2081,6 +2086,9 @@ function useTomlFile(
     const [problem, setProblem] = useState<string | null>(null);
     const [draft, setDraft] = useState<string | null>(null);
     const [lsp, setLsp] = useState<LspFile | null>(null);
+    // The same publications the header pill judges, kept here too so the
+    // editing screen can show the findings next to the buffer they're in.
+    const [live, setLive] = useState<LintDiagnostic[] | null>(null);
 
     useEffect(() => {
         if (file === undefined) {
@@ -2114,25 +2122,28 @@ function useTomlFile(
         const session = new LspFile(treeId, detail.path, detail.pin, file);
         setLsp(session);
         const unsubscribe = session.onDiagnostics((published) => {
-            onLiveLint({
-                file,
-                diagnostics: published.map((diagnostic) => ({
-                    severity: diagnostic.severity === 1 ? "error" : "warning",
-                    rule: diagnostic.code,
-                    message: diagnostic.message,
-                    location: { path: file },
-                })),
-            });
+            const diagnostics = published.map((diagnostic) => ({
+                severity:
+                    diagnostic.severity === 1
+                        ? ("error" as const)
+                        : ("warning" as const),
+                rule: diagnostic.code,
+                message: diagnostic.message,
+                location: { path: file },
+            }));
+            setLive(diagnostics);
+            onLiveLint({ file, diagnostics });
         });
         return () => {
             unsubscribe();
             session.dispose();
             setLsp(null);
+            setLive(null);
             onLiveLint(null);
         };
     }, [withLsp, treeId, detail.path, detail.pin, file, onLiveLint]);
 
-    return { content, problem, draft, setDraft, lsp };
+    return { content, problem, draft, setDraft, lsp, live };
 }
 
 // --- the variable form: a producer of operations, never a TOML rewriter ---
@@ -2400,6 +2411,7 @@ function VariablePanel({
                         draft={toml.draft}
                         onDraft={toml.setDraft}
                         lsp={toml.lsp}
+                        live={toml.live}
                         changeSet={editable ? changeSet : null}
                         onSaved={onSaved}
                         onError={onError}
@@ -2647,6 +2659,41 @@ function VariablePanel({
     );
 }
 
+// The findings for one open buffer, spelled out under the editor: squiggles
+// locate a problem, this names it. `live` distinguishes "the language
+// server says the buffer is clean" from "no live session, staged lint
+// stands" (which shows nothing rather than claiming cleanliness).
+function BufferDiagnostics({
+    diagnostics,
+    live,
+}: {
+    diagnostics: LintDiagnostic[];
+    live: boolean;
+}) {
+    if (diagnostics.length === 0) {
+        return live ? (
+            <p className="hint">No findings in the open buffer.</p>
+        ) : null;
+    }
+    return (
+        <div className="diagnostic-group">
+            {diagnostics.map((diagnostic, index) => (
+                <p className="diagnostic" key={index}>
+                    <span
+                        className={`pill ${diagnostic.severity === "error" ? "pill-err" : "pill-warn"}`}
+                    >
+                        {diagnostic.severity}
+                    </span>{" "}
+                    {diagnostic.rule !== undefined ? (
+                        <span className="mono">{diagnostic.rule} </span>
+                    ) : null}
+                    {diagnostic.message}
+                </p>
+            ))}
+        </div>
+    );
+}
+
 // A raw TOML editor over one package file: read-only without a change set,
 // a live editor with one-commit saves inside one. The source and the draft
 // belong to the owning panel (useTomlFile), so switching editor modes
@@ -2659,6 +2706,7 @@ function TomlEditor({
     draft,
     onDraft,
     lsp,
+    live,
     changeSet,
     onSaved,
     onError,
@@ -2671,6 +2719,7 @@ function TomlEditor({
     draft: string | null;
     onDraft: (draft: string | null) => void;
     lsp: LspFile | null;
+    live: LintDiagnostic[] | null;
     changeSet: ChangeSet | null;
     onSaved: (result: EditResponse) => void;
     onError: (error: unknown) => void;
@@ -2707,6 +2756,15 @@ function TomlEditor({
                 lsp={lsp}
                 onChange={onDraft}
                 value={draft ?? content}
+            />
+            <BufferDiagnostics
+                diagnostics={
+                    live ??
+                    detail.lint.diagnostics.filter(
+                        (diagnostic) => diagnostic.location?.path === file,
+                    )
+                }
+                live={live !== null}
             />
             {dirty ? (
                 <div className="action-row definition-actions">
@@ -3335,25 +3393,7 @@ function FilePanel({
                     }}
                 />
             )}
-            {diagnostics.length > 0 ? (
-                <div className="diagnostic-group">
-                    {diagnostics.map((diagnostic, index) => (
-                        <p className="diagnostic" key={index}>
-                            <span
-                                className={`pill ${diagnostic.severity === "error" ? "pill-err" : "pill-warn"}`}
-                            >
-                                {diagnostic.severity}
-                            </span>{" "}
-                            {diagnostic.rule !== undefined ? (
-                                <span className="mono">{diagnostic.rule} </span>
-                            ) : null}
-                            {diagnostic.message}
-                        </p>
-                    ))}
-                </div>
-            ) : live !== null ? (
-                <p className="hint">No findings in the open buffer.</p>
-            ) : null}
+            <BufferDiagnostics diagnostics={diagnostics} live={live !== null} />
             <div className="card-actions">
                 {editable ? (
                     <>
