@@ -77,9 +77,13 @@ TLS, reverse-proxy to the console port.
    honest with how it is developed (`node src/main.ts`).
 
 3. **Same tag, same cadence as the SDKs.** The console publishes from the
-   same `v<version>` tag that publishes the crate and the language SDKs, with
-   the same `alpha` dist-tag while the project is pre-stable. It is one more
-   job in `release.yml`, not a separate pipeline.
+   same `v<version>` tag that publishes the crate and the language SDKs, on
+   the default `latest` dist-tag. `npx @rototo/console` resolves `latest`,
+   every pre-stable release is the newest thing there is, and npm's OIDC
+   trusted publishing carries no credential for a separate dist-tag call,
+   so `latest` moves with the publish itself (an earlier draft said a
+   shared `alpha` dist-tag; that left `latest` stranded on old versions).
+   It is one more job in `release.yml`, not a separate pipeline.
 
 4. **Platform set is the console's own.** The console targets Linux
    x64/arm64 and macOS x64/arm64 (`napi.targets` in its manifest). It does
@@ -172,10 +176,9 @@ the native matrix (2).
 
 ## Open questions
 
-- Does the first published console want the `alpha` dist-tag, or its own
-  `console-alpha` tag so console and SDK versions can move independently
-  under the same git tag? The default here is the shared `alpha` tag; revisit
-  only if the console needs to ship a fix between SDK releases.
+- Settled while wiring: publishes land on the default `latest` dist-tag
+  (Decision 3). Revisit a separate console dist-tag only if the console
+  needs to ship a fix between SDK releases.
 - Should the hosted-deploy story ship a reference `Caddyfile` (or compose
   file) in the package or docs, given that TLS termination is external? The
   `dev`/`demo` blocks are the working reference; promoting one into the repo

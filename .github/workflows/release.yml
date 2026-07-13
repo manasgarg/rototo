@@ -405,9 +405,13 @@ jobs:
           ls -la rototo.*.node
           npm pack --dry-run
 
+      # Published on the default dist-tag: the docs say `npm install rototo`,
+      # every release is the newest thing there is, and OIDC trusted
+      # publishing carries no credential for a separate dist-tag call, so
+      # `latest` has to move with the publish itself.
       - name: Publish TypeScript SDK
         working-directory: sdks/typescript
-        run: npm publish --provenance --tag alpha --access public
+        run: npm publish --provenance --access public
 
       - name: Download Java native libraries
         uses: actions/download-artifact@v4
@@ -474,9 +478,12 @@ jobs:
             exit 1
           fi
 
+      # Default dist-tag here too: `npx @rototo/console` resolves `latest`,
+      # and a first publish under an explicit tag would set no `latest` at
+      # all, leaving the documented run command unresolvable.
       - name: Publish the console
         working-directory: apps/console-server
-        run: npm publish --provenance --tag alpha --access public
+        run: npm publish --provenance --access public
 
       - name: Generate release artifact manifest
         run: node scripts/release-artifact-manifest.mjs "${GITHUB_REF_NAME#v}"
