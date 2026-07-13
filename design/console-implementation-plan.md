@@ -171,7 +171,7 @@ Gate: the old console is removable with `just check` green, all
 walkthroughs green, all budgets green.
 
 **Shipped (July 2026).** The product-shape decision landed as full
-decoupling: the console is its own product, `@rototo/console`, one Node
+decoupling: the console is its own product, `rototo-console`, one Node
 process serving the web app and the JSON API; the `rototo console`
 command, the Cargo console feature, `src/console/`, and `apps/console/`
 are gone, and the rototo binary is pure core and CLI. The parity
@@ -187,7 +187,7 @@ checklist against the old console:
   begins. Also dropped: the `--write direct-push` mode (every console
   write is a change set) and the embedded-SPA single binary.
 - Deferred, recorded in the specs: tenants, estate views, production
-  context capture, npm publish automation for `@rototo/console` (the
+  context capture, npm publish automation for `rototo-console` (the
   package is shaped for it: bin, files, staged web bundle).
 
 ## Deliberately in no tranche

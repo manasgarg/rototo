@@ -1,5 +1,5 @@
 {
-    "name": "@rototo/console",
+    "name": "rototo-console",
     "version": "0.1.0-alpha.7",
     "description": "The rototo console: the web console and its JSON API, shipped as its own product over the Rust core bindings.",
     "type": "module",

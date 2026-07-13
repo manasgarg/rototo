@@ -422,7 +422,7 @@ value = "redesign"
     <h2>Operate it from the console</h2>
     <p>
       The rototo console is a companion web app that ships separately as
-      <code>@rototo/console</code>: browse packages, trace how a variable
+      <code>rototo-console</code>: browse packages, trace how a variable
       resolves against saved contexts, edit through curated surfaces, and
       review changes with their resolution impact before they merge. Run it
       on your laptop with your own GitHub token, or host it for the team

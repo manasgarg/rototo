@@ -39,7 +39,7 @@ await writeFile(
       crates: `https://crates.io/crates/rototo/${version}`,
       pypi: `https://pypi.org/project/rototo/${pythonVersion(version)}/`,
       npm: `https://www.npmjs.com/package/rototo/v/${version}`,
-      console: `https://www.npmjs.com/package/@rototo/console/v/${version}`,
+      console: `https://www.npmjs.com/package/rototo-console/v/${version}`,
       maven: `https://central.sonatype.com/artifact/dev.rototo/rototo/${version}`,
       go: `https://pkg.go.dev/github.com/manasgarg/rototo/sdks/go@v${version}`,
     },

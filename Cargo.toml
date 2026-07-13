@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
 # The published crate is the core and CLI; the console ships separately as
-# the @rototo/console npm package. Frontend sources, SDKs, and tests stay
+# the rototo-console npm package. Frontend sources, SDKs, and tests stay
 # out of the package.
 include = [
     "/Cargo.toml",
