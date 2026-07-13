@@ -100,6 +100,11 @@ export function WorkbenchPage({
     const [listing, setListing] = useState<PackageListing | null>(null);
     const [detail, setDetail] = useState<PackageDetail | null>(null);
     const [banner, setBanner] = useState<Banner | null>(null);
+    // When the current banner was posted. A banner describes an action taken
+    // on the screen where it appeared; navigating to another view retires it
+    // (a stale "Saved" over a different entity reads as that entity being
+    // saved). Flows that navigate right after posting keep their feedback.
+    const bannerAt = useRef(0);
     // The read side's execution facet: the chosen context rides the URL as
     // `ctx` so it survives navigation and sharing; only an ad-hoc JSON
     // context stays session-local, because it has no name to link to.
@@ -116,6 +121,20 @@ export function WorkbenchPage({
         file: string;
         diagnostics: LintDiagnostic[];
     } | null>(null);
+
+    useEffect(() => {
+        if (banner !== null) {
+            bannerAt.current = Date.now();
+        }
+    }, [banner]);
+    const viewKey = JSON.stringify(view);
+    useEffect(() => {
+        setBanner((current) =>
+            current !== null && Date.now() - bannerAt.current > 1500
+                ? null
+                : current,
+        );
+    }, [viewKey]);
 
     const active =
         changeSets.find((entry) => entry.id === state.changeSetId) ?? null;
@@ -2299,7 +2318,11 @@ function VariablePanel({
         }).then(onSaved, onError);
     };
 
+    // The answer reflects the saved definition; an unsaved TOML draft (or a
+    // form draft, when the form returns) means the strip is answering for a
+    // definition the editor no longer shows, and must say so.
     const resolutionDirty =
+        (toml.draft !== null && toml.draft !== toml.content) ||
         method !== original.method ||
         !rulesEqual(rules, original.rules) ||
         defaultText !== original.defaultText ||
