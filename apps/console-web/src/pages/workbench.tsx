@@ -1643,6 +1643,9 @@ function ListPanel({
         [list, memberType],
     );
     const [memberTexts, setMemberTexts] = useState<string[]>(originalTexts);
+    // Text typed into the add box but not yet committed with Enter: it
+    // still counts as a change and rides along on save.
+    const [memberDraft, setMemberDraft] = useState("");
     if (list === undefined) {
         return (
             <div className="card">
@@ -1655,8 +1658,14 @@ function ListPanel({
             </div>
         );
     }
+    // The saved-on-commit member set plus whatever sits in the add box.
+    const pendingTexts = memberDraft
+        .split(",")
+        .map((text) => text.trim())
+        .filter((text) => text !== "" && !memberTexts.includes(text));
+    const draftTexts = [...memberTexts, ...pendingTexts];
     const dirty =
-        JSON.stringify([...memberTexts].sort()) !==
+        JSON.stringify([...draftTexts].sort()) !==
         JSON.stringify([...originalTexts].sort());
     const oneOp = (
         operation: EditOperation,
@@ -1685,7 +1694,7 @@ function ListPanel({
         }
         let operations: EditOperation[];
         try {
-            const drafts = new Set(memberTexts);
+            const drafts = new Set(draftTexts);
             const originals = new Set(originalTexts);
             operations = [
                 ...originalTexts
@@ -1695,7 +1704,7 @@ function ListPanel({
                         list: listId,
                         value: textToValue(text, memberType),
                     })),
-                ...memberTexts
+                ...draftTexts
                     .filter((text) => !originals.has(text))
                     .map((text) => ({
                         op: "add_member",
@@ -1711,6 +1720,8 @@ function ListPanel({
             return;
         }
         setSaving(true);
+        setMemberTexts(draftTexts);
+        setMemberDraft("");
         saveEdit(changeSet.id, {
             packagePath: detail.path,
             expectedPin: detail.pin,
@@ -1803,6 +1814,8 @@ function ListPanel({
                         members={memberTexts}
                         disabled={saving}
                         onChange={setMemberTexts}
+                        draft={memberDraft}
+                        onDraft={setMemberDraft}
                     />
                     <div className="card-actions definition-card-actions">
                         <button
@@ -1818,7 +1831,10 @@ function ListPanel({
                                 className="btn btn-ghost btn-sm"
                                 disabled={saving}
                                 type="button"
-                                onClick={() => setMemberTexts(originalTexts)}
+                                onClick={() => {
+                                    setMemberTexts(originalTexts);
+                                    setMemberDraft("");
+                                }}
                             >
                                 Discard
                             </button>
@@ -3536,13 +3552,22 @@ function MemberChipsEditor({
     members,
     disabled,
     onChange,
+    draft: controlledDraft,
+    onDraft,
 }: {
     type: string;
     members: string[];
     disabled: boolean;
     onChange: (members: string[]) => void;
+    // The add input's uncommitted text, lifted when the owner wants typed
+    // text to count before Enter or blur commits it (a save that ignores
+    // what is visibly in the box would surprise).
+    draft?: string;
+    onDraft?: (draft: string) => void;
 }) {
-    const [draft, setDraft] = useState("");
+    const [localDraft, setLocalDraft] = useState("");
+    const draft = controlledDraft ?? localDraft;
+    const setDraft = onDraft ?? setLocalDraft;
     // null shows the chips; an index is the member being edited in place.
     const [editing, setEditing] = useState<number | null>(null);
     const [editText, setEditText] = useState("");
@@ -3653,6 +3678,7 @@ function NewListForm({
     const [id, setId] = useState("");
     const [type, setType] = useState("string");
     const [memberTexts, setMemberTexts] = useState<string[]>([]);
+    const [memberDraft, setMemberDraft] = useState("");
     const [busy, setBusy] = useState(false);
     if (changeSet === null) {
         return null;
@@ -3668,9 +3694,17 @@ function NewListForm({
         );
     }
     const submit = () => {
+        // Text still sitting in the add box counts: Enter on the id field
+        // submits the form without ever blurring the member input.
+        const pendingTexts = memberDraft
+            .split(",")
+            .map((text) => text.trim())
+            .filter((text) => text !== "" && !memberTexts.includes(text));
         let members: unknown[];
         try {
-            members = memberTexts.map((text) => textToValue(text, type));
+            members = [...memberTexts, ...pendingTexts].map((text) =>
+                textToValue(text, type),
+            );
         } catch (error) {
             onError(error);
             return;
@@ -3728,6 +3762,8 @@ function NewListForm({
                 members={memberTexts}
                 disabled={busy}
                 onChange={setMemberTexts}
+                draft={memberDraft}
+                onDraft={setMemberDraft}
             />
             <div className="action-row">
                 <button
