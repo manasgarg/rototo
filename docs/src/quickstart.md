@@ -10,7 +10,7 @@ To accomplish this, we would do two things:
 
 First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.6
+cargo install rototo --version 0.1.0-alpha.7
 ```
 
 Now, create a configuration package for the application:
@@ -36,7 +36,7 @@ app-config
 7 directories, 2 files
 ```
 
-We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free_shipping_threshold`. Replace the contents of `free_shipping_threshold.toml` with the following:
+We explain the package model in [Rototo Concepts](./concepts.md). For now, we would focus on the variable `free_shipping_threshold`. Replace the contents of `free_shipping_threshold.toml` with the following:
 ```toml
 schema_version = 1
 description = "$ threshold for free shipping."

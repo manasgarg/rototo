@@ -17,7 +17,7 @@ We've already said Rototo packages live in git. You can keep the package right a
 
 Once you've picked the repo, it's worth running `rototo setup`. It wires up:
 
-- your **editor** (Neovim and VS Code), so editing configuration is comfortable;
+- your **editor** (Neovim), so editing configuration is comfortable;
 - your **agent**, so it knows about the `rototo` CLI - Rototo is built to be agent-friendly, and it even ships all of its reference docs inside the CLI;
 - your **shell**, so the `rototo` CLI is easier on the fingers.
 

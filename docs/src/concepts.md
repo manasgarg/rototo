@@ -250,7 +250,7 @@ This keeps structured configuration from getting scattered across a bunch of unr
 
 Sometimes the application doesn't want one catalog entry - it wants a filtered list of them. A dropdown is the classic case: the package might define every supported LLM parameter set, but the app should only show the ones that are currently enabled.
 
-Catalog queries handle that. A variable can resolve to `array<catalog:...>` and declare `method = "query"` in its resolve block to pick the matching entries from the catalog's own data.
+Catalog queries handle that. A variable can resolve to `array<catalog=...>` and declare `method = "query"` in its resolve block to pick the matching entries from the catalog's own data.
 
 First, add an `enabled` field to the `llm_parameters` catalog schema:
 

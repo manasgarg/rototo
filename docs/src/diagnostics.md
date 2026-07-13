@@ -199,7 +199,7 @@ What each field in `lint:rule({...})` does:
 - `title` - a short summary. Required.
 - `help` - how to fix it. Required.
 - `handler` - the name of the function rototo calls. Required.
-- `target` - what the rule runs against (defaults to `/`, the whole package).
+- `target` - what the rule runs against (defaults to `package=`, the whole package).
 - `severity` - `error` or `warning` (defaults to `error`).
 
 The handler gets the `package` and the current `target`, and returns an array of
@@ -224,7 +224,7 @@ with the fields you'll actually use up top:
   "rule": "rototo/variable-value-type-mismatch",
   "severity": "error",
   "message": "value 3 does not match declared type bool",
-  "help": "Use a value matching the variable's declared type.",
+  "help": "Update the value so it matches the declared primitive type.",
   "location": {
     "path": "variables/checkout_redesign.toml",
     "range": {
@@ -235,7 +235,7 @@ with the fields you'll actually use up top:
   "stage": "value",
   "target": {
     "entity": { "kind": "variable", "id": "checkout_redesign" },
-    "field": { "kind": "resolveDefault" }
+    "field": { "kind": "variable_resolve_default" }
   },
   "related": [
     { "location": { "path": "...", "range": { } }, "message": "declared here" }

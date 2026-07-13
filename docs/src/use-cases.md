@@ -193,7 +193,7 @@ providers for this `(channel, jurisdiction)`, sort by priority, take the top.
 Failover is then a two-line data edit - mark the primary `disabled`, or
 out-rank it with the backup - reviewed and logged. `examples/regional-policy`
 does exactly this in `message_provider`, migrates delivery traffic tenant by
-tenant through a layer (`use_new_delivery_pipeline`), and keeps AI
+tenant through a layer-allocated variable (`use_new_delivery_pipeline`), and keeps AI
 configuration as catalog entries where the model id, prompt version, and
 parameters travel together, so a resolution can never mix prompt v14 with the
 wrong model.

@@ -221,7 +221,8 @@ debugging - the default and every rule that was considered:
       "default_value": { "variant": "control" },
       "default_source": { "kind": "catalog", "catalog": "checkout_redesign", "value": "control" },
       "rules": [
-        { "index": 0, "condition": "variables[\"premium_users\"]", "value": { }, "matched": true }
+        { "index": 0, "condition": "variables[\"premium_users\"]", "value": { }, "matched": true,
+          "source": { "kind": "catalog", "catalog": "checkout_redesign", "value": "premium" } }
       ]
     }
   ]
@@ -229,7 +230,7 @@ debugging - the default and every rule that was considered:
 ```
 
 The `source.kind` is `literal` for a plain value, `catalog` for a single catalog
-entry, or `catalog_list` for a `array<catalog:...>` value.
+entry, or `catalog_array` for an `array<catalog=...>` value.
 
 ## diff - what changed, behaviorally
 

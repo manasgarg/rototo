@@ -17,37 +17,37 @@ all of this for you. This is just so you know what goes where:
 ```text
 my-package/
 ├── rototo-package.toml              # the manifest - marks this folder as a package
+├── governance.toml                  # what overlays may change, when this is a base
 ├── variables/                       # the values your app reads
 │   ├── premium_users.toml
 │   └── checkout_redesign.toml
+├── lists/                           # named closed sets of scalar values
+│   └── plan_tiers.toml
 ├── layers/                          # shared bucket lines for rollouts and experiments
 │   └── checkout.toml
 ├── model/                           # contracts: what values must look like
 │   ├── catalogs/
 │   │   └── checkout_redesign.schema.json
-│   ├── lists/
-│   │   └── plan_tiers.toml
 │   └── context/                     # the shape of the facts your app passes in
 │       ├── request.schema.json
 │       └── request-samples/
 │           └── premium_enterprise.json
 ├── data/                            # values that satisfy those contracts
-│   ├── catalogs/
-│   │   └── checkout_redesign/
-│   │       └── control.toml
-│   └── lists/
-│       └── plan_tiers.toml
+│   └── catalogs/
+│       └── checkout_redesign/
+│           └── control.toml
 └── lint/                            # your own custom checks, in Lua
     └── checkout_redesign.lua
 ```
 
 Notice the split between `model/` and `data/`. `model/` holds contracts: catalog
-schemas, list declarations, evaluation-context schemas. `data/` holds the values
-that have to satisfy those contracts: catalog entries and list members. That
-separation matters in review: a change under `model/` changes what's *allowed*,
-a change under `data/` changes what's *there*. Variables and lint sit at the top
-level because each is its own thing - a variable is both contract and value in
-one file, and lint is code.
+schemas and evaluation-context schemas. `data/` holds the values that have to
+satisfy those contracts: catalog entries. That separation matters in review: a
+change under `model/` changes what's *allowed*, a change under `data/` changes
+what's *there*. Variables, lists, and lint sit at the top level because each is
+its own thing - a variable or a list is both contract and value in one file,
+and lint is code. `governance.toml` appears only when the package is a base
+that other packages extend.
 
 Two rules tie the folder together.
 
@@ -311,7 +311,7 @@ has to name a member some base package actually provides ("deleted list member
 is not in the base packages" fails the load), a single package may not both add
 and delete the same value, and deleting every member fails the load - an
 empty list is not a thing. In a package with no `extends`, a `deleted` key has
-nothing to remove from and lint flags it (`rototo/list-members-shape`).
+nothing to remove from and lint flags it (`rototo/list-shape`).
 
 Deleting a member someone depends on is loud in the same way entry deletes
 are: if a base variable default, rule value, catalog entry, or context sample
@@ -1063,7 +1063,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout_redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     handler = "check_heading",
   })
 end
@@ -1087,7 +1087,7 @@ A rule registration has five parts:
 - `handler` - the name of the function rototo calls for each target.
 
 There's also an optional `severity` (`"error"` or `"warning"`, default
-`"error"`), and `target` itself defaults to `/`, the whole package.
+`"error"`), and `target` itself defaults to `package=`, the whole package.
 
 The handler returns an array of problems. Each problem just needs a `message`;
 returning an empty list `{}` means "all good." A problem can also carry a

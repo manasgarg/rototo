@@ -82,7 +82,7 @@ pkg, err := rototo.Load(ctx, "examples/basic", nil)
 if err != nil {
     return err
 }
-defer pkg.Close(ctx)
+defer pkg.Close()
 
 resolution, err := pkg.ResolveVariable("premium_message", map[string]any{
     "user": map[string]any{"tier": "premium"},
@@ -103,11 +103,16 @@ A variable resolution carries three things:
   string, array, or object);
 - the **source** - where the value came from, so you can see *why* you got it.
   `source.kind` is `literal` for a plain value, `catalog` for a single
-  [catalog](./package-format.md) entry (with the catalog and entry ids), or
-  `catalog_list` for a `array<catalog:...>` value.
+  [catalog](./package-format.md) entry (the catalog id plus the entry id in
+  its `value` field), or `catalog_array` for an `array<catalog=...>` value.
 
 For a catalog-backed variable, `value` is the full structured entry - heading,
-image, body, whatever the catalog defines - not just the entry's name.
+image, body, whatever the catalog defines - not just the entry's name. One
+boundary to know: the entry comes back exactly as it is written in the
+package. If one of its fields is an `x-rototo-ref` reference to another
+entry, you receive the reference string, not the referenced entry inlined.
+Following a reference is an explicit step, covered in
+[Reading the package directly](#reading-the-package-directly) below.
 
 ## Resolving a condition variable
 
@@ -158,6 +163,122 @@ if err != nil {
 isPremium := resolution.Value == true
 ```
 :::
+
+## Reading the package directly
+
+Resolution answers one question: what value should *this request* see. Some
+apps need a second kind of question: what is *in* the package. A billing page
+wants every plan tier so it can render a comparison table. An entitlement
+check wants the feature entry a plan refers to. That is what the reading
+surface is for.
+
+It exists because of how references come back. A catalog entry can point at
+other entries by id - a plan carries feature ids, an email carries a template
+id - through `x-rototo-ref` in the catalog schema. When a resolution hands
+you that entry, the reference is still a string. rototo does not inline the
+referenced entry, because only your app knows how deep to go: inlining
+everything would turn a small plan object into the transitive closure of the
+catalog. Following a reference is one explicit call instead.
+
+Four operations cover it, with the same names in every SDK (local spelling
+applies):
+
+- `list_ids()` and `read_list(id)` - the declared lists, and one list's type
+  and members;
+- `entry_ids(catalog)` and `read_entry(catalog, entry)` - one catalog's entry
+  ids, and one raw entry exactly as authored;
+- `resolve_reference(address)` - follow one reference by address, like
+  `catalog=features:entry=api_access`, with an optional `#/pointer` into the
+  entry. In Rust the address form is `resolve_reference_at`.
+- `resolve_entry_ref(value, pins)` - follow a raw reference string you found
+  in an entry field, against the catalogs its schema pins. Rust instead
+  offers `references_in`, which reports every reference a value carries,
+  ready to follow.
+
+Here is the plan-and-features flow end to end, using the `examples/billing`
+package: resolve the plan, then follow its feature references only as far as
+the page needs.
+
+:::sdk-snippet read-package
+```rust
+// The plan entry arrives as authored: feature ids, not feature objects.
+let plan = package.resolve_variable("active_plan", &context)?;
+
+for feature_id in plan.value["features"].as_array().unwrap() {
+    let feature = package.read_entry("features", feature_id.as_str().unwrap())?;
+    // render the feature row
+}
+
+let tiers = package.read_list("plan_tiers")?; // id, member type, members
+```
+
+```python
+plan = package.resolve_variable("active_plan", {"account": {"plan_tier": "team"}})
+
+# The plan entry arrives as authored: feature ids, not feature objects.
+for feature_id in plan.value["features"]:
+    feature = package.read_entry("features", feature_id)
+    # render the feature row
+
+tiers = package.read_list("plan_tiers")  # id, memberType, members
+```
+
+```typescript
+const plan = pkg.resolveVariable("active_plan", {
+  account: { plan_tier: "team" },
+});
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+const { features } = plan.value as { features: string[] };
+for (const featureId of features) {
+  const feature = pkg.readEntry("features", featureId);
+  // render the feature row
+}
+
+const tiers = pkg.readList("plan_tiers"); // id, memberType, members
+```
+
+```java
+VariableResolution plan = pkg.resolveVariable(
+    "active_plan",
+    Map.of("account", Map.of("plan_tier", "team"))
+);
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+Map<String, Object> value = (Map<String, Object>) plan.value();
+for (Object featureId : (java.util.List<Object>) value.get("features")) {
+    Object feature = pkg.readEntry("features", featureId.toString());
+    // render the feature row
+}
+
+Map<String, Object> tiers = pkg.readList("plan_tiers");
+```
+
+```go
+plan, err := pkg.ResolveVariable("active_plan", map[string]any{
+    "account": map[string]any{"plan_tier": "team"},
+}, nil)
+if err != nil {
+    return err
+}
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+features := plan.Value.(map[string]any)["features"].([]any)
+for _, featureId := range features {
+    feature, err := pkg.ReadEntry("features", featureId.(string))
+    if err != nil {
+        return err
+    }
+    _ = feature // render the feature row
+}
+
+tiers, err := pkg.ReadList("plan_tiers")
+```
+:::
+
+Everything this surface returns is read-only and comes from the loaded
+package, so it is consistent with what resolution would answer at the same
+moment.
 
 ## Keeping a long-running service fresh
 
@@ -381,9 +502,10 @@ truth you reconcile against.
 The event itself is a flat record, and every field exists to be joined across
 instances:
 
-- **`event_type`** - one of `loaded` (the initial load), `refresh_started`,
-  `unchanged`, `refreshed`, `failed`, `immutable` (a refresh was asked of a
-  pinned source), or `shutdown`.
+- **`event_type`** - one of `loaded` (the initial load), `fallback_loaded`
+  (the start was degraded and the fallback source answered),
+  `refresh_started`, `unchanged`, `refreshed`, `failed`, `immutable` (a
+  refresh was asked of a pinned source), or `shutdown`.
 - **`event_id`** - a unique id for deduplicating shipped logs.
 - **`source`** - the package source with any embedded credentials redacted,
   safe to log as-is.
@@ -531,9 +653,9 @@ malformed context is caught early. You can turn that off per call if you've
 already validated upstream.
 
 **Version.** Every SDK exposes the canonical rototo version (currently
-`0.1.0-alpha.6`) - as `rototo.__version__` in Python, a `version()` call in
+`0.1.0-alpha.7`) - as `rototo.__version__` in Python, a `version()` call in
 TypeScript, Go, and Java, and the crate version in Rust. The Python wheel
-displays its ecosystem-normalized spelling (`0.1.0a5`) in package metadata, but
+displays its ecosystem-normalized spelling (`0.1.0a7`) in package metadata, but
 the version the runtime reports is the canonical one.
 
 ## Load options
@@ -566,21 +688,19 @@ Per-resolve options are separate and small: `ResolveOptions` holds
 ## Asking a package what it is
 
 A loaded package can identify itself, which matters the moment logs from two
-instances disagree:
+instances disagree. Every SDK exposes **`identity()`**: the package's
+identity as one value, carrying the redacted source, the source fingerprint
+(a stable hash of the staged content, so two instances serving identical
+bytes agree on it even if they loaded at different times), the load time,
+whether the source is pinned, and for a composed package the sources it was
+flattened from. Log it at startup and every "which config is this box on?"
+question becomes grep.
 
-- **`identity()`** - the package's identity as one value: the redacted source,
-  the source fingerprint, and the load time. Log it at startup and every
-  "which config is this box on?" question becomes grep.
-- **`source_fingerprint()`** - the fingerprint alone: a stable hash of the
-  staged content, so two instances serving identical bytes agree on it even
-  if they loaded at different times.
-- **`loaded_at()`** - when this package was staged.
-- **`immutable_source()`** - whether the source is pinned (a commit ref), and
-  so can never refresh into something new.
-- **`source_layers()`** - for a composed package, the sources it was flattened
-  from, in order.
-- **`inspection()` and `context_schema()`** - the staged package data and the
-  evaluation-context schema, for tools that introspect rather than resolve.
+The Rust SDK also breaks the same facts out as individual accessors -
+`source_fingerprint()`, `loaded_at()`, `immutable_source()`,
+`source_layers()` - plus `inspection()` and `context_schema()` for tools
+that introspect rather than resolve. The other SDKs keep just `identity()`;
+read the fields off it.
 
 ## Inspecting without the lint gate
 

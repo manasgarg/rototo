@@ -149,8 +149,10 @@ You can index with dots (`context.user.tier`) or with brackets when a key has
 funny characters (`context["account.plan"]`).
 
 A few things are *not* in the language, because the CEL subset leaves them out:
-no loops, no comprehensions, no assigning to things, no defining your own
-functions. Expressions are meant to *ask a question*, not run a program. And
+no loops, no assigning to things, no defining your own functions.
+(Comprehension macros like `.exists(...)` are fine - they ask a question over
+a collection, they don't run a program.) Expressions are meant to *ask a
+question*, not run a program. And
 because lint knows your context schema, it'll also catch type mismatches - like
 comparing a string field against a number.
 

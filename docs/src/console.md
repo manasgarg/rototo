@@ -4,14 +4,17 @@ Most of rototo is built for machines: the CLI runs in a terminal or CI, and
 the SDK resolves variables inside your services. The console is the piece
 built for people. It is a web app for the humans who review and edit
 configuration: browse a package, see how a variable resolves against a saved
-context, edit through curated forms, and open a pull request with the
-resolution impact attached before anyone merges it.
+context, edit a definition directly with the same lint the CLI runs marking
+problems as you type, and open a pull request with the resolution impact
+attached before anyone merges it.
 
 It does not change the model. Git is still the source of truth, and every
 edit still lands as a normal change on a branch, reviewed in a pull request.
 The console is a lens over that, plus a safer way to make the edit. Nothing
 you do in the console bypasses review: every write becomes a change set, a
 branch and a PR through the GitHub API, the same way you would do it by hand.
+In team mode a change set can also carry collaborators: add a teammate by
+their GitHub login and they edit the same branch with you, as themselves.
 
 The console ships separately from the CLI as its own npm package,
 `@rototo/console`. It is a Node server that serves both a JSON API and the
