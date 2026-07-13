@@ -2660,20 +2660,11 @@ function VariablePanel({
 }
 
 // The findings for one open buffer, spelled out under the editor: squiggles
-// locate a problem, this names it. `live` distinguishes "the language
-// server says the buffer is clean" from "no live session, staged lint
-// stands" (which shows nothing rather than claiming cleanliness).
-function BufferDiagnostics({
-    diagnostics,
-    live,
-}: {
-    diagnostics: LintDiagnostic[];
-    live: boolean;
-}) {
+// locate a problem, this names it. A clean buffer renders nothing; the
+// header pill already says so.
+function BufferDiagnostics({ diagnostics }: { diagnostics: LintDiagnostic[] }) {
     if (diagnostics.length === 0) {
-        return live ? (
-            <p className="hint">No findings in the open buffer.</p>
-        ) : null;
+        return null;
     }
     return (
         <div className="diagnostic-group">
@@ -2764,7 +2755,6 @@ function TomlEditor({
                         (diagnostic) => diagnostic.location?.path === file,
                     )
                 }
-                live={live !== null}
             />
             {dirty ? (
                 <div className="action-row definition-actions">
@@ -3393,7 +3383,7 @@ function FilePanel({
                     }}
                 />
             )}
-            <BufferDiagnostics diagnostics={diagnostics} live={live !== null} />
+            <BufferDiagnostics diagnostics={diagnostics} />
             <div className="card-actions">
                 {editable ? (
                     <>
