@@ -1,0 +1,28 @@
+# After `in lists.` the legal references are the declared lists' member
+# lists, offered by id. The list lives in an unsaved overlay.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'context.account.plan_tier in lists.$0'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "lists/plan_tiers.toml"
+text = '''
+schema_version = 1
+type = "string"
+members = ["free", "team", "business"]
+'''
+
+[[expect.includes]]
+label = "lists.plan_tiers"
+detail = "list members"

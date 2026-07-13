@@ -8,6 +8,7 @@ public final class RefreshStatus {
     private final String lastError;
     private final boolean refreshing;
     private final boolean immutable;
+    private final boolean servingFallback;
 
     public RefreshStatus(
             Object currentFingerprint,
@@ -16,7 +17,8 @@ public final class RefreshStatus {
             long consecutiveFailures,
             String lastError,
             boolean refreshing,
-            boolean immutable) {
+            boolean immutable,
+            boolean servingFallback) {
         this.currentFingerprint = currentFingerprint;
         this.lastSuccess = lastSuccess;
         this.lastAttempt = lastAttempt;
@@ -24,6 +26,7 @@ public final class RefreshStatus {
         this.lastError = lastError;
         this.refreshing = refreshing;
         this.immutable = immutable;
+        this.servingFallback = servingFallback;
     }
 
     public Object currentFingerprint() {
@@ -52,5 +55,13 @@ public final class RefreshStatus {
 
     public boolean immutable() {
         return immutable;
+    }
+
+    /**
+     * True while the serving package came from the fallback source instead of
+     * the primary. Clears on the first successful refresh from the primary.
+     */
+    public boolean servingFallback() {
+        return servingFallback;
     }
 }

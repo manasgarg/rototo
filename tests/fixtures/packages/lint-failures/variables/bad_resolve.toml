@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Variable with bad variable and value references"
+type = "catalog=bad_resolve"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'variables["missing-condition"]'
+value = "another-missing-value"

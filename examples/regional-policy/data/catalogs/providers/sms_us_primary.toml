@@ -1,0 +1,5 @@
+name = "Textline US"
+channel = "sms"
+jurisdiction = "us"
+priority = 100
+status = "active"

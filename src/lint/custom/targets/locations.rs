@@ -38,8 +38,9 @@ fn resolve_output_pointer(
 ) -> Option<RegisteredLintOutputAnchor> {
     match entity {
         SemanticEntity::Package => package_pointer(ctx, tokens),
-        SemanticEntity::Qualifier { id } => qualifier_pointer(ctx, id, tokens),
-        SemanticEntity::Predicate { .. } => None,
+        SemanticEntity::List { .. } | SemanticEntity::Layer { .. } | SemanticEntity::Governance => {
+            None
+        }
         SemanticEntity::Variable { id } => variable_pointer(ctx, id, tokens),
         SemanticEntity::Value { variable, key } => value_pointer(ctx, variable, key, tokens),
         SemanticEntity::Rule { variable, index } => rule_pointer(ctx, variable, *index, tokens),
@@ -71,12 +72,6 @@ fn registered_lint_output_location(
             .manifest
             .as_ref()
             .map(|manifest| registered_package_location(ctx, manifest, Some(field)))
-            .unwrap_or(fallback),
-        (SemanticEntity::Qualifier { id }, _) => ctx
-            .index
-            .qualifiers
-            .get(id)
-            .map(|qualifier| registered_qualifier_location(ctx, qualifier, Some(field)))
             .unwrap_or(fallback),
         (SemanticEntity::Variable { id }, _) => ctx
             .index
@@ -178,16 +173,19 @@ fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<Diagnos
             .manifest
             .as_ref()
             .map(|manifest| registered_package_location(ctx, manifest, None)),
-        SemanticEntity::Qualifier { id } => ctx
-            .index
-            .qualifiers
-            .get(id)
-            .map(|qualifier| qualifier.location.clone()),
         SemanticEntity::Variable { id } => ctx
             .index
             .variables
             .get(id)
             .map(|variable| variable.location.clone()),
+        SemanticEntity::Layer { id } => {
+            ctx.index.layers.get(id).map(|layer| layer.location.clone())
+        }
+        SemanticEntity::Governance => ctx
+            .index
+            .governance
+            .as_ref()
+            .map(|governance| governance.location.clone()),
         SemanticEntity::Value { variable, key } => ctx
             .index
             .variables
@@ -225,9 +223,12 @@ fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<Diagnos
             .get(evaluation_context)
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone()),
-        SemanticEntity::Predicate { .. }
-        | SemanticEntity::Manifest
-        | SemanticEntity::CustomLint { .. } => None,
+        SemanticEntity::List { id } => ctx
+            .index
+            .lists
+            .get(id)
+            .map(|declaration| declaration.location.clone()),
+        SemanticEntity::Manifest | SemanticEntity::CustomLint { .. } => None,
     }
 }
 
@@ -252,8 +253,6 @@ fn package_pointer(ctx: &LintContext, tokens: &[String]) -> Option<RegisteredLin
             SemanticField::PackageExtends,
             registered_package_location(ctx, manifest, None),
         )),
-        [segment, id, rest @ ..] if segment == "qualifiers" => qualifier_pointer(ctx, id, rest)
-            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "variables" => variable_pointer(ctx, id, rest)
             .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "catalogs" => catalog_pointer(ctx, id, rest)
@@ -263,33 +262,6 @@ fn package_pointer(ctx: &LintContext, tokens: &[String]) -> Option<RegisteredLin
                 .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None))
         }
         _ => registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None),
-    }
-}
-
-fn qualifier_pointer(
-    ctx: &LintContext,
-    id: &str,
-    tokens: &[String],
-) -> Option<RegisteredLintOutputAnchor> {
-    let qualifier = ctx.index.qualifiers.get(id)?;
-    let entity = SemanticEntity::Qualifier { id: id.to_owned() };
-    if tokens.is_empty() {
-        return registered_lint_output_anchor_for(ctx, entity, None);
-    }
-    match tokens {
-        [segment, ..] if segment == "description" => Some(field_anchor(
-            ctx,
-            entity,
-            SemanticField::Description,
-            qualifier.location.clone(),
-        )),
-        [segment, ..] if segment == "when" => Some(field_anchor(
-            ctx,
-            entity,
-            SemanticField::QualifierWhen,
-            qualifier.location.clone(),
-        )),
-        _ => registered_lint_output_anchor_for(ctx, entity, None),
     }
 }
 
@@ -432,15 +404,6 @@ fn rule_pointer(
             entity.clone(),
             SemanticField::VariableRuleWhen,
             rule.when
-                .as_ref()
-                .map(ProjectField::location)
-                .unwrap_or_else(|| rule.location.clone()),
-        )),
-        Some("query") => Some(field_anchor(
-            ctx,
-            entity,
-            SemanticField::VariableRuleQuery,
-            rule.query
                 .as_ref()
                 .map(ProjectField::location)
                 .unwrap_or_else(|| rule.location.clone()),
@@ -605,22 +568,6 @@ pub(super) fn registered_package_location(
     }
 }
 
-fn registered_qualifier_location(
-    ctx: &LintContext,
-    qualifier: &QualifierNode,
-    field: Option<&SemanticField>,
-) -> DiagnosticLocation {
-    match field {
-        Some(SemanticField::Description) => {
-            toml_root_item_location(ctx, qualifier.doc, "description")
-                .unwrap_or_else(|| qualifier.location.clone())
-        }
-        Some(SemanticField::QualifierWhen) => toml_root_item_location(ctx, qualifier.doc, "when")
-            .unwrap_or_else(|| qualifier.location.clone()),
-        _ => qualifier.location.clone(),
-    }
-}
-
 fn registered_variable_location(
     ctx: &LintContext,
     variable: &VariableNode,
@@ -664,11 +611,6 @@ fn registered_rule_location(
     match field {
         Some(SemanticField::VariableRuleWhen) => rule
             .when
-            .as_ref()
-            .map(ProjectField::location)
-            .unwrap_or_else(|| rule.location.clone()),
-        Some(SemanticField::VariableRuleQuery) => rule
-            .query
             .as_ref()
             .map(ProjectField::location)
             .unwrap_or_else(|| rule.location.clone()),

@@ -10,7 +10,8 @@ fi
 
 if command -v npm >/dev/null; then
     echo "- Console npm:"
-    (cd apps/console && npm outdated || true)
+    (cd apps/console-server && npm outdated || true)
+    (cd apps/console-web && npm outdated || true)
     echo "- TypeScript SDK npm:"
     (cd sdks/typescript && npm outdated || true)
 fi

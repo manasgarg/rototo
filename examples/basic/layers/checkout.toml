@@ -1,0 +1,18 @@
+schema_version = 1
+
+description = "Checkout page experiments, diverted by user id"
+unit = "context.user.id"
+buckets = 1000
+
+[[allocation]]
+id = "cta_copy_test"
+status = "running"
+eligibility = '!variables["enterprise_accounts"]'
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-499"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "500-999"

@@ -5,7 +5,7 @@ use crate::diagnostics::{
     DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
-use crate::model::{CatalogLint, PackageDiff, PackageLint, QualifierLint, VariableLint};
+use crate::model::{CatalogLint, PackageDiff, PackageLint, VariableLint};
 
 mod builtins;
 mod catalog_schema;
@@ -25,27 +25,30 @@ mod source;
 mod stages;
 mod symbols;
 mod syntax;
+mod upcoming;
 
 pub(crate) use evaluation_context::EvaluationContextCompatibility;
+pub(crate) use index::parse_arm_buckets;
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
 pub(crate) use runtime::{
-    RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
-    compile_runtime_package, compile_runtime_package_from_snapshot,
+    RuntimeAllocation, RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule,
+    RuntimeSelectedValue, compile_runtime_package, compile_runtime_package_from_snapshot,
 };
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
-    EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
-    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel,
-    QualifierEvaluationContextModel, QualifierModel, ReferenceModel, ResolveModel, RuleModel,
-    ValueModel, VariableEvaluationContextModel, VariableModel,
+    EvaluationContextSampleModel, LinterModel, LinterRuleModel, ListModel, ModelEntityRef,
+    ModelField, ModelLocation, ModelReferenceVia, ModelValueField, PackageExtendModel,
+    PackageSemanticModel, ReferenceModel, ResolveModel, RuleModel, ValueModel,
+    VariableEvaluationContextModel, VariableModel,
 };
 pub(crate) use symbols::{
     PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
     PackageDocumentSymbolKind, PackageHover, PackageReference,
 };
+pub use upcoming::{UpcomingChange, UpcomingChangeSite};
 
 const PACKAGE_MANIFEST: &str = "rototo-package.toml";
 /// Lints the package and projects its semantic and reference indexes into
@@ -59,6 +62,15 @@ pub async fn lint_package(package_root: &Path) -> Result<PackageLint> {
     lint_package_with_input(LintInput::new(package_root.to_path_buf())).await
 }
 
+/// Behavior scheduled to change after `now` (an RFC3339 instant): every rule
+/// and query expression comparing `env.now` against a literal instant that
+/// has not passed yet. These changes happen with no commit and no deploy,
+/// which is exactly why tools surface them ahead of time.
+pub async fn upcoming_changes(package_root: &Path, now: &str) -> Result<Vec<UpcomingChange>> {
+    let snapshot = lint_package_snapshot(LintInput::new(package_root.to_path_buf())).await?;
+    upcoming::upcoming_changes(&snapshot, now)
+}
+
 pub async fn diff_packages(
     before_root: &Path,
     after_root: &Path,
@@ -67,24 +79,16 @@ pub async fn diff_packages(
     diff::diff_packages(before_root, after_root, context).await
 }
 
-pub async fn lint_qualifier(package_root: &Path, id: &str) -> Result<QualifierLint> {
-    let lint = lint_package(package_root).await?;
-    let path = format!("qualifiers/{id}.toml");
-    if !lint.documents.iter().any(|document| document.path == path) {
-        return Err(RototoError::new(format!(
-            "qualifier not found: qualifier://{id}"
-        )));
-    }
-
-    Ok(QualifierLint {
-        root: lint.root,
-        id: id.to_owned(),
-        diagnostics: lint
-            .diagnostics
-            .into_iter()
-            .filter(|diagnostic| diagnostic_belongs_to_qualifier(diagnostic, id, &path))
-            .collect(),
-    })
+/// The diff evaluated under several labeled contexts at once: one set of
+/// semantic changes plus lenient per-context resolution impacts. This is the
+/// review-panel shape; `diff_packages` with one merged context remains the
+/// CLI's.
+pub async fn diff_packages_with_contexts(
+    before_root: &Path,
+    after_root: &Path,
+    contexts: &[crate::model::LabeledContext],
+) -> Result<crate::model::PackageDiffWithContexts> {
+    diff::diff_packages_with_contexts(before_root, after_root, contexts).await
 }
 
 pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint> {
@@ -109,7 +113,7 @@ pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint
 
 pub async fn lint_catalog(package_root: &Path, id: &str) -> Result<CatalogLint> {
     let lint = lint_package(package_root).await?;
-    let path = format!("catalogs/{id}.schema.json");
+    let path = format!("model/catalogs/{id}.schema.json");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
             "catalog not found: catalog://{id}"
@@ -127,12 +131,6 @@ pub async fn lint_catalog(package_root: &Path, id: &str) -> Result<CatalogLint> 
     })
 }
 
-fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
-        || diagnostic.primary.path == path
-}
-
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
     matches!(&diagnostic.target.entity, SemanticEntity::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::Value { variable, .. } if variable == id)
@@ -141,7 +139,7 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    let entries_prefix = format!("catalogs/{id}-entries/");
+    let entries_prefix = format!("data/catalogs/{id}/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == path

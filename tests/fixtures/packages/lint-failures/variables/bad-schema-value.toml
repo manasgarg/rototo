@@ -1,7 +1,0 @@
-schema_version = 1
-
-description = "Catalog-backed variable with an entry that does not match"
-type = "catalog:bad-schema-value"
-
-[resolve]
-default = "default"

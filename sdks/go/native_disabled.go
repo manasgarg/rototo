@@ -8,7 +8,7 @@ func nativeVersion() (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) {
+func nativePackageLoad(source, packageToken, lint, fallbackSource, packageTokensJSON string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
@@ -32,21 +32,41 @@ func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, v
 	return "", cgoDisabled()
 }
 
-func nativePackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
+func nativePackageServedFallback(handle nativeHandle) (bool, error) {
+	return false, cgoDisabled()
+}
+
+func nativePackageListIds(handle nativeHandle) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageReadList(handle nativeHandle, id string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageEntryIds(handle nativeHandle, catalog string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageReadEntry(handle nativeHandle, catalog, entry string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageResolveReference(handle nativeHandle, address string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageResolveEntryRef(handle nativeHandle, value, pinsJSON string) (string, error) {
 	return "", cgoDisabled()
 }
 
 func nativePackageFree(handle nativeHandle) {}
 
-func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint string) (nativeHandle, error) {
+func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint, fallbackSource, packageTokensJSON string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
 func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
-	return "", cgoDisabled()
-}
-
-func nativeRefreshingPackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 

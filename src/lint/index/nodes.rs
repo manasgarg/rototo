@@ -10,8 +10,8 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, QualifierId, ValueKey,
-    VariableId,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, LayerId, ListId, PackagePath,
+    ValueKey, VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
@@ -50,39 +50,6 @@ pub(in crate::lint) enum PackageExtendsCollection {
         location: DiagnosticLocation,
         values: Vec<PackageExtendNode>,
     },
-}
-
-pub(in crate::lint) struct QualifierNode {
-    pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) id: QualifierId,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) schema_version: ProjectField<i64>,
-    pub(in crate::lint) description: Option<ProjectField<String>>,
-    pub(in crate::lint) when: ProjectField<Expression>,
-    pub(in crate::lint) predicates: PredicateCollection,
-}
-
-impl QualifierNode {
-    pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Qualifier {
-            id: self.id.clone(),
-        }
-        .into()
-    }
-
-    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
-        SemanticTarget::field(
-            SemanticEntity::Qualifier {
-                id: self.id.clone(),
-            },
-            field,
-        )
-    }
-}
-
-pub(in crate::lint) enum PredicateCollection {
-    Absent,
-    Invalid { location: DiagnosticLocation },
 }
 
 pub(in crate::lint) struct VariableNode {
@@ -140,21 +107,30 @@ impl TypeSourceNode {
 pub(in crate::lint) enum VariableTypeKind {
     Primitive(String),
     Catalog(String),
-    List(Box<VariableTypeKind>),
+    List(String),
+    Array(Box<VariableTypeKind>),
 }
 
 impl VariableTypeKind {
     pub(in crate::lint) fn catalog_ids(&self) -> Vec<&str> {
         match self {
-            Self::Primitive(_) => Vec::new(),
+            Self::Primitive(_) | Self::List(_) => Vec::new(),
             Self::Catalog(catalog) => vec![catalog.as_str()],
-            Self::List(item) => item.catalog_ids(),
+            Self::Array(item) => item.catalog_ids(),
         }
     }
 
-    pub(in crate::lint) fn list_catalog(&self) -> Option<&str> {
+    pub(in crate::lint) fn list_ids(&self) -> Vec<&str> {
         match self {
-            Self::List(item) => match item.as_ref() {
+            Self::Primitive(_) | Self::Catalog(_) => Vec::new(),
+            Self::List(id) => vec![id.as_str()],
+            Self::Array(item) => item.list_ids(),
+        }
+    }
+
+    pub(in crate::lint) fn array_catalog(&self) -> Option<&str> {
+        match self {
+            Self::Array(item) => match item.as_ref() {
                 Self::Catalog(catalog) => Some(catalog.as_str()),
                 _ => None,
             },
@@ -187,18 +163,181 @@ pub(in crate::lint) fn variable_type_kind(
 fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
     let value = value.trim();
     if let Some(inner) = value
-        .strip_prefix("list<")
+        .strip_prefix("array<")
         .and_then(|value| value.strip_suffix('>'))
     {
-        return parse_variable_type(inner).map(|item| VariableTypeKind::List(Box::new(item)));
+        return parse_variable_type(inner).map(|item| VariableTypeKind::Array(Box::new(item)));
     }
-    if let Some(catalog) = value.strip_prefix("catalog:") {
-        if catalog.is_empty() {
-            return None;
-        }
-        return Some(VariableTypeKind::Catalog(catalog.to_owned()));
+    if let Some((class, id)) = value.split_once('=') {
+        return match crate::address::EntityClass::parse_name(class) {
+            Some(crate::address::EntityClass::Catalog) => {
+                (!id.is_empty()).then(|| VariableTypeKind::Catalog(id.to_owned()))
+            }
+            Some(crate::address::EntityClass::List) => {
+                (!id.is_empty()).then(|| VariableTypeKind::List(id.to_owned()))
+            }
+            // Any other binding is not a type; let the unknown-type rule name it.
+            _ => Some(VariableTypeKind::Primitive(value.to_owned())),
+        };
     }
     Some(VariableTypeKind::Primitive(value.to_owned()))
+}
+
+/// A named list under `lists/<id>.toml`: one file holding the contract
+/// (the member scalar type) and the member set, like a variable holds its
+/// type and its resolution.
+pub(in crate::lint) struct ListNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: ListId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) schema_version: ProjectField<i64>,
+    #[allow(dead_code)]
+    pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) member_type: ProjectField<String>,
+    pub(in crate::lint) members: ProjectField<Vec<Spanned<JsonValue>>>,
+    /// Location of a `deleted` key. Deletes belong in update markers and
+    /// are consumed when layers flatten; one surviving into lint has no
+    /// base member set to remove from.
+    pub(in crate::lint) deleted: Option<DiagnosticLocation>,
+}
+
+impl ListNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::List {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::List {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
+/// The layering contract at `governance.toml`: one block per governed
+/// entity, each a gate over operations plus scoped policies.
+pub(in crate::lint) struct GovernanceNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) blocks: Vec<GovernanceBlockNode>,
+    /// Top-level keys that are not one of the governed kinds.
+    pub(in crate::lint) unknown_kinds: Vec<Spanned<String>>,
+}
+
+/// One `[<kind>.<id>]` block: which operations a layer below may perform on
+/// this entity, and (for update/delete) where.
+pub(in crate::lint) struct GovernanceBlockNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) kind: String,
+    pub(in crate::lint) id: String,
+    pub(in crate::lint) allowed_operations: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_operations: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) update_policy: Option<GovernancePolicyNode>,
+    pub(in crate::lint) delete_policy: Option<GovernancePolicyNode>,
+    /// Keys under the block rototo does not recognize.
+    pub(in crate::lint) unknown_keys: Vec<Spanned<String>>,
+}
+
+pub(in crate::lint) struct GovernancePolicyNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) allowed_entries: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_entries: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) allowed_fields: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_fields: Option<ProjectField<Vec<Spanned<String>>>>,
+}
+
+/// A layer under `layers/<id>.toml`: a diversion (`unit`, `buckets`) plus the
+/// allocations that claim slices of it. The file stem is the layer id.
+pub(in crate::lint) struct LayerNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: LayerId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) schema_version: ProjectField<i64>,
+    #[allow(dead_code)]
+    pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) unit: ProjectField<Expression>,
+    pub(in crate::lint) buckets: ProjectField<i64>,
+    pub(in crate::lint) allocations: Vec<AllocationNode>,
+    /// True when `allocation` exists but is not an array of tables.
+    pub(in crate::lint) allocations_invalid: bool,
+}
+
+impl LayerNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Layer {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+}
+
+/// One `[[allocation]]` table inside a layer: a named claim on buckets,
+/// divided into arms.
+pub(in crate::lint) struct AllocationNode {
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) id: ProjectField<String>,
+    pub(in crate::lint) status: Option<ProjectField<String>>,
+    pub(in crate::lint) eligibility: Option<ProjectField<Expression>>,
+    pub(in crate::lint) arms: Vec<ArmNode>,
+    /// True when `arm` exists but is not an array of tables.
+    pub(in crate::lint) arms_invalid: bool,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
+/// One `[[allocation.arm]]` table: a named slice of the allocation's buckets.
+pub(in crate::lint) struct ArmNode {
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) name: ProjectField<String>,
+    pub(in crate::lint) buckets: ProjectField<String>,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
+/// The `method = "allocation"` parameters on `[resolve]`: the allocation the
+/// variable consumes and the per-arm value assignments.
+pub(in crate::lint) struct AssignmentsNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) allocation: ProjectField<String>,
+    pub(in crate::lint) assigns: Vec<AssignNode>,
+    /// True when `assign` exists but is not an array of tables.
+    pub(in crate::lint) assigns_invalid: bool,
+}
+
+/// One `[[resolve.assign]]` table: the value one arm assigns to the variable.
+pub(in crate::lint) struct AssignNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) arm: ProjectField<String>,
+    pub(in crate::lint) value: ProjectField<JsonValue>,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
+/// Parse an arm's `buckets` range: `"7"` (one bucket) or `"0-49"` (inclusive).
+/// Returns `(start, end)` with `start <= end`, or `None` for anything else.
+pub(crate) fn parse_arm_buckets(value: &str) -> Option<(u32, u32)> {
+    let value = value.trim();
+    match value.split_once('-') {
+        Some((start, end)) => {
+            let start = start.trim().parse().ok()?;
+            let end = end.trim().parse().ok()?;
+            (start <= end).then_some((start, end))
+        }
+        None => {
+            let bucket = value.parse().ok()?;
+            Some((bucket, bucket))
+        }
+    }
 }
 
 pub(in crate::lint) struct CatalogNode {
@@ -377,12 +516,44 @@ pub(in crate::lint) enum ResolveNode {
     },
     Resolve {
         location: DiagnosticLocation,
+        /// The resolution method: `rules` (the default when absent), `query`,
+        /// or `allocation`.
+        method: Option<Box<Spanned<String>>>,
         default: Box<ProjectField<JsonValue>>,
         rules: RuleCollection,
+        query: Option<Box<QueryNode>>,
+        /// The `method = "allocation"` parameters, present when the
+        /// `allocation` key or any `[[resolve.assign]]` appears.
+        assignments: Option<Box<AssignmentsNode>>,
     },
 }
 
+/// The `method = "query"` parameters, flat on `[resolve]`: a CEL pipeline over
+/// one catalog's entries.
+pub(in crate::lint) struct QueryNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) from: ProjectField<String>,
+    pub(in crate::lint) filter: Option<ProjectField<Expression>>,
+    pub(in crate::lint) sort: Option<ProjectField<Expression>>,
+    pub(in crate::lint) order: Option<ProjectField<String>>,
+    pub(in crate::lint) limit: Option<ProjectField<i64>>,
+}
+
 impl ResolveNode {
+    pub(in crate::lint) fn as_query(&self) -> Option<&QueryNode> {
+        match self {
+            Self::Resolve { query, .. } => query.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(in crate::lint) fn as_assignments(&self) -> Option<&AssignmentsNode> {
+        match self {
+            Self::Resolve { assignments, .. } => assignments.as_deref(),
+            _ => None,
+        }
+    }
+
     pub(in crate::lint) fn location(&self) -> DiagnosticLocation {
         match self {
             Self::Missing { location }
@@ -400,9 +571,7 @@ pub(in crate::lint) enum RuleCollection {
 pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) legacy_qualifier: Option<DiagnosticLocation>,
     pub(in crate::lint) when: Option<ProjectField<Expression>>,
-    pub(in crate::lint) query: Option<ProjectField<Expression>>,
     pub(in crate::lint) value: ProjectField<JsonValue>,
     pub(in crate::lint) invalid_shape: bool,
 }

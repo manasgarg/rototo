@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Requests resolving against the dev lane"
-
-when = '(context.lane == "dev")'

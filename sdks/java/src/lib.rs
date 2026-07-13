@@ -5,8 +5,8 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jdouble, jlong, jstring};
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceSubscription,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::runtime::{Builder, Runtime};
@@ -41,12 +41,16 @@ pub extern "system" fn Java_dev_rototo_Native_packageLoadNative(
     source: JString<'_>,
     package_token: JString<'_>,
     lint: JString<'_>,
+    fallback_source: JString<'_>,
+    package_tokens_json: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
-        let options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(env, fallback_source)?;
+        let package_tokens = optional_string(env, package_tokens_json)?;
+        let options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let package = runtime()
             .block_on(rototo::Package::load_with_options(source, options))
             .map_err(|err| err.to_string())?;
@@ -82,6 +86,18 @@ pub extern "system" fn Java_dev_rototo_Native_packageRootNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         env_string(env, &package.root().display().to_string())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageServedFallbackNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jboolean {
+    jni_call_bool(&mut env, |_env| {
+        let package = package_from_handle(handle)?;
+        Ok(package.served_fallback())
     })
 }
 
@@ -130,8 +146,9 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
+        let options = resolve_options(validate_context, trace);
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -145,23 +162,105 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_packageResolveQualifierNative(
+pub extern "system" fn Java_dev_rototo_Native_packageListIdsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let lists = package.list_ids().map_err(|err| err.to_string())?;
+        env_json(env, serde_json::json!(lists))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageReadListNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
     id: JString<'_>,
-    context_json: JString<'_>,
-    validate_context: jboolean,
-    trace: jboolean,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let context = evaluation_context(env, context_json)?;
+        let config = package.read_list(&id).map_err(|err| err.to_string())?;
+        env_json(env, config.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageEntryIdsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    catalog: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(env, catalog, "catalog")?;
+        let entries = package.entry_ids(&catalog).map_err(|err| err.to_string())?;
+        env_json(env, serde_json::json!(entries))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageReadEntryNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    catalog: JString<'_>,
+    entry: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(env, catalog, "catalog")?;
+        let entry = required_string(env, entry, "entry")?;
         let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
+            .read_entry(&catalog, &entry)
             .map_err(|err| err.to_string())?;
-        env_json(env, serde_json::json!(value))
+        env_json(env, value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageResolveReferenceNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    address: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let address = required_string(env, address, "address")?;
+        let value = package
+            .resolve_reference_at(&address)
+            .map_err(|err| err.to_string())?;
+        env_json(env, value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageResolveEntryRefNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    value: JString<'_>,
+    pins_json: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let value = required_string(env, value, "value")?;
+        let pins_json = required_string(env, pins_json, "pins")?;
+        let pins: Vec<String> =
+            serde_json::from_str(&pins_json).map_err(|err| format!("invalid pins: {err}"))?;
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference =
+            rototo::ValueRef::from_entry_ref(&value, &pins).map_err(|err| err.to_string())?;
+        let resolved = package
+            .resolve_reference(&reference)
+            .map_err(|err| err.to_string())?;
+        env_json(env, resolved)
     })
 }
 
@@ -187,12 +286,16 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageLoadNative(
     has_period_seconds: jboolean,
     package_token: JString<'_>,
     lint: JString<'_>,
+    fallback_source: JString<'_>,
+    package_tokens_json: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
-        let load_options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(env, fallback_source)?;
+        let package_tokens = optional_string(env, package_tokens_json)?;
+        let load_options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds, has_period_seconds)?;
         let package = runtime()
             .block_on(rototo::RefreshingPackage::load_with_options(
@@ -221,10 +324,11 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
+        let options = resolve_options(validate_context, trace);
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -234,29 +338,6 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
                 "source": resolution.source,
             }),
         )
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierNative(
-    mut env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    handle: jlong,
-    id: JString<'_>,
-    context_json: JString<'_>,
-    validate_context: jboolean,
-    trace: jboolean,
-) -> jstring {
-    jni_call_string(&mut env, |env| {
-        let package = refreshing_package_from_handle(handle)?;
-        let id = required_string(env, id, "id")?;
-        let context = evaluation_context(env, context_json)?;
-        let guard = package.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        env_json(env, serde_json::json!(value))
     })
 }
 
@@ -499,18 +580,54 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions, String> {
+fn load_options(
+    package_token: Option<String>,
+    package_tokens_json: Option<String>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions, String> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
         other => return Err(format!("lint must be 'deny' or 'skip', got {other:?}")),
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        }))
+        .with_source_auth(source_auth(package_token, package_tokens_json)?);
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens_json: Option<String>,
+) -> Result<SourceAuth, String> {
+    let scoped_entries = match package_tokens_json {
+        None => None,
+        Some(json) => {
+            let map: std::collections::BTreeMap<String, String> = serde_json::from_str(&json)
+                .map_err(|err| format!("invalid packageTokens: {err}"))?;
+            Some(map)
+        }
+    };
+    match (package_token, scoped_entries) {
+        (Some(_), Some(_)) => {
+            Err("packageToken and packageTokens cannot both be set; scope every token".to_owned())
+        }
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped
+                    .with_prefix(prefix, token)
+                    .map_err(|err| err.to_string())?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(
@@ -589,6 +706,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> JsonValue {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 
@@ -662,6 +780,19 @@ fn jni_call_long(
 ) -> jlong {
     match f(env) {
         Ok(value) => value,
+        Err(err) => {
+            throw_rototo(env, err);
+            0
+        }
+    }
+}
+
+fn jni_call_bool(
+    env: &mut JNIEnv<'_>,
+    f: impl FnOnce(&mut JNIEnv<'_>) -> Result<bool, String>,
+) -> jboolean {
+    match f(env) {
+        Ok(value) => jboolean::from(value),
         Err(err) => {
             throw_rototo(env, err);
             0

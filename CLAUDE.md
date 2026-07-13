@@ -23,7 +23,7 @@ package loading or resolution. Do not add new sync public APIs around blocking
 work; use async functions and `spawn_blocking` for sync-only libraries.
 
 Use rototo's domain vocabulary directly. Current first-class concepts are
-packages, qualifiers, variables, catalogs, schemas, and values. Avoid
+packages, variables, catalogs, schemas, and values. Avoid
 reintroducing generic nouns such as package, catalog, item, or document in CLI
 commands, public SDK types, docs, tests, or diagnostics unless the product model
 explicitly changes.
@@ -32,48 +32,88 @@ explicitly changes.
 
 The package format is rooted at `rototo-package.toml`:
 
-- `qualifiers/*.toml`: named qualifier definitions. The file stem is the
-  qualifier id.
 - `variables/*.toml`: named variable definitions. The file stem is the variable
-  id.
-- `catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The catalog
-  id is the file name before `.schema.json`.
-- `catalogs/<catalog-id>-entries/*.toml`: catalog value definitions. The file
-  stem is the catalog value id.
-- `evaluation-contexts/*.schema.json`: JSON Schemas for runtime context
-  objects. The evaluation context id is the file name before `.schema.json`.
-- `evaluation-contexts/<context-id>-samples/*.json`: optional sample contexts
-  used for fixtures, lint coverage, and docs examples.
-- `lint/*.lua`: package-local custom lint rules.
+  id. A named runtime condition is a bool variable by convention (a "condition
+  variable"): `type = "bool"`, `[resolve]` `default = false`, and rules with
+  `value = true`. Other variables reference it as `variables["<id>"]`.
+- `model/catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The
+  catalog id is the file name before `.schema.json`.
+- `data/catalogs/<catalog-id>/**.toml`: catalog value definitions. The path
+  under the catalog directory is the (possibly namespaced) catalog value id;
+  a subtree that is itself a longer catalog id belongs to that catalog, and
+  overlapping catalog ids are a lint error (`rototo/catalog-id-overlap`).
+- `lists/<list-id>.toml`: named lists, one file each like variables:
+  `schema_version = 1`, optional `description`, `type` (one of `string`,
+  `int`, `number`, `bool`), and `members = [...]`. Overlays adjust members
+  through `lists/<list-id>.update.toml` markers carrying only `members`,
+  `deleted`, and `description`; `type` is never updatable from above.
+- `model/context/*.schema.json`: JSON Schemas for runtime context objects (the
+  concept is still called an evaluation context). The evaluation context id is
+  the file name before `.schema.json`.
+- `model/context/<context-id>-samples/**.json`: optional sample contexts used
+  for fixtures, lint coverage, and docs examples. The path under the samples
+  directory is the (possibly namespaced) sample id.
+- `lint/**.lua`: package-local custom lint rules; the linter id is the
+  path under `lint/` (namespaced like every other collection).
+
+`model/` holds contracts, `data/` holds values. Custom-lint target addresses
+use the package addressing grammar (`design/addressing.md`):
+`package=`, `variable=<id>`, `catalog=<id>:entry=<key>`,
+`evaluation-context=<id>:sample=<key>`, with empty ids as collectives and
+trailing-slash ids as namespace subtrees.
+
+rototo-recognized ids (variables, lists, catalogs, catalog entries, evaluation
+contexts, samples) must be lowercase snake_case, with `/` allowed for
+namespacing; enforced by `rototo/id-not-snake-case` (error). Ids appear in TOML
+table headers and CEL expressions, where a hyphen is the minus operator, and
+snake_case enables `variables.premium_users` dot access. Diagnostic rule ids
+(`rototo/<rule-id>`, `<authority>/<rule-id>`) are a separate namespace and stay
+kebab-case.
+
+Schema fields can pin their values with the `x-rototo-ref` annotation, using a
+kind-prefixed target:
+
+- `"x-rototo-ref": "catalog=<id>"` (or an array of `catalog=<id>` strings) pins
+  a string field to entry ids of another catalog; `<entry>#<json-pointer>`
+  values and ambiguity checks apply. Query predicates evaluate against
+  hydrated entry views, but the value an app receives is the raw entry:
+  apps follow references explicitly (design/package-reflection.md).
+- `"x-rototo-ref": true` marks an object field whose `{catalog, entry,
+  pointer}` value names the target dynamically.
+- `"x-rototo-ref": "list=<id>"` pins a field to a list's member set; catalog
+  entry values and evaluation-context sample values are checked against the
+  members.
+
+Catalog schemas accept catalog and list targets; evaluation context schemas
+accept only list targets.
 
 The example package at `examples/basic` is intentionally broad and should stay
 lint-clean. It covers primitive variables, catalog-backed nested values, default
-values, override rules, qualifier composition, bucket predicates, evaluation
-context schemas, and custom lint.
+values, override rules, condition-variable composition through
+`variables["<id>"]`, bucket predicates, evaluation context schemas, and custom
+lint.
 
 ## CLI
 
 The CLI uses top-level workflow verbs with selector flags for rototo concepts:
 
 ```text
-rototo init <package> [--qualifier <id> | --variable <id> | --catalog <id> | --evaluation-context]
-rototo fixtures <package-source> [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers] [--context-form path|json]
+rototo init <package> [--variable <id> | --catalog <id> | --evaluation-context]
+rototo fixtures <package-source> [--variable <id> ... | --variables] [--context-form path|json]
 rototo lint [package-source] [selectors]
 rototo inspect [package-source] [selectors] [--context <context> ...]
 rototo diff <before-package-source> <after-package-source> [--context <context> ...]
 rototo show [package-source] [selectors]
-rototo resolve [package-source] [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers] [--context <context> ...]
+rototo resolve [package-source] [--variable <id> ... | --variables] [--context <context> ...]
 rototo docs [-p <page-prefix>]
-rototo console ...
 rototo lsp
 rototo completions <shell>
 ```
 
 Selectors for `lint`, `inspect`, and `show` include `--variable`/`--variables`,
-`--catalog`/`--catalogs`, `--qualifier`/`--qualifiers`,
-`--lint-rule`/`--lint-rules`, `--lint-authority`/`--lint-authorities`, and
-`--linter`/`--linters`. `resolve` intentionally selects only variables and
-qualifiers.
+`--catalog`/`--catalogs`, `--lint-rule`/`--lint-rules`,
+`--lint-authority`/`--lint-authorities`, and `--linter`/`--linters`. `resolve`
+intentionally selects only variables.
 
 Package arguments are sources, not only local paths. They can be local paths,
 `file://`, `git+file://`, `git+https://`, `git+ssh://`, or `https://` archive
@@ -82,9 +122,8 @@ sources support `#ref:subdir`; archive URLs support `#:subdir`. Bearer auth for
 HTTPS archive sources comes from `--package-token` or
 `ROTOTO_PACKAGE_TOKEN`.
 
-Do not add noun subcommands such as `rototo qualifier ...`,
-`rototo variable ...`, or `rototo catalog ...` unless the CLI design is
-reopened. Keep the top-level verbs in `src/main.rs` as the source of truth.
+Do not add noun subcommands such as `rototo variable ...` or
+`rototo catalog ...` unless the CLI design is reopened. Keep the top-level verbs in `src/main.rs` as the source of truth.
 
 Global flags are supported at every level:
 
@@ -94,47 +133,57 @@ Global flags are supported at every level:
 
 Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
 `@path/to/context.json`, or `path=value`, merged left to right. Expressions read
-exactly three roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
-`entry` (the catalog entry under consideration in a `query`), and `env`
-(rototo-provided values: `env.qualifier["<id>"]` for other qualifiers and
-`env.now` for the evaluation timestamp, captured once per resolution as an
-RFC3339 string). Variables resolve by taking the first matching rule value,
-otherwise the default value.
+exactly five roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
+`entry` (the catalog entry under consideration in a `query`), `variables`
+(other variables' resolved values, as `variables.<id>` or `variables["<id>"]`
+for namespaced ids, resolved lazily with per-resolution memoization), `lists`
+(a declared list's member set, as `lists.<id>` or `lists["<id>"]`, for
+membership tests like `context.tier in lists.plan_tiers`; an unknown list id is
+`rototo/expression-unknown-list`), and `env.now` (the evaluation timestamp,
+captured once per resolution as an RFC3339 string). `env.resolving.variable` is
+available only inside `[[trace]]` policies. Variables resolve by taking the
+first matching rule value, otherwise the default value.
 
 ```sh
-rototo resolve examples/basic --qualifier premium-users \
+rototo resolve examples/basic --variable premium_users \
   --context user.tier=premium
 
-rototo resolve examples/basic --variable checkout-redesign \
-  --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json
+rototo resolve examples/basic --variable checkout_redesign \
+  --context @examples/basic/model/context/request-samples/premium_enterprise.json
 ```
 
 ## Console
 
-`rototo console` serves the web console and its JSON API from the same binary
-as the CLI. The Rust server lives in `src/console/` and owns all data access:
-package staging, lint, the semantic model, resolution previews, the GitHub
-REST write path (draft branches, file commits, pull requests), an in-process
-LSP bridge, and a SQLite store for repos/packages/drafts/sessions under the
-console data directory. The frontend in `apps/console` is a Vite + React
-static SPA with no server runtime; it talks only to `/api/*` and its built
-`dist/` bundle is embedded into the binary (staged via `build.rs`, served by
-`rust-embed`).
+The console is its own product, fully decoupled from the CLI: there is no
+`rototo console` command and the rototo binary carries no server stack. It
+ships as `@rototo/console` (Node 24+): the TypeScript server in
+`apps/console-server` serves the JSON API and the built web app from one
+process, reaching the Rust core through an internal napi binding crate
+(`rototo-console-native`, a workspace member; TypeScript resolves refs, the
+bindings only ever see 40-hex pins). The frontend in `apps/console-web` is a
+Vite + React SPA; `just console-build` stages its bundle into the server's
+`web/` directory for serving.
 
-Auth modes are resolved at startup: local (default — no login; ambient GitHub
-token from `--package-token`/`ROTOTO_PACKAGE_TOKEN`, a stored device-flow
-sign-in, or `gh auth token`), team (`ROTOTO_GITHUB_CLIENT_ID` +
-`ROTOTO_GITHUB_CLIENT_SECRET` turn on the GitHub OAuth web flow with per-user
-tokens encrypted via `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only
-(`--read-only --package <source>`, no auth, writes rejected). Mutating routes
-require the `x-rototo-console` header plus an Origin check; keep that invariant
-when adding routes. Console writes go through the GitHub API only — do not add
-a generic git write backend without reopening the design.
+The design contracts live in `design/console-*.md`. Load-bearing invariants:
+git is content and the SQLite store is coordination (the store is rebuildable
+from GitHub); every write is a change set (branch + PR through the GitHub
+API) — do not add a generic git write backend without reopening the design;
+authorization goes through one `decide()` seam (GitHub-derived and advisory
+when a user token acts, console grants authoritative when the App credential
+acts); mutating routes require the `x-rototo-console` header plus an Origin
+check (the HMAC-verified webhook endpoint is the sole exception). Surfaces
+are catalog entries in `console/surfaces` — the console configures itself
+with rototo — and experiences are build-time extensions that may import only
+react and `apps/console-web/src/extension-api.ts` (enforced by the contract
+check in the web test suite).
 
-Wire shapes are serde camelCase and mirrored in
-`apps/console/src/lib/types.ts`; the Rust server is the source of truth.
-Keep the console feature flag in Cargo.toml: SDK binding crates build with
-`default-features = false` so the server stack stays out of their artifacts.
+Auth modes resolve at startup: local (no login; ambient GitHub token from
+env, stored credentials, or `gh auth token`), and team
+(`ROTOTO_GITHUB_CLIENT_ID`/`ROTOTO_GITHUB_CLIENT_SECRET` for GitHub OAuth,
+optional OIDC via `ROTOTO_CONSOLE_OIDC_*`, per-user tokens encrypted with
+`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`, enrollment by invitation by default).
+Wire shapes are serde camelCase mirrored in `apps/console-web/src/lib/api.ts`;
+the server is the source of truth.
 
 ## Lint Expectations
 
@@ -142,27 +191,40 @@ Lint is core behavior, not just smoke testing. It should validate rototo's own
 package structure and files:
 
 - Package manifest exists, parses, and declares `schema_version = 1`.
-- Qualifier files parse, declare `schema_version = 1`, declare a `when`
-  expression, reject legacy `[[predicate]]`, reference known qualifiers with
-  `env.qualifier["<id>"]`, reject identifiers rototo does not provide (the legacy
-  bare `qualifier[...]` root, unknown `env` members), and validate expression,
-  bucket, and operator shapes.
 - Variable files parse, declare `schema_version = 1`, declare `type`, reject
   legacy `schema` and `[values]`, declare `[resolve]`, put literal values
   directly in resolve defaults and rules, reference known catalog values for
-  catalog-backed variables, and reference known qualifiers from rule `when`
-  expressions.
-- Variable types support `bool`, `int`, `number`, `string`, `list`,
-  `catalog:<id>`, and `list<...>` where the list item is a primitive or catalog
-  type. Resolve defaults and rule values must match the declared type.
-- Catalog schemas under `catalogs/*.schema.json` parse and compile as JSON
-  Schema. Catalog entries under `catalogs/<id>-entries/*.toml` validate against
-  their catalog schema.
-- Evaluation context schemas under `evaluation-contexts/*.schema.json` parse
-  and compile as JSON Schema. Samples under
-  `evaluation-contexts/<id>-samples/*.json` validate against their evaluation
-  context schema.
-- Lua files under `lint/*.lua` define `register(lint)` and register rules with
+  catalog-backed variables, and reference known variables from rule `when`
+  expressions with `variables["<id>"]`
+  (`rototo/variable-rule-unknown-variable` for a reference to a variable that
+  does not exist). Variable reference cycles are a lint error
+  (`rototo/variable-reference-cycle`) and a resolution error. Expressions
+  reject identifiers rototo does not provide: unknown `env` members and the
+  retired `qualifier[...]` / `env.qualifier[...]` spellings, whose lint error
+  points at `variables["<id>"]`. Expression, bucket, and operator shapes are
+  validated.
+- Variable types support `bool`, `int`, `number`, `string`, `array`,
+  `catalog=<id>`, `list=<id>`, and `array<...>` where the array item is a
+  primitive, catalog, or list type. Resolve defaults and rule values must match
+  the declared type; for list-typed variables every default and rule value must
+  be a member of the list (`rototo/variable-unknown-list` for an unknown list
+  id).
+- rototo-recognized ids are lowercase snake_case with optional `/` namespacing
+  (`rototo/id-not-snake-case`, error).
+- Lists under `lists/*.toml` parse, declare `schema_version = 1`, declare
+  `type` as one of `string`, `int`, `number`, or `bool`, and declare
+  `members` as a non-empty array of distinct values matching the declared
+  type (`rototo/list-parse-failed`, `rototo/list-schema-version`,
+  `rototo/list-shape`).
+- Catalog schemas under `model/catalogs/*.schema.json` parse and compile as
+  JSON Schema. Catalog entries under `data/catalogs/<id>/*.toml` validate
+  against their catalog schema, and `x-rototo-ref` targets resolve: catalog
+  targets to real entries, list targets to declared members.
+- Evaluation context schemas under `model/context/*.schema.json` parse and
+  compile as JSON Schema and use only `list=<id>` targets in `x-rototo-ref`.
+  Samples under `model/context/<id>-samples/*.json` validate against their
+  evaluation context schema, including list member checks.
+- Lua files under `lint/**.lua` define `register(lint)` and register rules with
   `lint:rule({ id, title, help, target, handler })`. Handlers return diagnostics
   with `message`; the registration owns the rule id. `rototo` is reserved for
   built-in diagnostics.
@@ -175,6 +237,9 @@ paths. Lua/custom lint rules use
 `payments/max-token-budget`. The diagnostics catalog lists built-in rules
 globally and adds declared custom rules for a package-scoped catalog.
 
+Retired rule ids carry no reservation machinery: when a rule dissolves,
+delete its variant, catalog metadata, fixtures, and tests outright.
+
 The failure fixture at `tests/fixtures/packages/lint-failures` is a compact
 coverage package for expected lint failures. Extend it when adding new lint
 rules.
@@ -184,12 +249,16 @@ rules.
 The Rust SDK mirrors the first-class model. Prefer explicit APIs such as:
 
 - `inspect_package`
-- `lint_package`, `lint_qualifier`, `lint_variable`, `lint_catalog`
-- `list_qualifiers`, `list_variables`, `list_catalogs`
-- `read_qualifier`, `read_qualifiers`, `read_variable`, `read_variables`
+- `lint_package`, `lint_variable`, `lint_catalog`
+- `inspect_variables`, `inspect_catalogs`
+- `read_variable`, `read_variables`
 - `read_catalog`, `read_catalogs`
-- `resolve_qualifier`, `resolve_qualifiers`
 - `resolve_variable`, `resolve_variables`
+
+Enumeration APIs that return bare ids are named `<noun>_ids` (`list_ids`,
+`entry_ids`); the `list_` verb prefix is retired so the noun "list" (a named
+closed set of scalar values) owns the word. Reads that return configs keep
+`read_<noun>` (`read_list`, `read_entry`).
 
 All SDK APIs that touch package files, source loading, lint, or resolution are
 async. `Package::load(source).await` accepts the same source forms as the CLI,
@@ -198,8 +267,7 @@ lints the loaded package, and rejects lint failures.
 staged package data without running lint. Both APIs own any temporary staged
 checkout/archive extraction needed by remote sources.
 
-Returned config types are `QualifierConfig`, `VariableConfig`, and
-`CatalogConfig`. Avoid adding a generic public "read by kind" API unless there
+Returned config types are `VariableConfig` and `CatalogConfig`. Avoid adding a generic public "read by kind" API unless there
 is a concrete app-facing need.
 SDK resolution APIs take a JSON object context directly; the CLI-only
 convenience forms for `--context` are parsed in `src/main.rs`.
@@ -208,14 +276,14 @@ convenience forms for `--context` are parsed in `src/main.rs`.
 
 Language-specific SDKs should be thin, idiomatic bindings around the Rust SDK.
 Rust remains the semantic authority for package loading, lint, source
-staging, refresh, qualifier evaluation, variable resolution, context
-validation, and error behavior. Do not reimplement rototo semantics in Python,
+staging, refresh, variable resolution, context validation, and error
+behavior. Do not reimplement rototo semantics in Python,
 Node, Go, Java, or other SDKs unless the design is explicitly reopened.
 
 Keep each language SDK's first surface small and runtime-focused:
 
 - load or inspect a package source;
-- resolve variables and qualifiers with a JSON object context;
+- resolve variables with a JSON object context;
 - expose refresh for long-running services;
 - map Rust errors into the language's normal error type;
 - convert JSON values into the language's native JSON-compatible values;
@@ -372,9 +440,9 @@ Good examples:
 
 > I like starting with one value because it keeps the whole system honest.
 
-> That starts with a qualifier. The qualifier gives the runtime condition a name
-> before we wire it into a variable or turn its context path into a schema
-> contract.
+> That starts with a condition variable. The condition variable gives the
+> runtime condition a name before other variables lean on it or its context
+> path becomes a schema contract.
 
 > The useful part is that none of this changes the core shape.
 
@@ -424,8 +492,8 @@ Use this conceptual ordering unless the page has a narrower purpose:
 3. Applications load a package source rather than embedding config values.
 4. Applications resolve named variables using runtime context.
 5. Context schemas validate request-time facts supplied by the app.
-6. Qualifiers turn runtime facts into named reusable conditions.
-7. Variables select configured values using defaults and qualifier rules.
+6. Condition variables turn runtime facts into named reusable conditions.
+7. Variables select configured values using defaults and rules.
 8. Value schemas validate the selected value before the application consumes it.
 9. Linting and tests make the package releasable.
 10. Long-running services refresh the package and keep last-known-good state.
@@ -450,7 +518,8 @@ Keep page roles distinct:
 - `getting-started`: provide a short first success with one small local example and
   enough mental model to make it land.
 - `production-workflow`: show a realistic Git-backed workflow with schemas,
-  qualifiers, variables, tests, app loading, refresh, and observability.
+  condition variables, variables, tests, app loading, refresh, and
+  observability.
 - Concepts pages: define vocabulary, relationships, resolution flow,
   guarantees, and boundaries without becoming tutorials.
 - Reference pages: specify exact file formats, commands, SDK APIs, diagnostics,
@@ -463,9 +532,9 @@ reader's question, for example:
 > evaluating?
 
 Then explain the flow: application asks for a variable with runtime context from
-a package version; rototo validates context, evaluates qualifiers, checks
-rules, selects a value, validates the value, and returns the result with enough
-explanation to debug or observe it.
+a package version; rototo validates context, evaluates rule conditions
+(including referenced condition variables), selects a value, validates the
+value, and returns the result with enough explanation to debug or observe it.
 
 Use engineering prose:
 

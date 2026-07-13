@@ -14,7 +14,6 @@ pub(crate) fn definition(
 ) -> Option<PackageDefinition> {
     let mut candidates = Vec::new();
     push_reference_definition_candidates(snapshot, path, position, &mut candidates);
-    push_qualifier_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_definition_candidates(&snapshot.index, path, position, &mut candidates);
     sort_definition_candidates(&mut candidates);
     candidates
@@ -58,15 +57,6 @@ struct DefinitionCandidate {
     priority: u8,
     span_size: usize,
     location: DiagnosticLocation,
-}
-
-fn push_qualifier_definition_candidates(
-    index: &SemanticIndex,
-    path: &str,
-    position: SourcePosition,
-    candidates: &mut Vec<DefinitionCandidate>,
-) {
-    let _ = (index, path, position, candidates);
 }
 
 fn push_variable_definition_candidates(

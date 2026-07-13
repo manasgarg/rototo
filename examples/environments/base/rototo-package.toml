@@ -1,0 +1,3 @@
+schema_version = 1
+name = "thumbnail-service"
+description = "Configuration contract and production values for a thumbnail-rendering service"

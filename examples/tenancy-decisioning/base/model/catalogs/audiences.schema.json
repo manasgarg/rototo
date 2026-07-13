@@ -1,0 +1,13 @@
+{
+  "$comment": "A named, reusable audience over visitor facts, expressed as data bounds the banner query evaluates. Absent bounds do not constrain. Audiences are conditions over facts, never enumerated visitor-id lists. The design wanted an expression-typed condition field plus a matches_audience() dereference built-in; the engine does not evaluate expression-typed data yet, so audiences carry structured bounds instead (see the README's hard parts).",
+  "type": "object",
+  "title": "Audience",
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "min_visits": { "type": "integer", "minimum": 0 },
+    "max_visits": { "type": "integer", "minimum": 0 },
+    "min_lifetime_spend": { "type": "number", "minimum": 0 }
+  },
+  "required": ["name"]
+}

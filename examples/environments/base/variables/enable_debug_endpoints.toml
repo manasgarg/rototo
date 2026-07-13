@@ -1,0 +1,9 @@
+schema_version = 1
+description = "Whether the introspection endpoints are served"
+type = "bool"
+
+# Off in production, on in lower environments. The environment overlays flip it;
+# nothing in production context can.
+[resolve]
+method = "rules"
+default = false

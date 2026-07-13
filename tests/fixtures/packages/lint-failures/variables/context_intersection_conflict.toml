@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Condition reading declared paths from two disjoint contexts, so none can satisfy both"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium" && context.device.os == "ios"'
+value = true

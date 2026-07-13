@@ -11,8 +11,7 @@ use crate::lint::{
     LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
 use crate::model::{
-    PackageInspection, PackageLint, QualifierResolutionTrace, VariableResolution,
-    VariableResolutionTrace,
+    ListConfig, PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace,
 };
 use crate::package::inspect_package;
 use crate::source::{
@@ -37,6 +36,9 @@ pub struct Package {
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
     source_layers: Vec<SourceLayer>,
+    /// True when this package was loaded from the fallback source because the
+    /// primary failed. See [`LoadOptions::with_fallback_source`].
+    served_fallback: bool,
     /// Sink for resolution trace events. A standalone package owns its channel;
     /// a `RefreshingPackage` injects one shared channel into every package it
     /// loads so subscriptions survive refresh swaps.
@@ -49,11 +51,38 @@ impl Package {
     }
 
     pub async fn load_with_options(source: impl AsRef<str>, options: LoadOptions) -> Result<Self> {
+        let source = source.as_ref();
+        let primary = match Self::load_one_with_options(source, &options).await {
+            Ok(mut package) => {
+                package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
+                return Ok(package);
+            }
+            Err(err) => err,
+        };
+        let Some(fallback) = options.fallback_source() else {
+            return Err(primary);
+        };
+        let fallback = fallback.to_owned();
+        match Self::load_one_with_options(&fallback, &options).await {
+            Ok(mut package) => {
+                package.served_fallback = true;
+                package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
+                Ok(package)
+            }
+            Err(fallback_err) => Err(fallback_load_error(
+                source,
+                &primary,
+                &fallback,
+                &fallback_err,
+            )),
+        }
+    }
+
+    async fn load_one_with_options(source: &str, options: &LoadOptions) -> Result<Self> {
         let mut package = Self::stage_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
             package.compile_runtime_after_lint().await?;
         }
-        package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
         Ok(package)
     }
 
@@ -115,8 +144,16 @@ impl Package {
             source_fingerprint,
             immutable_source,
             source_layers,
+            served_fallback: false,
             trace: Arc::new(TraceChannel::new(DEFAULT_TRACE_EVENT_CAPACITY)),
         })
+    }
+
+    /// True when this package was loaded from the fallback source because the
+    /// primary source failed. Health checks should read this instead of
+    /// string-matching URIs in [`Package::identity`].
+    pub fn served_fallback(&self) -> bool {
+        self.served_fallback
     }
 
     /// Replace this package's trace channel. Used to size the channel from
@@ -215,59 +252,10 @@ impl Package {
         self.runtime()?.validate_context(context.value())
     }
 
-    pub fn resolve_qualifier(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-    ) -> Result<bool> {
-        self.resolve_qualifier_with_options(id, context, ResolveOptions::default())
-    }
-
-    pub fn resolve_qualifier_with_options(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-        options: ResolveOptions,
-    ) -> Result<bool> {
-        let runtime = self.runtime()?;
-        if options.validate_context {
-            runtime.validate_context_for_qualifier(id.as_ref(), context.value())?;
-        }
-        if !self.tracing_active(options, runtime) {
-            return crate::resolve::resolve_qualifier_unchecked(
-                runtime,
-                id.as_ref(),
-                context.value(),
-            );
-        }
-        let (value, capture) = crate::resolve::resolve_qualifier_traced_unchecked(
-            runtime,
-            id.as_ref(),
-            context.value(),
-            options.trace,
-        )?;
-        if let Some(capture) = capture {
-            self.trace.emit(TraceEvent::new(
-                TraceTarget::Qualifier {
-                    id: id.as_ref().to_owned(),
-                },
-                context.value().clone(),
-                TraceDetail::Qualifier(capture.trace),
-                TraceProvenance {
-                    app_requested: options.trace,
-                    policies: capture.policies,
-                },
-                self.identity(),
-                SystemTime::now(),
-            ));
-        }
-        Ok(value)
-    }
-
     /// Tracing runs only when someone is listening and there is something to
     /// emit: an app-requested trace or at least one `[[trace]]` policy. With no
     /// subscriber, the trace is never computed.
-    fn tracing_active(&self, options: ResolveOptions, runtime: &RuntimePackage) -> bool {
+    fn tracing_active(&self, options: &ResolveOptions, runtime: &RuntimePackage) -> bool {
         self.trace.has_subscribers() && (options.trace || !runtime.trace_policies.is_empty())
     }
 
@@ -289,7 +277,7 @@ impl Package {
         if options.validate_context {
             runtime.validate_context_for_variable(id.as_ref(), context.value())?;
         }
-        if !self.tracing_active(options, runtime) {
+        if !self.tracing_active(&options, runtime) {
             return crate::resolve::resolve_variable_unchecked(
                 runtime,
                 id.as_ref(),
@@ -327,6 +315,125 @@ impl Package {
             )
         })
     }
+
+    /// Every list id in the loaded package.
+    pub fn list_ids(&self) -> Result<Vec<String>> {
+        Ok(self.runtime()?.lists.keys().cloned().collect())
+    }
+
+    /// One list, contract and members together.
+    pub fn read_list(&self, id: impl AsRef<str>) -> Result<ListConfig> {
+        let id = id.as_ref();
+        let declaration = self
+            .runtime()?
+            .lists
+            .get(id)
+            .ok_or_else(|| RototoError::new(format!("list not found: list={id}")))?;
+        Ok(ListConfig {
+            id: id.to_owned(),
+            description: declaration.description.clone(),
+            member_type: declaration.member_type.clone(),
+            members: declaration.members.clone(),
+        })
+    }
+
+    /// Every entry id of one catalog. Ids only: enumerating a large catalog
+    /// should not clone its values.
+    pub fn entry_ids(&self, catalog: impl AsRef<str>) -> Result<Vec<String>> {
+        let catalog = catalog.as_ref();
+        let entries = self
+            .runtime()?
+            .catalog_entries
+            .get(catalog)
+            .ok_or_else(|| RototoError::new(format!("catalog not found: catalog={catalog}")))?;
+        Ok(entries.keys().cloned().collect())
+    }
+
+    /// One raw entry, exactly as authored: no reference hydration, no id
+    /// injection (the caller passed the id in).
+    pub fn read_entry(
+        &self,
+        catalog: impl AsRef<str>,
+        entry: impl AsRef<str>,
+    ) -> Result<JsonValue> {
+        let catalog = catalog.as_ref();
+        let entry = entry.as_ref();
+        self.runtime()?
+            .catalog_entries
+            .get(catalog)
+            .and_then(|entries| entries.get(entry))
+            .cloned()
+            .ok_or_else(|| {
+                RototoError::new(format!(
+                    "catalog entry not found: catalog={catalog}:entry={entry}"
+                ))
+            })
+    }
+
+    /// Follows one reference the way hydration would have, on demand: same
+    /// entry lookup, same pointer application, same first-match rule for
+    /// multi-catalog pins. One hop; the returned value is the raw target.
+    pub fn resolve_reference(&self, reference: &ValueRef) -> Result<JsonValue> {
+        let runtime = self.runtime()?;
+        let catalog = reference
+            .catalogs
+            .iter()
+            .find(|catalog| {
+                runtime
+                    .catalog_entries
+                    .get(catalog.as_str())
+                    .is_some_and(|entries| entries.contains_key(&reference.entry))
+            })
+            .ok_or_else(|| {
+                RototoError::new(format!(
+                    "reference does not resolve: {} (no pinned catalog has the entry)",
+                    reference.address()
+                ))
+            })?;
+        let value = runtime.catalog_entries[catalog.as_str()][&reference.entry].clone();
+        match reference.pointer.as_deref() {
+            None | Some("") => Ok(value),
+            Some(pointer) => value.pointer(pointer).cloned().ok_or_else(|| {
+                RototoError::new(format!(
+                    "reference points at a missing path: {}",
+                    reference.address()
+                ))
+            }),
+        }
+    }
+
+    /// [`Package::resolve_reference`] from an address string:
+    /// `catalog=email_template:entry=welcome#/body`.
+    pub fn resolve_reference_at(&self, address: impl AsRef<str>) -> Result<JsonValue> {
+        self.resolve_reference(&ValueRef::parse(address.as_ref())?)
+    }
+
+    /// Walks a value together with its catalog's schema and reports every
+    /// field whose schema carries `x-rototo-ref`, as (JSON pointer into the
+    /// value, parsed reference). The reporting twin of hydration: apps
+    /// hydrate selectively with [`Package::resolve_reference`].
+    pub fn references_in(
+        &self,
+        catalog: impl AsRef<str>,
+        value: &JsonValue,
+    ) -> Result<Vec<(String, ValueRef)>> {
+        let runtime = self.runtime()?;
+        Ok(
+            crate::resolve::hydrate::collect_catalog_references(runtime, catalog.as_ref(), value)
+                .into_iter()
+                .map(|reference| {
+                    (
+                        reference.pointer,
+                        ValueRef {
+                            catalogs: reference.catalogs,
+                            entry: reference.entry,
+                            pointer: reference.entry_pointer,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
 }
 
 /// Default bounded capacity for the refresh-event broadcast channel. A lagging
@@ -340,6 +447,22 @@ const DEFAULT_REFRESH_EVENT_CAPACITY: usize = 64;
 /// [`LoadOptions::with_trace_capacity`] to match a deployment's traffic and
 /// memory budget.
 const DEFAULT_TRACE_EVENT_CAPACITY: usize = 256;
+
+/// One error for a start where both the primary and the fallback source
+/// failed, naming both attempts and reasons, primary first. Sources are
+/// redacted; the reasons are the underlying load errors verbatim.
+pub(super) fn fallback_load_error(
+    primary: &str,
+    primary_err: &RototoError,
+    fallback: &str,
+    fallback_err: &RototoError,
+) -> RototoError {
+    RototoError::new(format!(
+        "failed to load package from primary `{}`: {primary_err}; fallback `{}` also failed: {fallback_err}",
+        redacted_source(primary),
+        redacted_source(fallback),
+    ))
+}
 
 /// Redact credentials from a package source string: userinfo is replaced with
 /// `<redacted>`, never carrying a bearer token. Scheme, host, path, ref, and
@@ -586,20 +709,18 @@ impl TraceStreamItem {
 #[derive(Clone, Debug)]
 pub enum TraceTarget {
     Variable { id: String },
-    Qualifier { id: String },
 }
 
 impl TraceTarget {
     pub fn kind(&self) -> &'static str {
         match self {
             TraceTarget::Variable { .. } => "variable",
-            TraceTarget::Qualifier { .. } => "qualifier",
         }
     }
 
     pub fn id(&self) -> &str {
         match self {
-            TraceTarget::Variable { id } | TraceTarget::Qualifier { id } => id,
+            TraceTarget::Variable { id } => id,
         }
     }
 }
@@ -610,7 +731,7 @@ impl TraceEvent {
         self.target.id()
     }
 
-    /// `"variable"` or `"qualifier"`.
+    /// `"variable"`.
     pub fn target_kind(&self) -> &'static str {
         self.target.kind()
     }
@@ -620,14 +741,12 @@ impl TraceEvent {
 #[derive(Clone, Debug)]
 pub enum TraceDetail {
     Variable(Box<VariableResolutionTrace>),
-    Qualifier(QualifierResolutionTrace),
 }
 
 impl TraceDetail {
     fn to_json(&self) -> JsonValue {
         match self {
             TraceDetail::Variable(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
-            TraceDetail::Qualifier(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
         }
     }
 }
@@ -736,6 +855,7 @@ pub struct LoadOptions {
     source: SourceOptions,
     trace_capacity: usize,
     refresh_capacity: usize,
+    fallback_source: Option<String>,
 }
 
 impl LoadOptions {
@@ -782,6 +902,24 @@ impl LoadOptions {
         self.refresh_capacity = capacity.max(1);
         self
     }
+
+    /// The fallback package source, if one is configured.
+    pub fn fallback_source(&self) -> Option<&str> {
+        self.fallback_source.as_deref()
+    }
+
+    /// Name a fallback package source for degraded starts. When the primary
+    /// source fails to load for any reason (fetch, auth, staging, parse, or a
+    /// lint failure under [`LintMode::Deny`]), the SDK loads this source
+    /// through the identical pipeline instead of failing the start. Typically
+    /// a local path to a bundled, app-tested copy of the package. A healthy
+    /// primary always wins; if both fail, the load error names both attempts.
+    /// A [`RefreshingPackage`] started on the fallback keeps refreshing from
+    /// the primary; the fallback itself is never refreshed from.
+    pub fn with_fallback_source(mut self, source: impl Into<String>) -> Self {
+        self.fallback_source = Some(source.into());
+        self
+    }
 }
 
 impl Default for LoadOptions {
@@ -791,6 +929,7 @@ impl Default for LoadOptions {
             source: SourceOptions::default(),
             trace_capacity: DEFAULT_TRACE_EVENT_CAPACITY,
             refresh_capacity: DEFAULT_REFRESH_EVENT_CAPACITY,
+            fallback_source: None,
         }
     }
 }
@@ -801,7 +940,7 @@ pub enum LintMode {
     Skip,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolveOptions {
     pub validate_context: bool,
     /// Emit a full trace of this resolution to the trace stream, regardless of
@@ -909,10 +1048,113 @@ mod tests {
     #[test]
     fn event_type_names_are_snake_case() {
         assert_eq!(RefreshEventType::Loaded.as_str(), "loaded");
+        assert_eq!(RefreshEventType::FallbackLoaded.as_str(), "fallback_loaded");
         assert_eq!(RefreshEventType::RefreshStarted.as_str(), "refresh_started");
         assert_eq!(RefreshEventType::Refreshed.as_str(), "refreshed");
         assert_eq!(RefreshEventType::Failed.as_str(), "failed");
         assert_eq!(RefreshEventType::Immutable.as_str(), "immutable");
         assert_eq!(RefreshEventType::Shutdown.as_str(), "shutdown");
     }
+}
+
+/// A reference to a catalog entry (optionally a path inside it), the
+/// app-side twin of `x-rototo-ref`. Obtained from
+/// [`Package::references_in`], parsed from an address, or built from the
+/// raw reference forms package files use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValueRef {
+    /// Candidate catalogs, in pin order. A parsed address has exactly one;
+    /// a multi-catalog `x-rototo-ref` pin carries them all, and resolution
+    /// picks the first that contains the entry (hydration's rule).
+    catalogs: Vec<String>,
+    entry: String,
+    pointer: Option<String>,
+}
+
+impl ValueRef {
+    /// From an address: `catalog=email_template:entry=welcome#/body`.
+    pub fn parse(address: &str) -> Result<Self> {
+        let parsed = crate::address::Address::parse(address)?;
+        let steps = parsed.steps();
+        let [catalog_step, entry_step] = steps else {
+            return Err(invalid_value_ref(address));
+        };
+        let (
+            crate::address::EntityClass::Catalog,
+            crate::address::StepId::Entity(catalog),
+            crate::address::EntityClass::Entry,
+            crate::address::StepId::Entity(entry),
+        ) = (
+            catalog_step.class,
+            &catalog_step.id,
+            entry_step.class,
+            &entry_step.id,
+        )
+        else {
+            return Err(invalid_value_ref(address));
+        };
+        Ok(Self {
+            catalogs: vec![catalog.clone()],
+            entry: entry.clone(),
+            pointer: parsed.pointer().map(str::to_owned),
+        })
+    }
+
+    /// From a raw entry-reference string (`welcome#/body`) plus the pinned
+    /// target catalogs, mirroring `x-rototo-ref` semantics.
+    pub fn from_entry_ref(value: &str, pins: &[&str]) -> Result<Self> {
+        if pins.is_empty() {
+            return Err(RototoError::new(
+                "an entry reference needs at least one pinned catalog",
+            ));
+        }
+        let (entry, pointer) = crate::resolve::hydrate::split_catalog_entry_ref(value)
+            .ok_or_else(|| RototoError::new(format!("value is not an entry reference: {value}")))?;
+        Ok(Self {
+            catalogs: pins.iter().map(|pin| (*pin).to_owned()).collect(),
+            entry: entry.to_owned(),
+            pointer: pointer.map(str::to_owned),
+        })
+    }
+
+    /// From a dynamic reference object: `{ catalog, entry, pointer? }`.
+    pub fn from_dynamic(value: &JsonValue) -> Result<Self> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| RototoError::new("a dynamic reference is an object"))?;
+        let catalog = object
+            .get("catalog")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("a dynamic reference names its catalog"))?;
+        let entry = object
+            .get("entry")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("a dynamic reference names its entry"))?;
+        Ok(Self {
+            catalogs: vec![catalog.to_owned()],
+            entry: entry.to_owned(),
+            pointer: object
+                .get("pointer")
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned),
+        })
+    }
+
+    /// The canonical address. A multi-catalog reference renders its first
+    /// candidate; errors from resolution name the full candidate list.
+    pub fn address(&self) -> String {
+        let catalog = self.catalogs.first().map(String::as_str).unwrap_or("");
+        let mut address = format!("catalog={catalog}:entry={}", self.entry);
+        if let Some(pointer) = &self.pointer {
+            address.push('#');
+            address.push_str(pointer);
+        }
+        address
+    }
+}
+
+fn invalid_value_ref(address: &str) -> RototoError {
+    RototoError::new(format!(
+        "a value reference address is catalog=<id>:entry=<key>[#<json-pointer>], got `{address}`"
+    ))
 }

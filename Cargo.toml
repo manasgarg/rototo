@@ -1,6 +1,6 @@
 [package]
 name = "rototo"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.7"
 edition = "2024"
 description = "Control plane for runtime configuration of your application."
 license = "MIT OR Apache-2.0"
@@ -10,42 +10,31 @@ documentation = "https://docs.rs/rototo"
 readme = "README.md"
 keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
-# Published crates carry the built console UI bundle (apps/console/dist) so
-# `cargo install rototo` ships the console; run `just console-build` before
-# publishing. Frontend sources, SDKs, and tests stay out of the package.
+# The published crate is the core and CLI; the console ships separately as
+# the @rototo/console npm package. Frontend sources, SDKs, and tests stay
+# out of the package.
 include = [
-    "/build.rs",
     "/Cargo.toml",
     "/LICENSE-APACHE",
     "/LICENSE-MIT",
     "/README.md",
-    "/apps/console/dist/**",
     "/docs/src/**",
     "/docs/theme/**",
     "/src/**",
 ]
 
 [workspace]
-members = ["examples/sdk-app", "sdks/go", "sdks/java", "sdks/python", "sdks/typescript"]
+members = [
+    "apps/console-server",
+    "examples/sdk-app",
+    "sdks/go",
+    "sdks/java",
+    "sdks/python",
+    "sdks/typescript",
+]
 resolver = "3"
 
-[features]
-default = ["console"]
-# The `rototo console` web server. Language SDK bindings build with
-# default-features = false so the server stack stays out of their artifacts.
-console = [
-    "dep:axum",
-    "dep:base64",
-    "dep:mime_guess",
-    "dep:rusqlite",
-    "dep:rust-embed",
-    "tokio/net",
-    "tokio/signal",
-]
-
 [dependencies]
-axum = { version = "0.8", optional = true }
-base64 = { version = "0.22", optional = true }
 # Pinned exactly: rototo's expression language is a CEL subset evaluated by this
 # engine, so its parser/evaluator semantics are part of rototo's contract. Bump
 # deliberately and re-run the expression suite.
@@ -55,14 +44,11 @@ clap_complete = "4"
 flate2 = "1"
 glob = "0.3"
 jsonschema = { version = "0.33", default-features = false }
-mime_guess = { version = "2", optional = true }
 mlua = { version = "0.10", default-features = false, features = ["lua54", "serialize", "vendored"] }
 pulldown-cmark = "0.13"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 ring = "0.17"
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
-rust-embed = { version = "8", features = ["interpolate-folder-path"], optional = true }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -70,13 +56,17 @@ tar = "0.4"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "sync", "test-util", "time"] }
 toml = "0.8"
+# The edit engine rewrites package TOML in place; toml_edit preserves the
+# comments and formatting around each splice.
+toml_edit = "0.22"
 toml-span = "0.7.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-# Used by the SDK refresh-event stream for stable event ids, so it builds even
-# when the console feature is off (language SDK bindings build that way).
+# Used by the SDK refresh-event stream for stable event ids.
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"
+flate2 = "1"
 predicates = "3"
+tar = "0.4"

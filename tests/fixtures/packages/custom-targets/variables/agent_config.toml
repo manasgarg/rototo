@@ -1,0 +1,7 @@
+schema_version = 1
+
+description = "Agent config with custom target coverage"
+type = "catalog=agent_config"
+
+[resolve]
+default = "standard"

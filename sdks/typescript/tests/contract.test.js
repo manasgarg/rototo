@@ -45,12 +45,11 @@ async function runCase(contractCase) {
         return pkg.resolveVariable(contractCase.id, contractCase.context ?? {});
     }
 
-    if (operation === "resolve_qualifier") {
-        const pkg = await Package.load(packageSource);
-        return pkg.resolveQualifier(
-            contractCase.id,
-            contractCase.context ?? {},
-        );
+    if (operation === "load_package_with_fallback") {
+        const pkg = await Package.load(packageSource, {
+            fallbackSource: resolve(ROOT, contractCase.fallback),
+        });
+        return { servedFallback: pkg.servedFallback };
     }
 
     if (operation === "package_identity") {
@@ -60,6 +59,23 @@ async function runCase(contractCase) {
             releaseId: identity.releaseId,
             immutable: identity.immutable,
         };
+    }
+
+    if (operation === "read_entry") {
+        const pkg = await Package.load(packageSource);
+        return {
+            value: pkg.readEntry(contractCase.catalog, contractCase.entry),
+        };
+    }
+
+    if (operation === "read_list") {
+        const pkg = await Package.load(packageSource);
+        return pkg.readList(contractCase.id);
+    }
+
+    if (operation === "resolve_reference") {
+        const pkg = await Package.load(packageSource);
+        return { value: pkg.resolveReference(contractCase.address) };
     }
 
     throw new Error(`unsupported contract operation: ${operation}`);

@@ -14,6 +14,10 @@
 //! resulting digest is the same `sha256:<digest>` content hash the SDK derives
 //! when it later downloads the archive, so the name an operator publishes and
 //! the identity an instance reports are the same value.
+//!
+//! The projection is a runtime artifact, not a copy of the repository: custom
+//! lint under `lint/` is a review-time gate, enforced here before any bytes
+//! are produced, and is left out of the archive and the unpacked tree.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -49,20 +53,7 @@ pub struct PackagedArchive {
 /// loads without re-fetching parent sources.
 pub async fn pack_package(source: &str, options: &SourceOptions) -> Result<PackagedArchive> {
     let staged = stage_package_source(source, options).await?;
-
-    // A distributable archive is an immutable release artifact; refuse to ship
-    // a package that does not pass its own validation.
-    let lint = lint_package(staged.path()).await?;
-    if lint.has_errors() {
-        let errors = lint
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
-            .count();
-        return Err(RototoError::new(format!(
-            "cannot package `{source}`: {errors} lint error(s); run `rototo lint {source}` for details"
-        )));
-    }
+    require_lint_clean(source, staged.path()).await?;
 
     let root = staged.path().to_path_buf();
     let bytes = tokio::task::spawn_blocking(move || build_archive(&root))
@@ -76,6 +67,103 @@ pub async fn pack_package(source: &str, options: &SourceOptions) -> Result<Packa
         file_name,
         bytes,
     })
+}
+
+/// Loads `source`, requires it to be lint-clean, and writes the flattened
+/// projection into `target` as a plain directory instead of an archive.
+///
+/// This is the same pipeline as [`pack_package`] up to the final byte layout:
+/// any `extends` parents are merged in by source loading, update and deleted
+/// markers are consumed, the provenance sidecar is included, and the written
+/// manifest drops the `extends` key so the directory stands alone. The target
+/// directory must not already contain files; refusing a non-empty target keeps
+/// the output an exact projection rather than a merge with leftovers.
+///
+/// Returns the slash-separated relative paths that were written, sorted.
+pub async fn project_package(
+    source: &str,
+    options: &SourceOptions,
+    target: &Path,
+) -> Result<Vec<String>> {
+    let staged = stage_package_source(source, options).await?;
+    require_lint_clean(source, staged.path()).await?;
+
+    let root = staged.path().to_path_buf();
+    let target = target.to_path_buf();
+    tokio::task::spawn_blocking(move || write_projection(&root, &target))
+        .await
+        .map_err(|err| RototoError::new(format!("package projection task failed: {err}")))?
+}
+
+/// A projected package is a release artifact either way it is written; refuse
+/// to ship a package that does not pass its own validation.
+async fn require_lint_clean(source: &str, staged_root: &Path) -> Result<()> {
+    let lint = lint_package(staged_root).await?;
+    if lint.has_errors() {
+        let errors = lint
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
+            .count();
+        return Err(RototoError::new(format!(
+            "cannot package `{source}`: {errors} lint error(s); run `rototo lint {source}` for details"
+        )));
+    }
+    Ok(())
+}
+
+/// Copies the staged projection rooted at `root` into `target`. Synchronous;
+/// callers run it on a blocking thread.
+fn write_projection(root: &Path, target: &Path) -> Result<Vec<String>> {
+    if target.exists() {
+        let mut entries = std::fs::read_dir(target).map_err(|err| {
+            RototoError::new(format!(
+                "failed to read target directory {}: {err}",
+                target.display()
+            ))
+        })?;
+        if entries.next().is_some() {
+            return Err(RototoError::new(format!(
+                "target directory {} is not empty; refusing to write the package projection over existing files",
+                target.display()
+            )));
+        }
+    }
+
+    let mut files = Vec::new();
+    collect_files(root, root, &mut files)?;
+    files.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    let mut written = Vec::with_capacity(files.len());
+    for (relative, absolute) in &files {
+        let destination = target.join(Path::new(relative));
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                RototoError::new(format!(
+                    "failed to create directory {}: {err}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let contents = if relative == PACKAGE_MANIFEST {
+            manifest_bytes(absolute)?
+        } else {
+            std::fs::read(absolute).map_err(|err| {
+                RototoError::new(format!(
+                    "failed to read package file {}: {err}",
+                    absolute.display()
+                ))
+            })?
+        };
+        std::fs::write(&destination, contents).map_err(|err| {
+            RototoError::new(format!(
+                "failed to write package file {}: {err}",
+                destination.display()
+            ))
+        })?;
+        written.push(relative.clone());
+    }
+    Ok(written)
 }
 
 /// Builds the deterministic gzip-compressed tar archive for the package rooted
@@ -118,6 +206,9 @@ fn build_archive(root: &Path) -> Result<Vec<u8>> {
 /// Recursively collects regular files under `dir` as `(archive_path, absolute)`
 /// pairs, where `archive_path` is the slash-separated path relative to `root`.
 /// Skips `.git` metadata and symlinks; the loader rejects both on extraction.
+/// Also skips the root-level `lint/` directory: custom lint is a review-time
+/// gate, already enforced before any bytes are produced, so the release
+/// artifact does not carry it.
 fn collect_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) -> Result<()> {
     let entries = std::fs::read_dir(dir).map_err(|err| {
         RototoError::new(format!(
@@ -130,6 +221,9 @@ fn collect_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) ->
             .map_err(|err| RototoError::new(format!("failed to read package entry: {err}")))?;
         let file_name = entry.file_name();
         if file_name == ".git" {
+            continue;
+        }
+        if file_name == "lint" && dir == root {
             continue;
         }
         let file_type = entry.file_type().map_err(|err| {
@@ -293,6 +387,122 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn project_package_writes_the_flattened_tree() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let parent = temp.path().join("parent");
+        let child = temp.path().join("child");
+        let target = temp.path().join("out");
+        tokio::fs::create_dir_all(&parent).await.unwrap();
+        tokio::fs::create_dir_all(&child).await.unwrap();
+        write_package(&parent).await;
+        tokio::fs::write(
+            child.join(PACKAGE_MANIFEST),
+            "schema_version = 1\nextends = [\"../parent\"]\n",
+        )
+        .await
+        .unwrap();
+
+        let written = project_package(
+            &child.display().to_string(),
+            &SourceOptions::default(),
+            &target,
+        )
+        .await
+        .unwrap();
+
+        assert!(written.contains(&"variables/flag.toml".to_string()));
+        let manifest = tokio::fs::read_to_string(target.join(PACKAGE_MANIFEST))
+            .await
+            .unwrap();
+        assert!(!manifest.contains("extends"), "{manifest}");
+        assert!(target.join("variables/flag.toml").exists());
+    }
+
+    #[tokio::test]
+    async fn project_package_refuses_a_non_empty_target() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("package");
+        let target = temp.path().join("out");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        tokio::fs::create_dir_all(&target).await.unwrap();
+        tokio::fs::write(target.join("stale.txt"), "leftover")
+            .await
+            .unwrap();
+        write_package(&root).await;
+
+        let err = project_package(
+            &root.display().to_string(),
+            &SourceOptions::default(),
+            &target,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("is not empty"), "{err}");
+        // Nothing was written next to the existing file.
+        assert!(!target.join(PACKAGE_MANIFEST).exists());
+    }
+
+    /// A custom lint file that registers a variable-collective rule whose
+    /// handler accepts everything; the package stays lint-clean with it.
+    async fn write_custom_lint(root: &Path) {
+        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
+        tokio::fs::write(
+            root.join("lint/budget.lua"),
+            "function register(lint)\n  lint:rule({\n    id = \"fixture/allow-all\",\n    title = \"Allow all\",\n    help = \"Never fires.\",\n    target = \"variable=\",\n    handler = \"check\",\n  })\nend\n\nfunction check(target)\n  return {}\nend\n",
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn pack_package_leaves_custom_lint_out_of_the_archive() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("package");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        write_package(&root).await;
+        write_custom_lint(&root).await;
+
+        let archive = pack_package(&root.display().to_string(), &SourceOptions::default())
+            .await
+            .unwrap();
+
+        let paths = archive_entry_paths(&archive.bytes);
+        assert!(
+            paths.iter().all(|path| !path.starts_with("lint/")),
+            "archive carries custom lint: {paths:?}"
+        );
+        assert!(
+            paths.contains(&"variables/flag.toml".to_owned()),
+            "{paths:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn project_package_leaves_custom_lint_out_of_the_projection() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("package");
+        let target = temp.path().join("out");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        write_package(&root).await;
+        write_custom_lint(&root).await;
+
+        let written = project_package(
+            &root.display().to_string(),
+            &SourceOptions::default(),
+            &target,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            written.iter().all(|path| !path.starts_with("lint/")),
+            "projection carries custom lint: {written:?}"
+        );
+        assert!(!target.join("lint").exists());
+        assert!(target.join("variables/flag.toml").exists());
+    }
+
+    #[tokio::test]
     async fn pack_package_rejects_lint_failures() {
         let temp = tempfile::TempDir::new().unwrap();
         let root = temp.path().join("package");
@@ -306,6 +516,23 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("lint error"), "{err}");
+    }
+
+    fn archive_entry_paths(bytes: &[u8]) -> Vec<String> {
+        let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
     }
 
     fn read_archive_entry(bytes: &[u8], wanted: &str) -> Vec<u8> {

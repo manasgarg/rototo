@@ -1,3 +1,0 @@
-description = "Missing schema version"
-
-when = '(context.account.tier == "premium")'

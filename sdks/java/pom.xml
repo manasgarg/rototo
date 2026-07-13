@@ -6,7 +6,7 @@
 
   <groupId>dev.rototo</groupId>
   <artifactId>rototo</artifactId>
-  <version>0.1.0-alpha.6</version>
+  <version>0.1.0-alpha.7</version>
   <packaging>jar</packaging>
 
   <name>rototo Java SDK</name>

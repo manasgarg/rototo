@@ -1,4 +1,0 @@
-schema_version = 1
-description = "Runtime condition for beta bucket."
-
-when = '(bucket(context.account.id, "checkout", 0, 20000))'

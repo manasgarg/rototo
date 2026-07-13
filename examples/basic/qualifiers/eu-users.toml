@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Users whose country is in the European operating region"
-
-when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'

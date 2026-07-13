@@ -14,7 +14,7 @@ public final class PackageSmokeTest {
         }
         try (Package pkg = Package.load("examples/basic").get(30, TimeUnit.SECONDS)) {
             VariableResolution resolution = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", "premium")));
             if (!resolution.value().equals("Welcome back, premium member.")
                     || !resolution.source().equals(Map.of("kind", "literal"))) {

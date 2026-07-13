@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
+        reflection();
+        packageTokens();
         contract();
         refresh();
         events();
@@ -20,23 +22,51 @@ public final class JavaSdkTest {
         perCallTrace();
     }
 
+    private static void reflection() throws Exception {
+        try (Package pkg = await(Package.load("examples/billing"))) {
+            if (!pkg.listIds().contains("plan_tiers")) {
+                throw new AssertionError("plan_tiers missing: " + pkg.listIds());
+            }
+            Map<String, Object> planTiers = pkg.readList("plan_tiers");
+            assertEquals("string", planTiers.get("memberType"), "list member type");
+
+            if (!pkg.entryIds("features").contains("sso")) {
+                throw new AssertionError("sso missing: " + pkg.entryIds("features"));
+            }
+            Map<String, Object> sso = Json.asObject(pkg.readEntry("features", "sso"));
+            assertEquals("Single sign-on", sso.get("name"), "sso name");
+
+            assertEquals(
+                    "Single sign-on",
+                    pkg.resolveReference("catalog=features:entry=sso#/name"),
+                    "reference value");
+            assertEquals(
+                    "Single sign-on",
+                    pkg.resolveEntryRef("sso#/name", java.util.List.of("features")),
+                    "entry ref value");
+            assertRototoError(
+                    () -> pkg.resolveReference("catalog=features:entry=absent"),
+                    "does not resolve");
+        }
+    }
+
     private static void api() throws Exception {
         assertEquals(expectedVersion(), Rototo.version(), "version");
         try (Package pkg = await(Package.load("examples/basic"))) {
             VariableResolution variable = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", "premium")));
-            assertEquals("premium-message", variable.id(), "variable id");
+            assertEquals("premium_message", variable.id(), "variable id");
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            Boolean qualifier = pkg.resolveQualifier(
-                    "premium-users",
+            VariableResolution condition = pkg.resolveVariable(
+                    "premium_users",
                     Map.of("user", Map.of("tier", "free")));
-            assertEquals(false, qualifier, "qualifier value");
+            assertEquals(false, condition.value(), "condition variable value");
 
             VariableResolution skippedValidation = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
                     ResolveOptions.validateContext(false));
             assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
@@ -46,9 +76,38 @@ public final class JavaSdkTest {
             PackageLint lint = await(inspected.lint());
             assertEquals(0, lint.diagnostics().size(), "inspection lint diagnostics");
             assertRototoError(
-                    () -> inspected.resolveVariable("premium-message", Map.of()),
+                    () -> inspected.resolveVariable("premium_message", Map.of()),
                     "package was loaded without a runtime model");
         }
+    }
+
+    private static void packageTokens() throws Exception {
+        // Scoped tokens map https:// URL prefixes to bearer tokens; they never
+        // touch a local load, so parsing and loading both succeed.
+        try (Package pkg = await(Package.load(
+                "examples/basic",
+                LoadOptions.builder()
+                        .packageTokens(Map.of("https://config.acme.com/team-a", "token"))
+                        .build()))) {
+            assertEquals(false, pkg.servedFallback(), "local load served fallback");
+        }
+
+        assertRototoError(
+                Package.load(
+                        "examples/basic",
+                        LoadOptions.builder()
+                                .packageToken("bare")
+                                .packageTokens(Map.of("https://config.acme.com", "scoped"))
+                                .build()),
+                "cannot both be set");
+
+        assertRototoError(
+                Package.load(
+                        "examples/basic",
+                        LoadOptions.builder()
+                                .packageTokens(Map.of("http://config.acme.com", "token"))
+                                .build()),
+                "must start with https://");
     }
 
     private static void contract() throws Exception {
@@ -74,6 +133,25 @@ public final class JavaSdkTest {
                 continue;
             }
 
+            if (operation.equals("load_package_with_fallback")) {
+                LoadOptions options = LoadOptions.builder()
+                        .fallbackSource(Json.asString(testCase.get("fallback")))
+                        .build();
+                CompletableFuture<Package> future = Package.load(packageSource, options);
+                if (ok) {
+                    try (Package pkg = await(future)) {
+                        Map<String, Object> result = Json.asObject(expect.get("result"));
+                        assertEquals(
+                                result.get("servedFallback"),
+                                pkg.servedFallback(),
+                                name + " servedFallback");
+                    }
+                } else {
+                    assertRototoError(future, expectedError(expect));
+                }
+                continue;
+            }
+
             try (Package pkg = await(Package.load(packageSource))) {
                 switch (operation) {
                     case "lint_package":
@@ -86,9 +164,6 @@ public final class JavaSdkTest {
                         } else {
                             assertRototoError(pkg.lint(), expectedError(expect));
                         }
-                        break;
-                    case "resolve_qualifier":
-                        runQualifierCase(name, pkg, testCase, expect, ok);
                         break;
                     case "resolve_variable":
                         runVariableCase(name, pkg, testCase, expect, ok);
@@ -104,31 +179,54 @@ public final class JavaSdkTest {
                                 result.get("immutable"), identity.immutable(), name + " immutable");
                         break;
                     }
+                    case "read_entry": {
+                        String catalog = Json.asString(testCase.get("catalog"));
+                        String entry = Json.asString(testCase.get("entry"));
+                        if (ok) {
+                            Map<String, Object> expectValue = Json.asObject(
+                                    Json.asObject(expect.get("result")).get("value"));
+                            Map<String, Object> actual = Json.asObject(pkg.readEntry(catalog, entry));
+                            for (Map.Entry<String, Object> field : expectValue.entrySet()) {
+                                assertEquals(
+                                        field.getValue(),
+                                        actual.get(field.getKey()),
+                                        name + " " + field.getKey());
+                            }
+                        } else {
+                            assertRototoError(
+                                    () -> pkg.readEntry(catalog, entry), expectedError(expect));
+                        }
+                        break;
+                    }
+                    case "read_list": {
+                        Map<String, Object> result = Json.asObject(expect.get("result"));
+                        Map<String, Object> actual = pkg.readList(Json.asString(testCase.get("id")));
+                        for (Map.Entry<String, Object> field : result.entrySet()) {
+                            assertEquals(
+                                    field.getValue(),
+                                    actual.get(field.getKey()),
+                                    name + " " + field.getKey());
+                        }
+                        break;
+                    }
+                    case "resolve_reference": {
+                        String address = Json.asString(testCase.get("address"));
+                        if (ok) {
+                            assertEquals(
+                                    Json.asObject(expect.get("result")).get("value"),
+                                    pkg.resolveReference(address),
+                                    name + " value");
+                        } else {
+                            assertRototoError(
+                                    () -> pkg.resolveReference(address), expectedError(expect));
+                        }
+                        break;
+                    }
                     default:
                         throw new AssertionError("unsupported contract operation: " + operation);
                 }
             }
         }
-    }
-
-    private static void runQualifierCase(
-            String name,
-            Package pkg,
-            Map<String, Object> testCase,
-            Map<String, Object> expect,
-            boolean ok) throws Exception {
-        if (!ok) {
-            assertRototoError(
-                    () -> pkg.resolveQualifier(
-                            Json.asString(testCase.get("id")),
-                            Json.asObject(testCase.get("context"))),
-                    expectedError(expect));
-            return;
-        }
-        Boolean actual = pkg.resolveQualifier(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
-        assertEquals(Json.asBoolean(expect.get("result")), actual, name + " value");
     }
 
     private static void runVariableCase(
@@ -160,7 +258,7 @@ public final class JavaSdkTest {
                 .build();
         try (RefreshingPackage pkg = await(RefreshingPackage.load("examples/basic", options))) {
             VariableResolution resolution = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", "premium")));
             assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
             RefreshStatus status = await(pkg.status());

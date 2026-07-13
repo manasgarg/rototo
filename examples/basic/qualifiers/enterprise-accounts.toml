@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Users attached to large enterprise accounts"
-
-when = '(context.account.plan == "enterprise") && (context.account.seats >= 100)'

@@ -1,0 +1,49 @@
+{
+    "name": "@rototo/console",
+    "version": "0.1.0-alpha.7",
+    "description": "The rototo console: the web console and its JSON API, shipped as its own product over the Rust core bindings.",
+    "type": "module",
+    "bin": {
+        "rototo-console": "bin/rototo-console.mjs"
+    },
+    "files": [
+        "assets",
+        "bin",
+        "src",
+        "web",
+        "*.node"
+    ],
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build:native": "napi build --platform --release",
+        "build:native:debug": "napi build --platform",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "node --test \"tests/*.test.ts\"",
+        "check": "npm run typecheck && npm test",
+        "dev": "node src/main.ts",
+        "stage:web": "npm --prefix ../console-web run build && rm -rf web && cp -r ../console-web/dist web",
+        "format": "prettier --write \"package*.json\" \"tsconfig.json\" \"src/**/*.ts\" \"tests/**/*.ts\"",
+        "format:check": "prettier --check \"package*.json\" \"tsconfig.json\" \"src/**/*.ts\" \"tests/**/*.ts\""
+    },
+    "napi": {
+        "binaryName": "rototo-console-native",
+        "targets": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+        ]
+    },
+    "dependencies": {
+        "@hono/node-server": "^1.19.7",
+        "hono": "^4.10.7"
+    },
+    "devDependencies": {
+        "@napi-rs/cli": "3.7.0",
+        "@types/node": "24.10.2",
+        "prettier": "^3.8.4",
+        "typescript": "6.0.3"
+    }
+}

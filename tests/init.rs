@@ -15,17 +15,17 @@ fn init_creates_package_skeleton() {
         .success()
         .stdout(predicate::str::contains("package:"))
         .stdout(predicate::str::contains("rototo-package.toml"))
-        .stdout(predicate::str::contains("qualifiers"))
         .stdout(predicate::str::contains("variables"))
-        .stdout(predicate::str::contains("catalogs"))
-        .stdout(predicate::str::contains("evaluation-contexts"))
+        .stdout(predicate::str::contains("model/catalogs"))
+        .stdout(predicate::str::contains("data/catalogs"))
+        .stdout(predicate::str::contains("model/context"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(package.join("rototo-package.toml").is_file());
-    assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
-    assert!(package.join("catalogs").is_dir());
-    assert!(package.join("evaluation-contexts").is_dir());
+    assert!(package.join("model/catalogs").is_dir());
+    assert!(package.join("data/catalogs").is_dir());
+    assert!(package.join("model/context").is_dir());
     assert!(package.join("lint").is_dir());
 
     Command::cargo_bin("rototo")
@@ -46,20 +46,20 @@ fn init_entity_implicitly_creates_package_skeleton() {
             "init",
             package.to_str().unwrap(),
             "--variable",
-            "max-output-tokens",
+            "max_output_tokens",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("rototo-package.toml"))
-        .stdout(predicate::str::contains("variables/max-output-tokens.toml"));
+        .stdout(predicate::str::contains("variables/max_output_tokens.toml"));
 
     assert!(package.join("rototo-package.toml").is_file());
-    assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
-    assert!(package.join("catalogs").is_dir());
-    assert!(package.join("evaluation-contexts").is_dir());
+    assert!(package.join("model/catalogs").is_dir());
+    assert!(package.join("data/catalogs").is_dir());
+    assert!(package.join("model/context").is_dir());
     assert!(package.join("lint").is_dir());
-    assert!(package.join("variables/max-output-tokens.toml").is_file());
+    assert!(package.join("variables/max_output_tokens.toml").is_file());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -69,7 +69,7 @@ fn init_entity_implicitly_creates_package_skeleton() {
 }
 
 #[test]
-fn init_qualifier_and_context_templates() {
+fn init_variable_and_context_templates() {
     let temp = tempfile::tempdir().unwrap();
     let package = temp.path().join("config");
     init_package(&package);
@@ -79,11 +79,26 @@ fn init_qualifier_and_context_templates() {
         .args([
             "init",
             package.to_str().unwrap(),
-            "--qualifier",
-            "premium-users",
+            "--variable",
+            "premium_users",
         ])
         .assert()
         .success();
+
+    fs::write(
+        package.join("variables/premium_users.toml"),
+        r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium"'
+value = true
+"#,
+    )
+    .unwrap();
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -91,15 +106,7 @@ fn init_qualifier_and_context_templates() {
         .assert()
         .success();
 
-    let qualifier = fs::read_to_string(package.join("qualifiers/premium-users.toml")).unwrap();
-    assert!(qualifier.contains("schema_version = 1"));
-    assert!(qualifier.contains("when = 'context.user.tier == \"premium\"'"));
-    assert!(qualifier.contains("context.request.country in"));
-    assert!(qualifier.contains("context.account.seats >= 100"));
-    assert!(qualifier.contains("bucket(context.user.id"));
-    assert!(qualifier.contains("rototo init <package> --evaluation-context --update"));
-
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["user"]["properties"]["tier"]["type"],
         "string"
@@ -124,7 +131,7 @@ fn init_variable_and_catalog_templates() {
             "init",
             package.to_str().unwrap(),
             "--variable",
-            "checkout-redesign",
+            "checkout_redesign",
         ])
         .assert()
         .success();
@@ -135,25 +142,25 @@ fn init_variable_and_catalog_templates() {
             "init",
             package.to_str().unwrap(),
             "--catalog",
-            "checkout-redesign",
+            "checkout_redesign",
         ])
         .assert()
         .success();
 
-    let variable = fs::read_to_string(package.join("variables/checkout-redesign.toml")).unwrap();
+    let variable = fs::read_to_string(package.join("variables/checkout_redesign.toml")).unwrap();
+    assert!(variable.contains("schema_version = 1"));
     assert!(variable.contains("type = \"string\""));
     assert!(variable.contains("[resolve]"));
-    assert!(variable.contains("bool, int, number, string"));
-    assert!(variable.contains("context.account.plan == \"enterprise\""));
-    assert!(variable.contains("query = 'entry.enabled == true"));
+    assert!(variable.contains("default = \"control\""));
+    assert!(variable.contains("# The value when no rule matches."));
     assert!(!variable.contains("[env."));
 
     let catalog =
-        fs::read_to_string(package.join("catalogs/checkout-redesign.schema.json")).unwrap();
+        fs::read_to_string(package.join("model/catalogs/checkout_redesign.schema.json")).unwrap();
     assert!(catalog.contains("\"$schema\""));
     assert!(
         package
-            .join("catalogs/checkout-redesign-entries/default.toml")
+            .join("data/catalogs/checkout_redesign/default.toml")
             .is_file()
     );
 
@@ -181,14 +188,10 @@ fn init_evaluation_context_accepts_explicit_id() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "evaluation-contexts/request.schema.json",
+            "model/context/request.schema.json",
         ));
 
-    assert!(
-        package
-            .join("evaluation-contexts/request.schema.json")
-            .is_file()
-    );
+    assert!(package.join("model/context/request.schema.json").is_file());
 }
 
 #[test]
@@ -212,20 +215,27 @@ fn init_rejects_invalid_evaluation_context_id() {
 }
 
 #[test]
-fn init_context_infers_variable_and_qualifier_paths_with_types() {
+fn init_context_infers_variable_paths_with_types() {
     let temp = tempfile::tempdir().unwrap();
     let package = temp.path().join("config");
     init_package(&package);
 
     fs::write(
-        package.join("qualifiers/premium-users.toml"),
+        package.join("variables/premium_users.toml"),
         r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = 'context.user.tier == "premium"'
+value = true
 "#,
     )
     .unwrap();
     fs::write(
-        package.join("variables/checkout-redesign.toml"),
+        package.join("variables/checkout_redesign.toml"),
         r#"schema_version = 1
 type = "string"
 
@@ -233,7 +243,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
+when = 'variables["premium_users"] && context.account.seats >= 10 && context.flags.enabled'
 value = "treatment"
 "#,
     )
@@ -245,7 +255,7 @@ value = "treatment"
         .assert()
         .success();
 
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["user"]["properties"]["tier"]["type"],
         "string"
@@ -267,7 +277,7 @@ fn init_context_update_adds_missing_paths_and_reports_conflicts() {
     init_package(&package);
 
     fs::write(
-        package.join("variables/checkout-redesign.toml"),
+        package.join("variables/checkout_redesign.toml"),
         r#"schema_version = 1
 type = "string"
 
@@ -281,7 +291,7 @@ value = "treatment"
     )
     .unwrap();
     fs::write(
-        package.join("evaluation-contexts/evaluation.schema.json"),
+        package.join("model/context/evaluation.schema.json"),
         r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -294,7 +304,7 @@ value = "treatment"
       "properties": {
         "tier": {
           "type": "string",
-          "enum": ["standard", "premium"]
+          "list": ["standard", "premium"]
         }
       }
     },
@@ -331,7 +341,7 @@ value = "treatment"
         .stdout(predicate::str::contains("context.flags.enabled"))
         .stdout(predicate::str::contains("conflict"));
 
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["account"]["description"],
         "Preserved account contract"
@@ -341,7 +351,7 @@ value = "treatment"
         false
     );
     assert_eq!(
-        schema["properties"]["account"]["properties"]["tier"]["enum"][1],
+        schema["properties"]["account"]["properties"]["tier"]["list"][1],
         "premium"
     );
     assert_eq!(

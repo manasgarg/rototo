@@ -1,0 +1,36 @@
+# An unsaved namespaced variable file (variables/acme/in_trial.toml, open in
+# the editor but never written to disk) is a real document: its id is offered
+# inside variables["..."] like any saved variable's. Directories namespace
+# ids for every collection.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'variables["$0"]'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "variables/acme/in_trial.toml"
+text = '''
+schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+'''
+
+[[expect.includes]]
+label = "acme/in_trial"
+detail = "variable"
+
+[[expect.includes]]
+label = "premium"
+detail = "variable"

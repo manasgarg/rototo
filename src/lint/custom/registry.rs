@@ -8,8 +8,9 @@ use crate::lua_lint;
 use super::super::engine::LintContext;
 use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode};
 use super::super::stages::push_register_diagnostic;
+use super::RegisteredLintSelector;
 use super::runner;
-use super::{RegisteredLintAddress, RegisteredLintSelector};
+use crate::address::{Address, EntityClass};
 
 pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
     let files = ctx
@@ -160,7 +161,7 @@ fn registration_key(registration: &CustomLintRegistration) -> String {
         "{}|{}|{}|{}|{}",
         registration.file_path,
         lint_stage_key(registration.stage),
-        selector_key(&registration.selector),
+        registration.selector.address,
         registration.rule,
         registration.handler
     )
@@ -176,47 +177,6 @@ fn lint_stage_key(stage: LintStage) -> &'static str {
         LintStage::Value => "value",
         LintStage::Graph => "graph",
         LintStage::Policy => "policy",
-    }
-}
-
-fn selector_key(selector: &RegisteredLintSelector) -> String {
-    address_key(&selector.address)
-}
-
-fn address_key(address: &RegisteredLintAddress) -> String {
-    match address {
-        RegisteredLintAddress::Package => "/".to_owned(),
-        RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
-        RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
-        RegisteredLintAddress::Variables => "/variables".to_owned(),
-        RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
-        RegisteredLintAddress::VariableValues { variable } => {
-            format!("/variables/{variable}/values")
-        }
-        RegisteredLintAddress::VariableValue { variable, key } => {
-            format!("/variables/{variable}/values/{key}")
-        }
-        RegisteredLintAddress::VariableRules { variable } => {
-            format!("/variables/{variable}/rules")
-        }
-        RegisteredLintAddress::VariableRule { variable, index } => {
-            format!("/variables/{variable}/rules/{index}")
-        }
-        RegisteredLintAddress::Catalogs => "/catalogs".to_owned(),
-        RegisteredLintAddress::Catalog { id } => format!("/catalogs/{id}"),
-        RegisteredLintAddress::CatalogEntries { catalog } => format!("/catalogs/{catalog}/entries"),
-        RegisteredLintAddress::CatalogEntry { catalog, key } => {
-            format!("/catalogs/{catalog}/entries/{key}")
-        }
-        RegisteredLintAddress::EvaluationContexts => "/evaluation-contexts".to_owned(),
-        RegisteredLintAddress::EvaluationContext { id } => format!("/evaluation-contexts/{id}"),
-        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => {
-            format!("/evaluation-contexts/{evaluation_context}/samples")
-        }
-        RegisteredLintAddress::EvaluationContextSample {
-            evaluation_context,
-            key,
-        } => format!("/evaluation-contexts/{evaluation_context}/samples/{key}"),
     }
 }
 
@@ -267,115 +227,143 @@ fn validate_custom_registration(
     Ok((stage, selector, definition))
 }
 
+/// The entity classes a lint target's leaf step may name today. The other
+/// classes (list, layer, linter, manifest, governance) become targetable
+/// when their handler data marshalling exists.
+const TARGETABLE_LEAF_CLASSES: &[EntityClass] = &[
+    EntityClass::Package,
+    EntityClass::Variable,
+    EntityClass::Catalog,
+    EntityClass::Entry,
+    EntityClass::EvaluationContext,
+    EntityClass::Sample,
+];
+
 fn parse_registered_lint_selector(
     target: &str,
 ) -> std::result::Result<RegisteredLintSelector, (RototoRuleId, String)> {
-    let address = parse_registered_lint_address(target)?;
+    if target.starts_with('/') || target == "package" {
+        return Err(unsupported_registration_target(
+            target,
+            "targets use the address grammar, for example package=, variable=<id>, \
+             or catalog=<id>:entry=<key>",
+        ));
+    }
+    let address = Address::parse(target)
+        .map_err(|err| unsupported_registration_target(target, err.to_string()))?;
+    if address.pointer().is_some() {
+        return Err(unsupported_registration_target(
+            target,
+            "# pointer targets are not supported yet",
+        ));
+    }
+    let leaf = address.last_step().class;
+    if !TARGETABLE_LEAF_CLASSES.contains(&leaf) {
+        return Err(unsupported_registration_target(
+            target,
+            format!("{}= entities cannot be targeted yet", leaf.as_str()),
+        ));
+    }
     Ok(RegisteredLintSelector { address })
 }
 
-fn parse_registered_lint_address(
+fn unsupported_registration_target(
     target: &str,
-) -> std::result::Result<RegisteredLintAddress, (RototoRuleId, String)> {
-    let normalized = if target == "/" {
-        "/"
-    } else {
-        target.trim_end_matches('/')
-    };
-    if !normalized.starts_with('/') {
-        return unsupported_registration_target(target);
-    }
-    let segments = normalized
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-    let address = match segments.as_slice() {
-        [] => RegisteredLintAddress::Package,
-        ["qualifiers"] => RegisteredLintAddress::Qualifiers,
-        ["qualifiers", id] => RegisteredLintAddress::Qualifier {
-            id: parse_address_id(target, id)?,
-        },
-        ["variables"] => RegisteredLintAddress::Variables,
-        ["variables", id] => RegisteredLintAddress::Variable {
-            id: parse_address_id(target, id)?,
-        },
-        ["variables", variable, "values"] => RegisteredLintAddress::VariableValues {
-            variable: parse_address_id(target, variable)?,
-        },
-        ["variables", variable, "values", key] => RegisteredLintAddress::VariableValue {
-            variable: parse_address_id(target, variable)?,
-            key: parse_address_id(target, key)?,
-        },
-        ["variables", variable, "rules"] => RegisteredLintAddress::VariableRules {
-            variable: parse_address_id(target, variable)?,
-        },
-        ["variables", variable, "rules", index] => RegisteredLintAddress::VariableRule {
-            variable: parse_address_id(target, variable)?,
-            index: parse_address_index(target, index)?,
-        },
-        ["catalogs"] => RegisteredLintAddress::Catalogs,
-        ["catalogs", id] => RegisteredLintAddress::Catalog {
-            id: parse_address_id(target, id)?,
-        },
-        ["catalogs", catalog, "entries"] => RegisteredLintAddress::CatalogEntries {
-            catalog: parse_address_id(target, catalog)?,
-        },
-        ["catalogs", catalog, "entries", key] => RegisteredLintAddress::CatalogEntry {
-            catalog: parse_address_id(target, catalog)?,
-            key: parse_address_id(target, key)?,
-        },
-        ["evaluation-contexts"] => RegisteredLintAddress::EvaluationContexts,
-        ["evaluation-contexts", id] => RegisteredLintAddress::EvaluationContext {
-            id: parse_address_id(target, id)?,
-        },
-        ["evaluation-contexts", evaluation_context, "samples"] => {
-            RegisteredLintAddress::EvaluationContextSamples {
-                evaluation_context: parse_address_id(target, evaluation_context)?,
-            }
-        }
-        ["evaluation-contexts", evaluation_context, "samples", key] => {
-            RegisteredLintAddress::EvaluationContextSample {
-                evaluation_context: parse_address_id(target, evaluation_context)?,
-                key: parse_address_id(target, key)?,
-            }
-        }
-        _ => return unsupported_registration_target(target),
-    };
-    Ok(address)
-}
-
-fn parse_address_id(
-    target: &str,
-    segment: &str,
-) -> std::result::Result<String, (RototoRuleId, String)> {
-    if segment
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-    {
-        Ok(segment.to_owned())
-    } else {
-        unsupported_registration_target(target)
-    }
-}
-
-fn parse_address_index(
-    target: &str,
-    segment: &str,
-) -> std::result::Result<usize, (RototoRuleId, String)> {
-    segment.parse::<usize>().map_err(|_| {
-        (
-            RototoRuleId::CustomLintRegistrationInvalid,
-            format!("custom lint registration has unsupported target: {target}"),
-        )
-    })
-}
-
-fn unsupported_registration_target<T>(
-    target: &str,
-) -> std::result::Result<T, (RototoRuleId, String)> {
-    Err((
+    hint: impl std::fmt::Display,
+) -> (RototoRuleId, String) {
+    (
         RototoRuleId::CustomLintRegistrationInvalid,
-        format!("custom lint registration has unsupported target: {target}"),
-    ))
+        format!("custom lint registration has unsupported target: {target}; {hint}"),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn selector(target: &str) -> RegisteredLintSelector {
+        parse_registered_lint_selector(target)
+            .unwrap_or_else(|(_, message)| panic!("{target} should be accepted: {message}"))
+    }
+
+    fn rejection(target: &str) -> String {
+        parse_registered_lint_selector(target)
+            .err()
+            .unwrap_or_else(|| panic!("{target} should be rejected"))
+            .1
+    }
+
+    /// Every depth a lint target accepts: the package, class collectives,
+    /// namespace subtrees, entities (namespaced included), and nested
+    /// entities. The selector stores the canonical address.
+    #[test]
+    fn lint_targets_accept_every_documented_depth() {
+        for target in [
+            "package=",
+            "variable=",
+            "variable=payments/",
+            "variable=flag",
+            "variable=payments/max_tokens",
+            "catalog=",
+            "catalog=banner",
+            "catalog=banner:entry=",
+            "catalog=banner:entry=default",
+            "catalog=acme/banner:entry=promo/summer",
+            "evaluation-context=request",
+            "evaluation-context=request:sample=",
+            "evaluation-context=request:sample=basic",
+        ] {
+            assert_eq!(selector(target).address.to_string(), target);
+        }
+    }
+
+    #[test]
+    fn legacy_target_spellings_get_the_migration_hint() {
+        for target in [
+            "/",
+            "/variables/flag",
+            "/catalogs/banner/entries",
+            "package",
+        ] {
+            let message = rejection(target);
+            assert!(
+                message.contains("targets use the address grammar"),
+                "{target}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn pointer_targets_are_not_supported_yet() {
+        let message = rejection("variable=flag#/resolve/default");
+        assert!(
+            message.contains("# pointer targets are not supported yet"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn untargetable_classes_are_rejected_with_the_class_named() {
+        for (target, class) in [
+            ("list=tier", "list="),
+            ("layer=rollout", "layer="),
+            ("linter=budget", "linter="),
+            ("manifest=", "manifest="),
+            ("governance=", "governance="),
+        ] {
+            let message = rejection(target);
+            assert!(
+                message.contains(&format!("{class} entities cannot be targeted yet")),
+                "{target}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_targets_carry_the_address_parse_reason() {
+        let message = rejection("variables");
+        assert!(message.contains("missing the `=`"), "{message}");
+        let message = rejection("variable=Payments");
+        assert!(message.contains("lowercase snake_case"), "{message}");
+    }
 }

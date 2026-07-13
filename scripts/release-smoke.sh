@@ -24,6 +24,13 @@ if [[ "$npm_version" != "$version" ]]; then
     exit 1
 fi
 
+echo "Checking npm @rototo/console $version"
+console_version="$(npm view "@rototo/console@$version" version)"
+if [[ "$console_version" != "$version" ]]; then
+    echo "npm @rototo/console@$version returned version $console_version" >&2
+    exit 1
+fi
+
 echo "Checking PyPI rototo $python_version"
 curl -fsS "https://pypi.org/pypi/rototo/$python_version/json" >/dev/null
 

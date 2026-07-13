@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Whether the user should receive admin UI affordances"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["admin_users"]'
+value = true

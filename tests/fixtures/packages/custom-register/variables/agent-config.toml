@@ -1,7 +1,0 @@
-schema_version = 1
-
-description = "Agent config with a registered custom value lint"
-type = "list"
-
-[resolve]
-default = [6000]

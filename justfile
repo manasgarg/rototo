@@ -57,7 +57,8 @@ setup:
         exit 1
     fi
     just _install-hooks
-    just _install-console-deps
+    just _install-console-server-deps
+    just _install-console-web-deps
     just _install-typescript-sdk-deps
     just doctor
     echo "Done. Run 'just check' to verify."
@@ -67,162 +68,36 @@ setup:
 clean-dev:
     bash scripts/clean-dev.sh
 
-# Install the console UI dependencies.
-[group('01. setup')]
-_install-console-deps:
-    npm --prefix apps/console ci
-
 # Install the TypeScript SDK dependencies.
 [group('01. setup')]
 _install-typescript-sdk-deps:
     npm --prefix sdks/typescript ci
 
-# Run the full console development stack: Rust API plus Vite UI.
-# Pass a package source to run local deployment against that source.
+# Install the new console server dependencies.
+[group('01. setup')]
+_install-console-server-deps:
+    npm --prefix apps/console-server ci
+
+# Install the new console frontend dependencies.
+[group('01. setup')]
+_install-console-web-deps:
+    npm --prefix apps/console-web ci
+
+# Run the console server (API plus the built web bundle when staged).
+# Flags pass through to the server: `just console-dev --public-url https://...`.
 [group('08. console')]
-console-dev package_source="":
-    #!/bin/bash
-    set -euo pipefail
-    public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    package_source={{ quote(package_source) }}
-    package_source="${ROTOTO_CONSOLE_DEV_PACKAGE:-$package_source}"
-    package_source="${package_source#package_source=}"
-    data_dir=".rototo/dev"
-    observability_dir="$data_dir/observability"
-    mkdir -p "$observability_dir"
-    touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export RUST_LOG="${RUST_LOG:-warn}"
-    log="$observability_dir/console-dev.log"
+console-dev *args:
+    npm --prefix apps/console-server run dev -- {{args}}
 
-    cargo_watch() {
-        if cargo watch --version >/dev/null 2>&1; then
-            cargo watch "$@"
-        elif command -v mise >/dev/null && mise exec -- cargo watch --version >/dev/null 2>&1; then
-            mise exec -- cargo watch "$@"
-        else
-            echo "cargo-watch not found; run 'just setup' before 'just console-dev'" >&2
-            exit 1
-        fi
-    }
-
-    shell_quote() {
-        printf '%q' "$1"
-    }
-
-    deployment="hosted"
-    run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir")"
-    if [[ -n "$package_source" ]]; then
-        deployment="local"
-        run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir") --package $(shell_quote "$package_source")"
-    fi
-
-    echo "starting console API in $deployment deployment"
-    if [[ -n "$package_source" ]]; then
-        echo "using package source: $package_source"
-    fi
-
-    api_pid=""
-    api_process_group=0
-
-    start_api() {
-        if command -v setsid >/dev/null 2>&1; then
-            export -f cargo_watch
-            setsid bash -c 'cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$1" 2>&1 | tee -a "$2"' bash "$run_cmd" "$log" &
-            api_pid=$!
-            api_process_group=1
-        else
-            (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$run_cmd" 2>&1 | tee -a "$log") &
-            api_pid=$!
-        fi
-    }
-
-    cleanup() {
-        status=$?
-        trap - EXIT INT TERM HUP
-        if [[ -n "$api_pid" ]]; then
-            if [[ "$api_process_group" -eq 1 ]]; then
-                kill -- "-$api_pid" 2>/dev/null || true
-            else
-                kill "$api_pid" 2>/dev/null || true
-            fi
-            wait "$api_pid" 2>/dev/null || true
-        fi
-        exit "$status"
-    }
-
-    trap cleanup EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
-    trap 'exit 129' HUP
-
-    start_api
-    ready=0
-    for _ in $(seq 1 120); do
-        if curl --silent --output /dev/null --max-time 1 http://127.0.0.1:7686/api/me; then
-            ready=1
-            break
-        fi
-        if ! kill -0 "$api_pid" 2>/dev/null; then
-            wait "$api_pid"
-        fi
-        sleep 0.25
-    done
-    if [[ "$ready" -ne 1 ]]; then
-        echo "console API did not become ready on http://127.0.0.1:7686" >&2
-        exit 1
-    fi
-    npm --prefix apps/console run dev -- --force 2>&1 | tee -a "$log"
-
-# Run only the auto-reloading console API server for the dev.rototo.dev Caddy target.
-[group('08. console')]
-console-api:
-    #!/bin/bash
-    set -euo pipefail
-    public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    data_dir=".rototo/dev"
-    observability_dir="$data_dir/observability"
-    mkdir -p "$observability_dir"
-    touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export RUST_LOG="${RUST_LOG:-warn}"
-
-    if cargo watch --version >/dev/null 2>&1; then
-        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
-    elif command -v mise >/dev/null && mise exec -- cargo watch --version >/dev/null 2>&1; then
-        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
-    else
-        echo "cargo-watch not found; run 'just setup' before 'just console-api'" >&2
-        exit 1
-    fi
-
-# Run only the console UI dev server, proxying /api to ROTOTO_CONSOLE_API or 127.0.0.1:7686.
+# Run the console web app's Vite dev server (proxies /api to 127.0.0.1:7687).
 [group('08. console')]
 console-ui:
-    npm --prefix apps/console run dev -- --force
+    npm --prefix apps/console-web run dev
 
-# Run the embedded console behind demo.rototo.dev.
-[group('08. console')]
-console-demo: console-build
-    #!/bin/bash
-    set -euo pipefail
-    bind="${ROTOTO_CONSOLE_DEMO_BIND:-127.0.0.1:7687}"
-    public_url="${ROTOTO_CONSOLE_DEMO_PUBLIC_URL:-https://demo.rototo.dev}"
-    cargo run -- console --deployment local --bind "$bind" --public-url "$public_url"
-
-# Run a production-like local console with embedded frontend assets.
-[group('08. console')]
-console-preview: console-build
-    cargo run -- console --deployment local
-
-# Build the console UI bundle that release binaries embed.
+# Build the console web bundle into the server's web/ directory for serving.
 [group('08. console')]
 console-build:
-    npm --prefix apps/console run build
-
-# Install dependencies from the lockfile, typecheck, and build the console UI.
-[group('04. test')]
-console-ci:
-    npm --prefix apps/console ci
-    npm --prefix apps/console run build
+    npm --prefix apps/console-server run stage:web
 
 # Format Rust code and available Go sources.
 [group('02. format')]
@@ -230,7 +105,8 @@ fmt:
     #!/bin/bash
     set -euo pipefail
     cargo fmt --all
-    npm --prefix apps/console run format --if-present
+    npm --prefix apps/console-server run format --if-present
+    npm --prefix apps/console-web run format --if-present
     npm --prefix sdks/typescript run format --if-present
     if command -v gofmt >/dev/null; then
         gofmt -w sdks/go/*.go
@@ -246,7 +122,8 @@ fmt-check:
     #!/bin/bash
     set -euo pipefail
     cargo fmt --all -- --check
-    npm --prefix apps/console run format:check --if-present
+    npm --prefix apps/console-server run format:check --if-present
+    npm --prefix apps/console-web run format:check --if-present
     npm --prefix sdks/typescript run format:check --if-present
     if command -v gofmt >/dev/null; then
         unformatted="$(gofmt -l sdks/go/*.go)"
@@ -269,11 +146,12 @@ lint:
     #!/bin/bash
     set -euo pipefail
     cargo clippy --workspace --all-targets --all-features -- -D warnings
-    npm --prefix apps/console run lint
+    npm --prefix apps/console-server run typecheck
+    npm --prefix apps/console-web run lint
 
 # Run all maintained test slices.
 [group('04. test')]
-test: test-rust test-console test-sdk-python test-sdk-typescript test-sdk-java test-sdk-go test-sdk-java-package
+test: test-rust test-console-server test-console-web test-sdk-python test-sdk-typescript test-sdk-java test-sdk-go test-sdk-java-package
 
 # Run the Rust test suite.
 [group('04. test')]
@@ -283,10 +161,6 @@ test-rust:
     # colored design system opt back in with their own FORCE_COLOR + NO_COLOR
     # removal.
     NO_COLOR=1 cargo test --workspace --all-targets
-
-# Run the console typecheck and bundle build.
-[group('04. test')]
-test-console: console-ci
 
 # Run the Python SDK test suite.
 [group('04. test')]
@@ -443,6 +317,29 @@ test-sdk-java-package:
 [group('04. test')]
 java-sdk-package-check: test-sdk-java-package
 
+# Fast kernel gate: Rust core, CLI, and fixtures only; `just check` is the full gate.
+[group('05. check')]
+check-core:
+    #!/bin/bash
+    set -euo pipefail
+    cargo fmt --all -- --check
+    cargo clippy --package rototo --all-targets -- -D warnings
+    NO_COLOR=1 cargo test --package rototo --all-targets
+
+# Test the console server: bindings (release, so latency budgets gate), decide() honesty, walkthroughs.
+[group('04. test')]
+test-console-server:
+    #!/bin/bash
+    set -euo pipefail
+    cargo clippy --package rototo-console-native --all-targets -- -D warnings
+    npm --prefix apps/console-server run build:native
+    npm --prefix apps/console-server run check
+
+# Test the console web app: extension contract proof, extension logic tests, typecheck, bundle build.
+[group('04. test')]
+test-console-web:
+    npm --prefix apps/console-web run check
+
 # Run the local pre-push gate.
 [group('05. check')]
 check:
@@ -461,7 +358,8 @@ check:
         elapsed=$((end - start))
         printf "%s\t%s\n" "$elapsed" "$name" >> "$timings"
     }
-    run_step console-deps just _install-console-deps
+    run_step console-server-deps just _install-console-server-deps
+    run_step console-web-deps just _install-console-web-deps
     run_step typescript-sdk-deps just _install-typescript-sdk-deps
     run_step fmt-check just fmt-check
     run_step lint just lint
@@ -524,7 +422,6 @@ release-package-dry-run version:
         git status --short
         exit 1
     fi
-    just console-build
     cargo publish --package rototo --dry-run --locked --allow-dirty
     if command -v npm >/dev/null; then
         (cd sdks/typescript && npm pack --dry-run)
@@ -550,6 +447,8 @@ release-prep version:
     done
 
     (cd sdks/typescript && npm version "$version" --no-git-tag-version --allow-same-version)
+    (cd apps/console-server && npm version "$version" --no-git-tag-version --allow-same-version)
+    (cd apps/console-web && npm version "$version" --no-git-tag-version --allow-same-version)
     perl -0pi -e 's|<version>[^<]+</version>|<version>'"$version"'</version>|' sdks/java/pom.xml
     cargo update -w
     cargo run --locked -- docs --package-readme python --out sdks/python/README.md
@@ -558,21 +457,6 @@ release-prep version:
     cargo run --locked -- docs --package-readme go --out sdks/go/README.md
     just release-check "$version"
     just check
-
-# Summarize console dev observability files.
-[group('08. console')]
-console-observe:
-    node scripts/console-observe.mjs
-
-# Keep summarizing console dev observability files.
-[group('08. console')]
-console-observe-watch:
-    node scripts/console-observe.mjs --watch
-
-# Fail when console dev observability contains actionable findings above thresholds.
-[group('08. console')]
-console-observe-check:
-    node scripts/console-observe.mjs --check
 
 # Report dependency freshness without blocking normal PR checks.
 [group('05. check')]

@@ -1,0 +1,5 @@
+enabled = true
+tone = "info"
+heading = "Acme support hours"
+body = "Your dedicated support desk is available weekdays, 9 to 5."
+cta = "Contact your account team"

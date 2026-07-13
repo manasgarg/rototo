@@ -1,0 +1,24 @@
+# Nested context paths continue through the same JSON Schema: `context.account.`
+# offers the properties of the `account` object.
+package = "basic"
+file = "variables/premium.toml"
+
+overlay = '''
+schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "context.account.$0"
+value = true
+'''
+
+[[expect.includes]]
+label = "context.account.region"
+detail = "context field"
+
+[[expect.includes]]
+label = "context.account.tier"
+detail = "context field"

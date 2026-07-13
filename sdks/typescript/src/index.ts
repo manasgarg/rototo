@@ -1,4 +1,5 @@
 import {
+    type ListConfigJson,
     type JsonObject,
     type JsonValue,
     type RefreshOutcome,
@@ -48,7 +49,15 @@ export type LintMode = "deny" | "skip";
 
 export type LoadOptions = {
     packageToken?: string;
+    /** Bearer tokens scoped to https:// URL prefixes; the longest matching
+     * prefix wins and unmatched requests go out anonymous. Mutually
+     * exclusive with packageToken. */
+    packageTokens?: Record<string, string>;
     lint?: LintMode;
+    /** Fallback package source for degraded starts: loaded through the same
+     * pipeline when the primary source fails for any reason. Typically a
+     * local path to a bundled, app-tested copy of the package. */
+    fallbackSource?: string;
 };
 
 export type InspectOptions = {
@@ -80,6 +89,7 @@ export type RefreshStatus = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type PackageLint = {
@@ -97,19 +107,6 @@ export type ModelLocation = { path: string; range?: ModelRange };
    had the expected shape; the location always points at the field. */
 export type ModelField = { value?: string; location: ModelLocation };
 export type ModelValueField = { value?: JsonValue; location: ModelLocation };
-
-export type QualifierModel = {
-    id: string;
-    location: ModelLocation;
-    description?: string;
-    predicates: Array<{
-        index: number;
-        location: ModelLocation;
-        attribute?: ModelField;
-        op?: ModelField;
-        value?: JsonValue;
-    }>;
-};
 
 export type VariableModel = {
     id: string;
@@ -130,14 +127,50 @@ export type VariableModel = {
     valuesSection?: ModelLocation;
     resolve?: {
         location: ModelLocation;
+        method?: ModelField;
         default?: ModelValueField;
         rules: Array<{
             index: number;
             location: ModelLocation;
-            qualifier?: ModelField;
+            when?: ModelField;
             value?: ModelValueField;
         }>;
+        query?: QueryModel;
+        allocation?: ModelField;
+        assigns: Array<{
+            location: ModelLocation;
+            arm?: string;
+            value?: JsonValue;
+        }>;
     };
+};
+
+/* The `method = "query"` parameters on `[resolve]`. */
+export type QueryModel = {
+    from?: ModelField;
+    filter?: ModelField;
+    sort?: ModelField;
+    order?: ModelField;
+    limit?: ModelField;
+};
+
+export type LayerModel = {
+    id: string;
+    location: ModelLocation;
+    description?: string;
+    unit?: ModelField;
+    buckets?: number;
+    allocations: Array<{
+        location: ModelLocation;
+        id?: string;
+        status?: string;
+        eligibility?: ModelField;
+        arms: Array<{
+            location: ModelLocation;
+            name?: string;
+            buckets?: string;
+        }>;
+    }>;
 };
 
 export type CatalogModel = {
@@ -155,10 +188,26 @@ export type CatalogEntryModel = {
     value: JsonValue;
 };
 
-export type SchemaModel = {
+export type EvaluationContextModel = {
+    id: string;
     path: string;
     location: ModelLocation;
+    title?: string;
+    description?: string;
     json?: JsonValue;
+};
+
+export type EvaluationContextSampleModel = {
+    evaluationContext: string;
+    key: string;
+    path: string;
+    location: ModelLocation;
+    value?: JsonValue;
+};
+
+export type VariableEvaluationContextModel = {
+    variable: string;
+    evaluationContexts: string[];
 };
 
 export type LinterModel = {
@@ -168,21 +217,26 @@ export type LinterModel = {
 };
 
 export type ModelEntityRef =
-    | { kind: "qualifier"; id: string }
     | { kind: "variable"; id: string }
+    | { kind: "allocation"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "catalogEntry"; catalog: string; key: string }
-    | { kind: "schema"; path: string }
+    | { kind: "evaluationContext"; id: string }
+    | {
+          kind: "evaluationContextSample";
+          evaluationContext: string;
+          key: string;
+      }
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
 export type ModelReferenceVia =
-    | { kind: "predicateQualifier"; index: number }
-    | { kind: "predicateContextAttribute"; index: number }
     | { kind: "variableCatalog" }
     | { kind: "resolveDefault" }
-    | { kind: "ruleQualifier"; index: number }
-    | { kind: "ruleValue"; index: number };
+    | { kind: "ruleCondition"; index: number }
+    | { kind: "ruleValue"; index: number }
+    | { kind: "query" }
+    | { kind: "allocation" };
 
 export type ReferenceModel = {
     from: ModelEntityRef;
@@ -196,13 +250,15 @@ export type ReferenceModel = {
    Tools consume this instead of parsing package files themselves. */
 export type PackageSemanticModel = {
     version: number;
-    qualifiers: QualifierModel[];
     variables: VariableModel[];
+    layers: LayerModel[];
     catalogs: CatalogModel[];
     catalogEntries: CatalogEntryModel[];
-    schemas: SchemaModel[];
+    evaluationContexts: EvaluationContextModel[];
+    evaluationContextSamples: EvaluationContextSampleModel[];
     linters: LinterModel[];
     references: ReferenceModel[];
+    variableEvaluationContexts: VariableEvaluationContextModel[];
 };
 
 export class RototoError extends Error {
@@ -219,6 +275,8 @@ export function version(): string {
     return VERSION;
 }
 
+export type ListConfig = ListConfigJson;
+
 export class Package {
     private constructor(private readonly inner: NativePackageHandle) {}
 
@@ -231,6 +289,8 @@ export class Package {
                 String(source),
                 options.packageToken,
                 options.lint ?? "deny",
+                options.fallbackSource,
+                options.packageTokens,
             );
             return new Package(inner);
         } catch (error) {
@@ -255,6 +315,12 @@ export class Package {
 
     get root(): string {
         return this.inner.root();
+    }
+
+    /** True when this package was loaded from the fallback source because the
+     * primary source failed. */
+    get servedFallback(): boolean {
+        return this.inner.servedFallback();
     }
 
     identity(): PackageIdentity {
@@ -294,18 +360,57 @@ export class Package {
         }
     }
 
-    resolveQualifier(
-        id: string,
-        context: JsonObject,
-        options: ResolveOptions = {},
-    ): boolean {
+    /** Every list id in the loaded package. */
+    listIds(): string[] {
         try {
-            return this.inner.resolveQualifier(
-                id,
-                context,
-                options.validateContext ?? true,
-                options.trace ?? false,
-            );
+            return this.inner.listIds();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** One list: id, description, memberType, and members. */
+    readList(id: string): ListConfig {
+        try {
+            return this.inner.readList(id);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Every entry id of one catalog. */
+    entryIds(catalog: string): string[] {
+        try {
+            return this.inner.entryIds(catalog);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** One raw catalog entry, exactly as authored. */
+    readEntry(catalog: string, entry: string): JsonValue {
+        try {
+            return this.inner.readEntry(catalog, entry);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Follow one reference by address:
+        `catalog=email_template:entry=welcome#/body`. */
+    resolveReference(address: string): JsonValue {
+        try {
+            return this.inner.resolveReference(address);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics. */
+    resolveEntryRef(value: string, pins: string[]): JsonValue {
+        try {
+            return this.inner.resolveEntryRef(value, pins);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -347,6 +452,8 @@ export class RefreshingPackage {
                 options.periodSeconds,
                 options.packageToken,
                 options.lint ?? "deny",
+                options.fallbackSource,
+                options.packageTokens,
             );
             return new RefreshingPackage(inner);
         } catch (error) {
@@ -361,23 +468,6 @@ export class RefreshingPackage {
     ): VariableResolution {
         try {
             return this.inner.resolveVariable(
-                id,
-                context,
-                options.validateContext ?? true,
-                options.trace ?? false,
-            );
-        } catch (error) {
-            throw toRototoError(error);
-        }
-    }
-
-    resolveQualifier(
-        id: string,
-        context: JsonObject,
-        options: ResolveOptions = {},
-    ): boolean {
-        try {
-            return this.inner.resolveQualifier(
                 id,
                 context,
                 options.validateContext ?? true,

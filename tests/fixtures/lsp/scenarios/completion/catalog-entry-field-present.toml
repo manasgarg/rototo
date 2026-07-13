@@ -1,6 +1,6 @@
 # A catalog entry field already set in the document drops out of the suggestions.
 package = "basic"
-file = "catalogs/message-entries/default.toml"
+file = "data/catalogs/message/default.toml"
 
 overlay = '''
 heading = "Hello"

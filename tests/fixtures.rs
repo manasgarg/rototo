@@ -10,17 +10,17 @@ fn fixtures_command_prints_resolve_commands() {
             "fixtures",
             "examples/basic",
             "--variable",
-            "user-is-admin",
-            "--qualifier",
-            "premium-users",
+            "user_is_admin",
+            "--variable",
+            "premium_users",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "rototo resolve examples/basic --variable user-is-admin",
+            "rototo resolve examples/basic --variable user_is_admin",
         ))
         .stdout(predicate::str::contains(
-            "rototo resolve examples/basic --qualifier premium-users --context",
+            "rototo resolve examples/basic --variable premium_users --context",
         ))
         .stdout(predicate::str::contains("# =>"));
 }
@@ -32,8 +32,8 @@ fn fixtures_command_defaults_to_whole_package() {
         .args(["fixtures", "examples/basic"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--variable user-is-admin"))
-        .stdout(predicate::str::contains("--qualifier premium-users"));
+        .stdout(predicate::str::contains("--variable user_is_admin"))
+        .stdout(predicate::str::contains("--variable premium_users"));
 }
 
 #[test]
@@ -43,8 +43,8 @@ fn fixtures_command_renders_json_context_form() {
         .args([
             "fixtures",
             "examples/basic",
-            "--qualifier",
-            "premium-users",
+            "--variable",
+            "premium_users",
             "--context-form",
             "json",
         ])
@@ -62,17 +62,75 @@ fn fixtures_command_json_output_describes_invocations() {
             "fixtures",
             "examples/basic",
             "--variable",
-            "user-is-admin",
+            "user_is_admin",
             "--json",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "\"target\": \"variable:user-is-admin\"",
+            "\"target\": \"variable:user_is_admin\"",
         ))
         .stdout(predicate::str::contains("\"command\":"))
         .stdout(predicate::str::contains("\"expect\":"))
         .stdout(predicate::str::contains("\"kind\":"));
+}
+
+#[test]
+fn fixtures_command_synthesizes_a_unit_id_per_arm() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "fixtures",
+            "examples/basic",
+            "--variable",
+            "checkout_cta_copy",
+        ])
+        .assert()
+        .success()
+        // One case per arm, each with a synthesized unit id that hashes into
+        // that arm's buckets, plus the no-arm default case.
+        .stdout(predicate::str::contains(
+            "(allocation cta_copy_test, arm control)",
+        ))
+        .stdout(predicate::str::contains(
+            "(allocation cta_copy_test, arm benefit_led)",
+        ))
+        .stdout(predicate::str::contains("(default)"))
+        .stdout(predicate::str::contains("--context user.id=control-unit-"))
+        .stdout(predicate::str::contains(
+            "--context user.id=benefit_led-unit-",
+        ));
+}
+
+/// A fixture context carries exactly the fields the variable's resolution
+/// reads, at boundary values: no whole-sample dumps for a matching rule, no
+/// fields synthesized for other variables in the default case.
+#[test]
+fn fixture_contexts_stay_minimal() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "fixtures",
+            "examples/basic",
+            "--variable",
+            "enterprise_accounts",
+        ])
+        .assert()
+        .success()
+        // The default case falsifies the variable's own rule and nothing else.
+        .stdout(predicate::str::contains(
+            "--context account.plan=fixture-other  # => false (default)",
+        ))
+        // The rule case sets the read fields at the boundary, not a sample's
+        // values.
+        .stdout(predicate::str::contains(
+            "--context account.plan=enterprise --context account.seats=100 ",
+        ))
+        // No pollution from samples or other variables' rules.
+        .stdout(predicate::str::contains("user.tier").not())
+        .stdout(predicate::str::contains("device.platform").not());
 }
 
 /// The printed commands must be runnable: feeding one back through a real shell
@@ -83,7 +141,7 @@ fn printed_resolve_command_runs_end_to_end() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
         .env("NO_COLOR", "1")
-        .args(["fixtures", "examples/basic", "--variable", "user-is-admin"])
+        .args(["fixtures", "examples/basic", "--variable", "user_is_admin"])
         .output()
         .unwrap();
     assert!(output.status.success());

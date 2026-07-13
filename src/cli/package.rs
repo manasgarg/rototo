@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
-use rototo::{PackagedArchive, Result, RototoError, SourceOptions, pack_package};
+use rototo::{PackagedArchive, Result, RototoError, SourceOptions, pack_package, project_package};
 
 use crate::PackageArgs;
 use crate::package_source_string_or_current;
@@ -16,6 +16,38 @@ pub(crate) async fn run_package(
     quiet: bool,
 ) -> Result<ExitCode> {
     let source = package_source_string_or_current(args.package).await?;
+
+    if let Some(target) = &args.unpacked {
+        let written = project_package(&source, source_options, target).await?;
+
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&UnpackedOutput {
+                    package: &source,
+                    directory: &target.display().to_string(),
+                    files: written.len(),
+                })
+                .map_err(|err| RototoError::new(err.to_string()))?
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
+
+        if quiet {
+            println!("{}", target.display());
+            return Ok(ExitCode::SUCCESS);
+        }
+
+        println!("{} {}", style::label("package"), style::bold(&source));
+        println!(
+            "{} {}  {}",
+            style::label("unpacked"),
+            style::bold(&target.display().to_string()),
+            style::dim(&format!("{} files", written.len()))
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let archive = pack_package(&source, source_options).await?;
     let path = write_archive(&args.output, &archive).await?;
 
@@ -70,6 +102,14 @@ async fn write_archive(output: &Path, archive: &PackagedArchive) -> Result<std::
             ))
         })?;
     Ok(path)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnpackedOutput<'a> {
+    package: &'a str,
+    directory: &'a str,
+    files: usize,
 }
 
 #[derive(Serialize)]

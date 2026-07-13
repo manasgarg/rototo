@@ -1,0 +1,10 @@
+schema_version = 1
+description = "Employees using internal accounts"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(context.user.email_domain == "rototo.dev")'
+value = true

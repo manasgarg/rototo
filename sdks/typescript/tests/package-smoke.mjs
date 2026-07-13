@@ -58,7 +58,7 @@ try {
       throw new Error("unexpected version " + __version__);
     }
     const pkg = await Package.load(process.env.ROTOTO_EXAMPLES_BASIC);
-    const resolution = pkg.resolveVariable("premium-message", { user: { tier: "premium" } });
+    const resolution = pkg.resolveVariable("premium_message", { user: { tier: "premium" } });
     if (resolution.value !== "Welcome back, premium member." || resolution.source.kind !== "literal") {
       throw new Error("unexpected resolution " + JSON.stringify(resolution));
     }

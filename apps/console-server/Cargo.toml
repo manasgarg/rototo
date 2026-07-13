@@ -1,0 +1,22 @@
+# Internal console bindings over the Rust core. This is not a public SDK:
+# the surface tracks what the console server needs (design/console-*.md
+# bindings inventories) and can change freely between releases.
+[package]
+name = "rototo-console-native"
+version = "0.1.0-alpha.6"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3.9.0", features = ["async", "serde-json"] }
+napi-derive = "3.5.6"
+rototo = { path = "../..", default-features = false }
+serde = "1"
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
+
+[build-dependencies]
+napi-build = "2.3.2"

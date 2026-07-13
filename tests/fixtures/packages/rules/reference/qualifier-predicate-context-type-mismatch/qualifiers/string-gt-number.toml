@@ -1,4 +1,0 @@
-schema_version = 1
-description = "Runtime condition for string gt number."
-
-when = "(context.user.tier > 10)"

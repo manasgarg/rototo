@@ -32,6 +32,14 @@ const (
 type LoadOptions struct {
 	PackageToken string
 	Lint         LintMode
+	// FallbackSource names a fallback package source for degraded starts:
+	// loaded through the same pipeline when the primary source fails for any
+	// reason. Typically a local path to a bundled, app-tested copy.
+	FallbackSource string
+	// PackageTokens maps https:// URL prefixes to bearer tokens; the longest
+	// matching prefix wins and unmatched requests go out anonymous. Mutually
+	// exclusive with PackageToken.
+	PackageTokens map[string]string
 }
 
 // InspectOptions configures Package inspection.
@@ -49,9 +57,11 @@ type ResolveOptions struct {
 
 // RefreshingPackageOptions configures RefreshingPackage loading.
 type RefreshingPackageOptions struct {
-	PeriodSeconds *float64
-	PackageToken  string
-	Lint          LintMode
+	PeriodSeconds  *float64
+	PackageToken   string
+	Lint           LintMode
+	FallbackSource string
+	PackageTokens  map[string]string
 }
 
 // Package is a loaded rototo package handle.
@@ -82,6 +92,7 @@ type RefreshStatus struct {
 	LastError           *string  `json:"lastError"`
 	Refreshing          bool     `json:"refreshing"`
 	Immutable           bool     `json:"immutable"`
+	ServingFallback     bool     `json:"servingFallback"`
 }
 
 // PackageLayerIdentity is the identity of one layer in a layered package.
@@ -120,6 +131,7 @@ type RefreshSnapshot struct {
 	LastError           *string              `json:"lastError"`
 	Refreshing          bool                 `json:"refreshing"`
 	Immutable           bool                 `json:"immutable"`
+	ServingFallback     bool                 `json:"servingFallback"`
 }
 
 // SdkIdentity identifies the SDK that emitted a refresh event.
@@ -169,7 +181,11 @@ func Load(ctx context.Context, source string, options *LoadOptions) (*Package, e
 	if lint == "" {
 		lint = LintDeny
 	}
-	handle, err := nativePackageLoad(source, options.PackageToken, string(lint))
+	tokensJSON, err := packageTokensJSON(options.PackageTokens)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := nativePackageLoad(source, options.PackageToken, string(lint), options.FallbackSource, tokensJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +223,17 @@ func (w *Package) Root() (string, error) {
 	}
 	defer unlock()
 	return nativePackageRoot(handle)
+}
+
+// ServedFallback reports whether this package was loaded from the fallback
+// source because the primary source failed.
+func (w *Package) ServedFallback() (bool, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	return nativePackageServedFallback(handle)
 }
 
 // Identity returns the stable identity of the loaded package.
@@ -274,30 +301,126 @@ func (w *Package) ResolveVariable(
 	return &resolution, nil
 }
 
-// ResolveQualifier resolves a qualifier with a JSON-object context.
-func (w *Package) ResolveQualifier(
-	id string,
-	evaluationContext map[string]any,
-	options *ResolveOptions,
-) (bool, error) {
-	contextJSON, err := marshalContext(evaluationContext)
+// ListConfig is one list: contract and members together.
+type ListConfig struct {
+	ID          string  `json:"id"`
+	Description *string `json:"description"`
+	MemberType  string  `json:"memberType"`
+	Members     []any   `json:"members"`
+}
+
+// ListIds lists every list id in the loaded package.
+func (w *Package) ListIds() ([]string, error) {
+	handle, unlock, err := w.activeHandle()
 	if err != nil {
-		return false, err
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageListIds(handle)
+	if err != nil {
+		return nil, err
+	}
+	var lists []string
+	if err := json.Unmarshal([]byte(text), &lists); err != nil {
+		return nil, err
+	}
+	return lists, nil
+}
+
+// ReadList reads one list.
+func (w *Package) ReadList(id string) (*ListConfig, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageReadList(handle, id)
+	if err != nil {
+		return nil, err
+	}
+	var config ListConfig
+	if err := json.Unmarshal([]byte(text), &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// EntryIds lists every entry id of one catalog.
+func (w *Package) EntryIds(catalog string) ([]string, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageEntryIds(handle, catalog)
+	if err != nil {
+		return nil, err
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// ReadEntry reads one raw catalog entry, exactly as authored.
+func (w *Package) ReadEntry(catalog, entry string) (any, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageReadEntry(handle, catalog, entry)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// ResolveReference follows one reference by address:
+// catalog=email_template:entry=welcome#/body.
+func (w *Package) ResolveReference(address string) (any, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageResolveReference(handle, address)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// ResolveEntryRef follows a raw entry-reference string against its pinned
+// catalogs, mirroring x-rototo-ref semantics.
+func (w *Package) ResolveEntryRef(value string, pins []string) (any, error) {
+	pinsJSON, err := json.Marshal(pins)
+	if err != nil {
+		return nil, err
 	}
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageResolveQualifier(handle, id, contextJSON, validateContext(options), traceEnabled(options))
+	text, err := nativePackageResolveEntryRef(handle, value, string(pinsJSON))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	var value bool
-	if err := json.Unmarshal([]byte(text), &value); err != nil {
-		return false, err
+	var resolved any
+	if err := json.Unmarshal([]byte(text), &resolved); err != nil {
+		return nil, err
 	}
-	return value, nil
+	return resolved, nil
 }
 
 // Close releases the native package handle.
@@ -328,11 +451,17 @@ func LoadRefreshing(
 	if lint == "" {
 		lint = LintDeny
 	}
+	tokensJSON, err := packageTokensJSON(options.PackageTokens)
+	if err != nil {
+		return nil, err
+	}
 	handle, err := nativeRefreshingPackageLoad(
 		source,
 		options.PeriodSeconds,
 		options.PackageToken,
 		string(lint),
+		options.FallbackSource,
+		tokensJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -374,38 +503,6 @@ func (w *RefreshingPackage) ResolveVariable(
 		return nil, err
 	}
 	return &resolution, nil
-}
-
-// ResolveQualifier resolves a qualifier against the current active package.
-func (w *RefreshingPackage) ResolveQualifier(
-	id string,
-	evaluationContext map[string]any,
-	options *ResolveOptions,
-) (bool, error) {
-	contextJSON, err := marshalContext(evaluationContext)
-	if err != nil {
-		return false, err
-	}
-	handle, unlock, err := w.activeHandle()
-	if err != nil {
-		return false, err
-	}
-	defer unlock()
-	text, err := nativeRefreshingPackageResolveQualifier(
-		handle,
-		id,
-		contextJSON,
-		validateContext(options),
-		traceEnabled(options),
-	)
-	if err != nil {
-		return false, err
-	}
-	var value bool
-	if err := json.Unmarshal([]byte(text), &value); err != nil {
-		return false, err
-	}
-	return value, nil
 }
 
 // RefreshNow refreshes the package immediately and returns "unchanged",
@@ -664,6 +761,19 @@ func validateContext(options *ResolveOptions) bool {
 
 func traceEnabled(options *ResolveOptions) bool {
 	return options != nil && options.Trace
+}
+
+// packageTokensJSON carries the scoped-token map across the C boundary as a
+// JSON object; empty maps travel as the absent string.
+func packageTokensJSON(tokens map[string]string) (string, error) {
+	if len(tokens) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(tokens)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func nativeError(message string) error {

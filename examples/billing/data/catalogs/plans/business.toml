@@ -1,0 +1,4 @@
+name = "Business"
+tier = "business"
+features = ["api_access", "audit_log", "sso", "priority_support"]
+seat_limit = 500

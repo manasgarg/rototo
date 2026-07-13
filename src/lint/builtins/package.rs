@@ -44,6 +44,17 @@ pub(super) fn lint_trace_policies(ctx: &mut LintContext) {
                         issue.describe(),
                     );
                 }
+                for list_id in &when.value.references().lists {
+                    if !ctx.index.lists.contains_key(list_id) {
+                        push_project_diagnostic(
+                            diagnostics,
+                            RototoRuleId::TraceWhenInvalidReference,
+                            manifest.target(),
+                            when.location.clone(),
+                            format!("expression references unknown list: {list_id}"),
+                        );
+                    }
+                }
             }
             ProjectField::Invalid { location } => push_project_diagnostic(
                 diagnostics,

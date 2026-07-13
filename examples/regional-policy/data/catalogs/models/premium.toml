@@ -1,0 +1,5 @@
+name = "Premium assistant"
+model_id = "large-2"
+prompt_version = "support-v14"
+max_tokens = 4096
+temperature = 0.3

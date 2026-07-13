@@ -42,13 +42,15 @@ pub fn render_command(
 /// Renders the trailing `# => ...` comment describing the expected result.
 pub fn render_comment(invocation: &ResolveInvocation) -> String {
     match &invocation.expect {
-        ResolveExpectation::Qualifier { value } => format!("# => {value}"),
         ResolveExpectation::Variable { value, matched } => {
             let value = compact(value);
             match matched {
                 MatchedBy::Default => format!("# => {value} (default)"),
                 MatchedBy::Rule { index, condition } => {
                     format!("# => {value} (rule {index}: {condition})")
+                }
+                MatchedBy::Arm { allocation, arm } => {
+                    format!("# => {value} (allocation {allocation}, arm {arm})")
                 }
             }
         }
@@ -188,7 +190,7 @@ mod tests {
     fn shell_quote_leaves_safe_tokens_bare() {
         assert_eq!(shell_quote("user.tier=premium"), "user.tier=premium");
         assert_eq!(shell_quote("examples/basic"), "examples/basic");
-        assert_eq!(shell_quote("max-output-tokens"), "max-output-tokens");
+        assert_eq!(shell_quote("max_output_tokens"), "max_output_tokens");
     }
 
     #[test]

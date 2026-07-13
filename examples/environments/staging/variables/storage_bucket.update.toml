@@ -1,0 +1,5 @@
+# Environment update: a replacement [resolve] block (values only; the contract
+# stays with the base).
+[resolve]
+method = "rules"
+default = "thumbs-staging"

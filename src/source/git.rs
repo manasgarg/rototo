@@ -225,7 +225,7 @@ fn validate_git_ref(ref_: &str) -> Result<()> {
     Ok(())
 }
 
-fn scrub_git_process_variables(command: &mut Command) {
+pub(super) fn scrub_git_process_variables(command: &mut Command) {
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("GIT_") {
             command.env_remove(key);
@@ -243,7 +243,7 @@ fn scrub_git_process_variables(command: &mut Command) {
     }
 }
 
-fn is_full_git_commit(ref_: &str) -> bool {
+pub(super) fn is_full_git_commit(ref_: &str) -> bool {
     ref_.len() == 40 && ref_.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 

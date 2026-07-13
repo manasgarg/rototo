@@ -1,18 +1,16 @@
-# A `query` expression on a list<catalog:...> variable completes `entry.` paths
-# from the catalog schema of the entries being filtered.
+# A query `filter` expression on a catalog-backed variable completes `entry.`
+# paths from the catalog schema of the entries being filtered.
 package = "basic"
 file = "variables/message.toml"
 
 overlay = '''
 schema_version = 1
-type = "list<catalog:message>"
+type = "array<catalog=message>"
 
 [resolve]
-default = ["default"]
-
-[[resolve.rule]]
-query = 'entry.$0'
-value = ["default"]
+method = "query"
+from = "message"
+filter = 'entry.$0'
 '''
 
 [[expect.includes]]

@@ -104,12 +104,16 @@ impl SourceStore {
 #[derive(Clone)]
 pub(super) enum DocumentKind {
     Manifest,
-    Qualifier {
-        id: String,
-    },
     Variable {
         id: String,
     },
+    List {
+        id: String,
+    },
+    Layer {
+        id: String,
+    },
+    Governance,
     Catalog {
         id: String,
     },
@@ -131,8 +135,10 @@ impl DocumentKind {
     fn summary_kind(&self) -> SourceKind {
         match self {
             Self::Manifest => SourceKind::Manifest,
-            Self::Qualifier { .. } => SourceKind::Qualifier,
             Self::Variable { .. } => SourceKind::Variable,
+            Self::List { .. } => SourceKind::List,
+            Self::Layer { .. } => SourceKind::Layer,
+            Self::Governance => SourceKind::Governance,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
             Self::EvaluationContext { .. } => SourceKind::EvaluationContext,
@@ -172,6 +178,5 @@ impl SourceDocument {
 
 #[derive(Clone, Copy)]
 pub(super) enum DocumentCollection {
-    Qualifiers,
     Variables,
 }

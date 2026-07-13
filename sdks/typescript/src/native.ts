@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 
 type NativePackage = {
     root(): string;
+    servedFallback(): boolean;
     identity(): PackageIdentityJson;
     lint(): Promise<PackageLintJson>;
     semanticModel(): Promise<JsonValue>;
@@ -13,12 +14,12 @@ type NativePackage = {
         validateContext?: boolean,
         trace?: boolean,
     ): VariableResolutionJson;
-    resolveQualifier(
-        id: string,
-        context: JsonValue,
-        validateContext?: boolean,
-        trace?: boolean,
-    ): boolean;
+    listIds(): string[];
+    readList(id: string): ListConfigJson;
+    entryIds(catalog: string): string[];
+    readEntry(catalog: string, entry: string): JsonValue;
+    resolveReference(address: string): JsonValue;
+    resolveEntryRef(value: string, pins: string[]): JsonValue;
     subscribeTraceEvents(): NativeTraceEvents;
 };
 
@@ -27,6 +28,8 @@ type NativePackageConstructor = {
         source: string,
         packageToken?: string,
         lint?: "deny" | "skip",
+        fallbackSource?: string,
+        packageTokens?: Record<string, string>,
     ): Promise<NativePackage>;
     inspect(source: string, packageToken?: string): Promise<NativePackage>;
 };
@@ -38,12 +41,6 @@ type NativeRefreshingPackage = {
         validateContext?: boolean,
         trace?: boolean,
     ): VariableResolutionJson;
-    resolveQualifier(
-        id: string,
-        context: JsonValue,
-        validateContext?: boolean,
-        trace?: boolean,
-    ): boolean;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
     identity(): Promise<PackageIdentityJson>;
@@ -67,6 +64,8 @@ type NativeRefreshingPackageConstructor = {
         periodSeconds?: number,
         packageToken?: string,
         lint?: "deny" | "skip",
+        fallbackSource?: string,
+        packageTokens?: Record<string, string>,
     ): Promise<NativeRefreshingPackage>;
 };
 
@@ -103,6 +102,7 @@ export type RefreshStatusJson = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type PackageLayerIdentityJson = {
@@ -110,6 +110,13 @@ export type PackageLayerIdentityJson = {
     fingerprint: JsonValue | null;
     releaseId: string | null;
     immutable: boolean;
+};
+
+export type ListConfigJson = {
+    id: string;
+    description: string | null;
+    memberType: string;
+    members: JsonValue[];
 };
 
 export type PackageIdentityJson = {
@@ -137,6 +144,7 @@ export type RefreshSnapshotJson = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type SdkIdentityJson = {

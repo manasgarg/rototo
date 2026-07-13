@@ -1,0 +1,5 @@
+name = "Loyalty thanks"
+headline = "Thanks for being one of our best customers. Here is early access."
+cta_url = "/early-access"
+priority = 80
+audiences = ["high_value"]

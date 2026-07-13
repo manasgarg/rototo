@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for policy catalog values.",
+  "$id": "rototo://catalogs/policy.schema.json",
+  "type": "object",
+  "required": [
+    "unknown_catalog",
+    "unknown_entry",
+    "invalid_pointer",
+    "missing_pointer",
+    "ambiguous_template"
+  ],
+  "properties": {
+    "unknown_catalog": {
+      "type": "string",
+      "x-rototo-ref": "catalog=missing-template"
+    },
+    "unknown_entry": {
+      "type": "string",
+      "x-rototo-ref": "catalog=email_template"
+    },
+    "invalid_pointer": {
+      "type": "string",
+      "x-rototo-ref": "catalog=email_template"
+    },
+    "missing_pointer": {
+      "type": "string",
+      "x-rototo-ref": "catalog=email_template"
+    },
+    "ambiguous_template": {
+      "type": "string",
+      "x-rototo-ref": [
+        "catalog=email_template",
+        "catalog=sms_template"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

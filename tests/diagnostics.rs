@@ -11,9 +11,9 @@ fn lists_global_diagnostics() {
         .stdout(predicate::str::contains("rule"))
         .stdout(predicate::str::contains("entity"))
         .stdout(predicate::str::contains("rototo/package-not-found"))
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
         .stdout(predicate::str::contains(
-            "Qualifier TOML file could not be parsed",
+            "Variable TOML file could not be parsed",
         ))
         .stdout(predicate::str::contains("help:").not());
 }
@@ -25,7 +25,7 @@ fn lists_package_scoped_diagnostics_when_requested() {
         .args(["show", "examples/basic", "--lint-rules"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
         .stdout(predicate::str::contains(
             "consumer-experience/checkout-heading-required",
         ))
@@ -45,63 +45,20 @@ fn lists_global_diagnostics_as_json() {
             r#""rule": "rototo/package-not-found""#,
         ))
         .stdout(predicate::str::contains(
-            r#""rule": "rototo/qualifier-unreferenced""#,
+            r#""rule": "rototo/variable-rule-shadowed""#,
         ))
         .stdout(predicate::str::contains(r#""severity": "warning""#));
-}
-
-#[test]
-fn retired_rototo_rules_are_not_listed() {
-    let output = Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["show", "--lint-rules", "--json"])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "diagnostics list failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let rules = diagnostics["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|diagnostic| diagnostic["rule"].as_str().unwrap())
-        .collect::<Vec<_>>();
-
-    for retired in [
-        "rototo/variable-lint-shape",
-        "rototo/qualifier-missing-table",
-        "rototo/variable-missing-table",
-        "rototo/variable-values-missing",
-        "rototo/variable-value-unused",
-        "rototo/package-context-schema-ref",
-        "rototo/package-context-schema-attribute",
-        "rototo/package-context-schema-reserved-field",
-        "rototo/package-context-schema-missing",
-        "rototo/qualifier-predicate-context-type-mismatch",
-        "rototo/catalog-schema-version",
-        "rototo/catalog-schema-ref",
-    ] {
-        assert!(
-            !rules.contains(&retired),
-            "retired rule is listed: {retired}"
-        );
-    }
 }
 
 #[test]
 fn gets_package_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "--lint-rule", "rototo/qualifier-parse-failed"])
+        .args(["show", "--lint-rule", "rototo/variable-parse-failed"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
-        .stdout(predicate::str::contains("entity: qualifier"));
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
+        .stdout(predicate::str::contains("entity: variable"));
 }
 
 #[test]
@@ -182,7 +139,7 @@ fn custom_diagnostic_catalog_entries_do_not_claim_variable_entity() {
 fn lists_custom_lint_example_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/custom-lint", "--lint-rules"])
+        .args(["show", "examples/custom_lint", "--lint-rules"])
         .assert()
         .success()
         .stdout(predicate::str::contains("operations/message-not-empty"));

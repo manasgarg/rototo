@@ -1,0 +1,14 @@
+schema_version = 1
+description = "Deprecation gate: the old export pipeline, being turned off progressively"
+type = "bool"
+
+# A rollout in reverse: default stays true while rules peel groups off the old
+# path, starting with employees. Knowing who still depends on the old path is
+# telemetry, the consumer's job; this variable only controls the gate.
+[resolve]
+method = "rules"
+default = true
+
+[[resolve.rule]]
+when = 'context.user.is_employee'
+value = false

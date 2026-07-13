@@ -75,8 +75,8 @@ fn resolve_reports_missing_context_attributes() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
-            "premium-users",
+            "--variable",
+            "premium_users",
             "--context",
             "lane=dev",
         ])
@@ -94,8 +94,8 @@ fn resolve_succeeds_without_context_gaps() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
-            "premium-users",
+            "--variable",
+            "premium_users",
             "--context",
             "user.tier=premium",
         ])
@@ -147,6 +147,47 @@ fn setup_zsh_reports_plain_profile_instruction() {
 }
 
 #[test]
+fn setup_bash_honors_xdg_data_home() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let data = temp.path().join("data");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&data).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env("XDG_DATA_HOME", &data)
+        .args(["setup", "--shell", "bash"])
+        .assert()
+        .success();
+
+    assert!(data.join("bash-completion/completions/rototo").exists());
+    assert!(!home.join(".local/share").exists());
+}
+
+#[test]
+fn setup_elvish_defaults_to_xdg_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env_remove("XDG_DATA_HOME")
+        .args(["setup", "--shell", "elvish"])
+        .assert()
+        .success();
+
+    assert!(
+        home.join(".local/share/elvish/lib/rototo-completions.elv")
+            .exists()
+    );
+    assert!(!home.join(".elvish").exists());
+}
+
+#[test]
 fn setup_editor_help_omits_vscode_until_supported() {
     Command::cargo_bin("rototo")
         .unwrap()
@@ -187,7 +228,7 @@ fn diff_defaults_to_head_vs_worktree_for_local_package() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -219,7 +260,7 @@ fn diff_compares_explicit_git_refs() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -250,7 +291,7 @@ fn diff_uses_cli_design_system_colors_when_forced() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -410,7 +451,7 @@ fn resolve_help_omits_lint_selectors() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--variable"))
-        .stdout(predicate::str::contains("--qualifier"))
+        .stdout(predicate::str::contains("--qualifier").not())
         .stdout(predicate::str::contains("--context"))
         .stdout(predicate::str::contains("--lint-rule").not())
         .stdout(predicate::str::contains("--lint-authority").not())
@@ -741,7 +782,7 @@ fn write_basic_package(package: &Path, default: i64) {
     fs::create_dir_all(package.join("variables")).unwrap();
     fs::write(package.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(default),
     )
     .unwrap();
@@ -801,6 +842,66 @@ fn package_writes_a_deterministic_content_addressed_archive() {
 }
 
 #[test]
+fn package_unpacked_writes_the_flattened_projection() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("projection");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["package", "examples/acme-overlay", "--unpacked"])
+        .arg(&target)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("unpacked"));
+
+    // The projection stands alone: extends is stripped from the manifest.
+    let manifest = fs::read_to_string(target.join("rototo-package.toml")).unwrap();
+    assert!(!manifest.contains("extends"), "{manifest}");
+    // Markers are consumed by composition, not carried into the projection.
+    assert!(!target.join("variables/support_banner.update.toml").exists());
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/german_hours.deleted.toml")
+            .exists()
+    );
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/mobile_help.update.toml")
+            .exists()
+    );
+    // The composed results are: the updated variable, the merged entry, and
+    // the base entry the overlay deleted is gone.
+    assert!(target.join("variables/support_banner.toml").exists());
+    assert!(
+        target
+            .join("data/catalogs/support_banner/mobile_help.toml")
+            .exists()
+    );
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/german_hours.toml")
+            .exists()
+    );
+}
+
+#[test]
+fn package_unpacked_refuses_a_non_empty_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("projection");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("stale.txt"), "leftover").unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args(["package", "examples/basic", "--unpacked"])
+        .arg(&target)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not empty"));
+}
+
+#[test]
 fn package_help_is_listed() {
     Command::cargo_bin("rototo")
         .unwrap()
@@ -835,4 +936,122 @@ fn git(repo: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn package_token_entries_share_one_grammar_across_flag_and_env() {
+    // Two bare tokens (one from the flag, one from the environment) are
+    // ambiguous: a bare token is single-origin sugar and must stand alone.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .env("ROTOTO_PACKAGE_TOKEN", "env-token")
+        .args(["lint", "examples/basic", "--package-token", "flag-token"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("more than one bare package token"));
+}
+
+#[test]
+fn package_token_rejects_mixing_bare_and_scoped_entries() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "lint",
+            "examples/basic",
+            "--package-token",
+            "bare-token",
+            "--package-token",
+            "https://config.acme.com=scoped",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be mixed"));
+}
+
+#[test]
+fn package_token_accepts_base64_padded_bare_tokens() {
+    // A padded token ends in '=' but is still one bare token, because entry
+    // classification keys on the https:// spelling, never on '='.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("ROTOTO_PACKAGE_TOKEN", "dG9rZW4=")
+        .args(["--quiet", "lint", "examples/basic"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn package_token_env_takes_whitespace_separated_scoped_entries() {
+    // Scoped entries never touch local loads; parsing them must succeed.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env(
+            "ROTOTO_PACKAGE_TOKEN",
+            "https://config.acme.com/team-a=one https://archives.example.net=two",
+        )
+        .args(["--quiet", "lint", "examples/basic"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn package_token_prefix_without_a_token_is_rejected() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "lint",
+            "examples/basic",
+            "--package-token",
+            "https://config.acme.com",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no `=TOKEN`"));
+}
+
+/// Lint selectors filter which diagnostics count: a matching rule filter
+/// shows only that rule and keeps the failing exit; a filter matching
+/// nothing reports ok. Authority filtering selects the custom-lint side.
+#[test]
+fn lint_selectors_filter_diagnostics_and_exit_status() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-rule",
+            "rototo/layer-shape",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("rototo/layer-shape"))
+        .stdout(predicate::str::contains("rototo/variable-rule-shape").not());
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-rule",
+            "rototo/package-not-found",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok:"));
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-authority",
+            "fixture",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("fixture/custom-variable-rejected"))
+        .stdout(predicate::str::contains("rototo/").not());
 }

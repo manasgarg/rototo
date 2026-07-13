@@ -12,25 +12,62 @@ use crate::diagnostics::{DiagnosticLocation, SourceRange};
 use crate::expression::Expression;
 
 use super::PackageLintSnapshot;
-use super::index::{ProjectField, ResolveNode, RuleCollection, TypeSourceNode};
+use super::index::{
+    PackageExtendsCollection, ProjectField, ResolveNode, RuleCollection, TypeSourceNode,
+};
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 3;
+pub const SEMANTIC_MODEL_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageSemanticModel {
     pub version: u32,
-    pub qualifiers: Vec<QualifierModel>,
+    /// The base package sources this package's manifest declares, in order.
+    /// Discovery composes these edges into the composition tree.
+    pub extends: Vec<PackageExtendModel>,
     pub variables: Vec<VariableModel>,
+    pub layers: Vec<LayerModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
+    pub lists: Vec<ListModel>,
     pub evaluation_contexts: Vec<EvaluationContextModel>,
     pub evaluation_context_samples: Vec<EvaluationContextSampleModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
-    pub qualifier_evaluation_contexts: Vec<QualifierEvaluationContextModel>,
     pub variable_evaluation_contexts: Vec<VariableEvaluationContextModel>,
+}
+
+impl PackageSemanticModel {
+    /// Every reference whose source is the given entity: what it uses.
+    pub fn references_from<'a>(
+        &'a self,
+        entity: &ModelEntityRef,
+    ) -> impl Iterator<Item = &'a ReferenceModel> {
+        self.references
+            .iter()
+            .filter(move |reference| &reference.from == entity)
+    }
+
+    /// Every reference pointing at the given entity: who uses it. The other
+    /// direction of [`Self::references_from`]; together they drive
+    /// connected-entities views and cross-package lineage closure.
+    pub fn references_to<'a>(
+        &'a self,
+        entity: &ModelEntityRef,
+    ) -> impl Iterator<Item = &'a ReferenceModel> {
+        self.references
+            .iter()
+            .filter(move |reference| &reference.to == entity)
+    }
+}
+
+/// One `extends` entry from the package manifest.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExtendModel {
+    pub source: String,
+    pub location: ModelLocation,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,20 +99,17 @@ pub struct ModelValueField {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct QualifierModel {
-    pub id: String,
-    pub location: ModelLocation,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub when: Option<ModelField>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct VariableModel {
     pub id: String,
     pub location: ModelLocation,
+    /// Whether resolution reads caller-supplied context, directly or through
+    /// another variable. Derived from parsed CEL references, never source-text
+    /// matching.
+    pub uses_context: bool,
+    /// The `context.*` paths resolution reads, directly or through referenced
+    /// variables; what a console highlights to say "these are the facts this
+    /// variable looks at". Same derivation discipline as `uses_context`.
+    pub context_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub declaration: DeclarationModel,
@@ -109,8 +143,78 @@ pub struct ValueModel {
 pub struct ResolveModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<ModelValueField>,
     pub rules: Vec<RuleModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<ModelField>,
+    pub assigns: Vec<AssignModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerModel {
+    pub id: String,
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<i64>,
+    pub allocations: Vec<AllocationModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocationModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eligibility: Option<ModelField>,
+    pub arms: Vec<ArmModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArmModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<String>,
+}
+
+/// The `method = "query"` parameters on `[resolve]`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<ModelField>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,8 +224,6 @@ pub struct RuleModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<ModelField>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<ModelField>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<ModelValueField>,
 }
@@ -149,6 +251,17 @@ pub struct CatalogEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ListModel {
+    pub id: String,
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub member_type: ModelField,
+    pub members: Vec<ModelValueField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EvaluationContextModel {
     pub id: String,
     pub path: String,
@@ -170,13 +283,6 @@ pub struct EvaluationContextSampleModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<JsonValue>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QualifierEvaluationContextModel {
-    pub qualifier: String,
-    pub evaluation_contexts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -211,26 +317,31 @@ pub struct ReferenceModel {
     /// Where in the source entity the reference sits, so tools can render
     /// the relation semantically ("rule[1] checks ...").
     pub via: ModelReferenceVia,
+    /// Where the target is declared in this package; absent for a dangling
+    /// reference (or one a base package satisfies under composition).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<ModelLocation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelReferenceVia {
-    QualifierWhen,
-    QualifierWhenContextAttribute,
     VariableCatalog,
+    VariableList,
     ResolveDefault,
     RuleCondition { index: usize },
     RuleValue { index: usize },
+    Query,
+    Allocation,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelEntityRef {
-    Qualifier {
+    Variable {
         id: String,
     },
-    Variable {
+    Allocation {
         id: String,
     },
     Catalog {
@@ -239,6 +350,9 @@ pub enum ModelEntityRef {
     CatalogEntry {
         catalog: String,
         key: String,
+    },
+    List {
+        id: String,
     },
     EvaluationContext {
         id: String,
@@ -259,23 +373,8 @@ pub enum ModelEntityRef {
 impl PackageLintSnapshot {
     pub(crate) fn semantic_model(&self) -> PackageSemanticModel {
         let index = &self.index;
-        let qualifiers = index
-            .qualifiers
-            .values()
-            .map(|node| QualifierModel {
-                id: node.id.clone(),
-                location: model_location(&node.location),
-                description: present_string(&node.description),
-                when: Some(ModelField {
-                    value: match &node.when {
-                        ProjectField::Present(when) => Some(when.value.source().to_owned()),
-                        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-                    },
-                    location: model_location(&node.when.location()),
-                }),
-            })
-            .collect();
-
+        let compatibility = self.evaluation_context_compatibility();
+        let mut context_paths = super::evaluation_context::context_paths(self);
         let variables = index
             .variables
             .values()
@@ -315,11 +414,56 @@ impl PackageLintSnapshot {
                 let resolve = match &node.resolve {
                     ResolveNode::Resolve {
                         location,
+                        method,
                         default,
                         rules,
+                        query,
+                        assignments,
                     } => Some(ResolveModel {
                         location: model_location(location),
+                        allocation: assignments
+                            .as_ref()
+                            .map(|assignments| model_string_field(&assignments.allocation)),
+                        assigns: assignments
+                            .as_ref()
+                            .map(|assignments| {
+                                assignments
+                                    .assigns
+                                    .iter()
+                                    .map(|assign| AssignModel {
+                                        location: model_location(&assign.location),
+                                        arm: match &assign.arm {
+                                            ProjectField::Present(arm) => Some(arm.value.clone()),
+                                            _ => None,
+                                        },
+                                        value: match &assign.value {
+                                            ProjectField::Present(value) => {
+                                                Some(value.value.clone())
+                                            }
+                                            _ => None,
+                                        },
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        method: method.as_ref().map(|method| ModelField {
+                            value: Some(method.value.clone()),
+                            location: model_location(&method.location),
+                        }),
                         default: Some(model_value_field(default)),
+                        query: query.as_ref().map(|query| QueryModel {
+                            from: Some(model_string_field(&query.from)),
+                            filter: query.filter.as_ref().map(model_expression_field),
+                            sort: query.sort.as_ref().map(model_expression_field),
+                            order: query.order.as_ref().map(model_string_field),
+                            limit: query.limit.as_ref().map(|limit| ModelField {
+                                value: match limit {
+                                    ProjectField::Present(value) => Some(value.value.to_string()),
+                                    _ => None,
+                                },
+                                location: model_location(&limit.location()),
+                            }),
+                        }),
                         rules: match rules {
                             RuleCollection::Rules(rules) => rules
                                 .iter()
@@ -327,7 +471,6 @@ impl PackageLintSnapshot {
                                     index: rule.index,
                                     location: model_location(&rule.location),
                                     when: rule.when.as_ref().map(model_expression_field),
-                                    query: rule.query.as_ref().map(model_expression_field),
                                     value: Some(model_value_field(&rule.value)),
                                 })
                                 .collect(),
@@ -339,6 +482,11 @@ impl PackageLintSnapshot {
                 VariableModel {
                     id: node.id.clone(),
                     location: model_location(&node.location),
+                    uses_context: compatibility.context_dependent_variables.contains(&node.id),
+                    context_paths: context_paths
+                        .remove(&node.id)
+                        .map(|paths| paths.into_iter().collect())
+                        .unwrap_or_default(),
                     description: present_string(&node.description),
                     declaration,
                     values: node
@@ -458,18 +606,43 @@ impl PackageLintSnapshot {
                 to: reference_target_ref(&edge.target),
                 location: model_location(&edge.location),
                 via: reference_via(&edge.source),
+                declaration: edge.declaration.as_ref().map(model_location),
             })
             .collect();
 
-        let compatibility = self.evaluation_context_compatibility();
-        let qualifier_evaluation_contexts = compatibility
-            .qualifiers
-            .into_iter()
-            .map(|(qualifier, contexts)| QualifierEvaluationContextModel {
-                qualifier,
-                evaluation_contexts: contexts.into_iter().collect(),
+        let extends = match index.manifest.as_ref().map(|manifest| &manifest.extends) {
+            Some(PackageExtendsCollection::Sources { values, .. }) => values
+                .iter()
+                .map(|extend| PackageExtendModel {
+                    source: extend.source.clone(),
+                    location: model_location(&extend.location),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+
+        let lists = index
+            .lists
+            .values()
+            .map(|node| ListModel {
+                id: node.id.clone(),
+                location: model_location(&node.location),
+                description: present_string(&node.description),
+                member_type: model_string_field(&node.member_type),
+                members: match &node.members {
+                    ProjectField::Present(members) => members
+                        .value
+                        .iter()
+                        .map(|member| ModelValueField {
+                            value: Some(member.value.clone()),
+                            location: model_location(&member.location),
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                },
             })
             .collect();
+
         let variable_evaluation_contexts = compatibility
             .variables
             .into_iter()
@@ -479,17 +652,76 @@ impl PackageLintSnapshot {
             })
             .collect();
 
+        let layers = index
+            .layers
+            .values()
+            .map(|layer| LayerModel {
+                id: layer.id.clone(),
+                location: model_location(&layer.location),
+                description: present_string(&layer.description),
+                unit: match &layer.unit {
+                    ProjectField::Present(unit) => Some(ModelField {
+                        value: Some(unit.value.source().to_owned()),
+                        location: model_location(&unit.location),
+                    }),
+                    _ => None,
+                },
+                buckets: match &layer.buckets {
+                    ProjectField::Present(buckets) => Some(buckets.value),
+                    _ => None,
+                },
+                allocations: layer
+                    .allocations
+                    .iter()
+                    .map(|allocation| AllocationModel {
+                        location: model_location(&allocation.location),
+                        id: match &allocation.id {
+                            ProjectField::Present(id) => Some(id.value.clone()),
+                            _ => None,
+                        },
+                        status: match &allocation.status {
+                            Some(ProjectField::Present(status)) => Some(status.value.clone()),
+                            _ => None,
+                        },
+                        eligibility: match &allocation.eligibility {
+                            Some(ProjectField::Present(eligibility)) => Some(ModelField {
+                                value: Some(eligibility.value.source().to_owned()),
+                                location: model_location(&eligibility.location),
+                            }),
+                            _ => None,
+                        },
+                        arms: allocation
+                            .arms
+                            .iter()
+                            .map(|arm| ArmModel {
+                                location: model_location(&arm.location),
+                                name: match &arm.name {
+                                    ProjectField::Present(name) => Some(name.value.clone()),
+                                    _ => None,
+                                },
+                                buckets: match &arm.buckets {
+                                    ProjectField::Present(buckets) => Some(buckets.value.clone()),
+                                    _ => None,
+                                },
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
         PackageSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
-            qualifiers,
+            extends,
             variables,
+            layers,
             catalogs,
             catalog_entries,
+            lists,
             evaluation_contexts,
             evaluation_context_samples,
             linters,
             references,
-            qualifier_evaluation_contexts,
             variable_evaluation_contexts,
         }
     }
@@ -506,6 +738,16 @@ fn model_expression_field(field: &ProjectField<Expression>) -> ModelField {
     ModelField {
         value: match field {
             ProjectField::Present(value) => Some(value.value.source().to_owned()),
+            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+        },
+        location: model_location(&field.location()),
+    }
+}
+
+fn model_string_field(field: &ProjectField<String>) -> ModelField {
+    ModelField {
+        value: match field {
+            ProjectField::Present(value) => Some(value.value.clone()),
             ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
         },
         location: model_location(&field.location()),
@@ -531,33 +773,37 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
 
 fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
     match source {
-        ReferenceSource::QualifierWhenQualifier { .. } => ModelReferenceVia::QualifierWhen,
-        ReferenceSource::QualifierWhenContextAttribute { .. } => {
-            ModelReferenceVia::QualifierWhenContextAttribute
-        }
         ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
+        ReferenceSource::VariableList { .. } => ModelReferenceVia::VariableList,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
-        ReferenceSource::VariableRuleConditionQualifier { rule, .. } => {
+        ReferenceSource::VariableRuleConditionVariable { rule, .. }
+        | ReferenceSource::VariableRuleContextAttribute { rule, .. }
+        | ReferenceSource::VariableRuleList { rule, .. } => {
             ModelReferenceVia::RuleCondition { index: *rule }
         }
         ReferenceSource::VariableRuleValue { rule, .. } => {
             ModelReferenceVia::RuleValue { index: *rule }
         }
+        ReferenceSource::VariableQueryVariable { .. }
+        | ReferenceSource::VariableQueryContextAttribute { .. }
+        | ReferenceSource::VariableQueryList { .. } => ModelReferenceVia::Query,
+        ReferenceSource::VariableAllocation { .. } => ModelReferenceVia::Allocation,
     }
 }
 
 fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
     match source {
-        ReferenceSource::QualifierWhenQualifier { qualifier }
-        | ReferenceSource::QualifierWhenContextAttribute { qualifier } => {
-            ModelEntityRef::Qualifier {
-                id: qualifier.clone(),
-            }
-        }
         ReferenceSource::VariableCatalog { variable }
+        | ReferenceSource::VariableList { variable }
         | ReferenceSource::VariableResolveDefault { variable }
-        | ReferenceSource::VariableRuleConditionQualifier { variable, .. }
-        | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
+        | ReferenceSource::VariableRuleConditionVariable { variable, .. }
+        | ReferenceSource::VariableRuleContextAttribute { variable, .. }
+        | ReferenceSource::VariableRuleList { variable, .. }
+        | ReferenceSource::VariableRuleValue { variable, .. }
+        | ReferenceSource::VariableQueryVariable { variable }
+        | ReferenceSource::VariableQueryContextAttribute { variable }
+        | ReferenceSource::VariableQueryList { variable }
+        | ReferenceSource::VariableAllocation { variable } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
     }
@@ -568,15 +814,17 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
         ReferenceTarget::ContextAttribute(name) => {
             ModelEntityRef::ContextAttribute { name: name.clone() }
         }
-        ReferenceTarget::Qualifier(id) => ModelEntityRef::Qualifier { id: id.clone() },
+        ReferenceTarget::Variable(id) => ModelEntityRef::Variable { id: id.clone() },
         ReferenceTarget::Catalog(id) => ModelEntityRef::Catalog { id: id.clone() },
         ReferenceTarget::CatalogEntry { catalog, value } => ModelEntityRef::CatalogEntry {
             catalog: catalog.clone(),
             key: value.clone(),
         },
+        ReferenceTarget::List(id) => ModelEntityRef::List { id: id.clone() },
         ReferenceTarget::VariableValue { variable, value } => ModelEntityRef::Value {
             variable: variable.clone(),
             key: value.clone(),
         },
+        ReferenceTarget::Allocation(id) => ModelEntityRef::Allocation { id: id.clone() },
     }
 }

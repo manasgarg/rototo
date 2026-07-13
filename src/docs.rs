@@ -67,6 +67,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/concepts.md"),
     },
     DocPage {
+        id: "use-cases",
+        title: "Rototo Use Cases",
+        markdown: include_str!("../docs/src/use-cases.md"),
+    },
+    DocPage {
         id: "adoption",
         title: "Using Rototo",
         markdown: include_str!("../docs/src/adoption.md"),
@@ -101,6 +106,11 @@ pub const DOCS: &[DocPage] = &[
         title: "The SDK",
         markdown: include_str!("../docs/src/sdk.md"),
     },
+    DocPage {
+        id: "console",
+        title: "The Console",
+        markdown: include_str!("../docs/src/console.md"),
+    },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
@@ -110,7 +120,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     },
     DocNavSection {
         title: "Learn",
-        pages: &["concepts", "adoption"],
+        pages: &["concepts", "use-cases", "adoption"],
     },
     DocNavSection {
         title: "Reference",
@@ -121,6 +131,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "expressions",
             "diagnostics",
             "sdk",
+            "console",
         ],
     },
 ];
@@ -278,7 +289,7 @@ fn render_redirects() -> String {
 pub fn render_homepage_html() -> String {
     let snippet = render_code_block(
         "toml",
-        r#"# variables/checkout-redesign.toml
+        r#"# variables/checkout_redesign.toml
 schema_version = 1
 type = "string"
 
@@ -286,14 +297,14 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'context.user.tier == "premium"'
 value = "redesign"
 "#,
     );
     let resolve_snippet = render_code_block(
         "sh",
         r#"rototo resolve git+https://github.com/acme/config#main \
-  --variable checkout-redesign \
+  --variable checkout_redesign \
   --context user.tier=premium
 "#,
     );
@@ -359,7 +370,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Declared</h3>
         <p>
-          Variables, qualifiers, and JSON Schemas live as files under
+          Variables, catalogs, and JSON Schemas live as files under
           <code>rototo-package.toml</code>. Every change has an author, a
           diff, and a history.
         </p>
@@ -367,7 +378,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Validated</h3>
         <p>
-          Lint understands the package semantically: unknown qualifiers,
+          Lint understands the package semantically: unknown references,
           values that break their schema, and rules that can never match are
           caught before merge, not in production.
         </p>
@@ -410,13 +421,14 @@ value = "redesign"
   <section>
     <h2>Operate it from the console</h2>
     <p>
-      <code>rototo console</code> serves a web console from the same binary as
-      the CLI: browse packages, trace how a variable resolves against saved
-      contexts, edit review branches, and publish pull requests. Run it
-      on your laptop with your own GitHub token, or behind your proxy with
-      GitHub OAuth for the whole team.
+      The rototo console is a companion web app that ships separately as
+      <code>@rototo/console</code>: browse packages, trace how a variable
+      resolves against saved contexts, edit through curated surfaces, and
+      review changes with their resolution impact before they merge. Run it
+      on your laptop with your own GitHub token, or host it for the team
+      with GitHub OAuth and SSO.
     </p>
-    <p><a href="docs/concepts.html">Read the concepts →</a></p>
+    <p><a href="docs/console.html">Run the console →</a></p>
   </section>
 
   <footer class="home-footer">

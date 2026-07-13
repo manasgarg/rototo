@@ -1,13 +1,13 @@
 # Diagnostics
 
-When you run `rototo lint`, what comes back is a list of **diagnostics** - each
+When you run `rototo lint`, what comes back is a set of **diagnostics** - each
 one a specific thing that's wrong, or worth a second look, in your package. This
 page explains how to read a diagnostic, how the built-in checks are organized,
 and how your own custom checks fit in alongside them.
 
 The thing to hold onto: lint isn't a smoke test that just says "looks fine." It
 actually understands rototo's model - that a variable's type matches its values,
-that a qualifier references a real qualifier, that a catalog entry fits its
+that a rule references a real variable, that a catalog entry fits its
 schema - and each kind of problem has its own stable name you can point at.
 
 ## What a diagnostic looks like
@@ -37,7 +37,7 @@ hyphenated name:
 
 ```text
 rototo/variable-unknown-value
-rototo/qualifier-when-missing
+rototo/variable-reference-cycle
 rototo/catalog-entry-schema-mismatch
 ```
 
@@ -57,9 +57,15 @@ Both the authority and the rule name have to be lowercase letters, digits, and
 hyphens. That keeps every diagnostic in the system addressable the same way, no
 matter who wrote the rule.
 
+One distinction worth being explicit about: rule names are hyphenated, but the
+ids *inside* your package (variables, lists, catalogs, entries, evaluation
+contexts, samples) are snake_case. Those are two separate namespaces. Package
+ids appear in expressions, where a hyphen is the minus operator; rule names
+never do, so they keep the kebab convention.
+
 ## Seeing the whole catalog
 
-You don't have to memorize the rules - you can ask for the list:
+You don't have to memorize the rules - you can ask for the catalog:
 
 ```sh
 # every built-in rule rototo ships
@@ -73,12 +79,12 @@ rototo show --lint-rules --json
 ```
 
 Run it with no package and you get the global built-in catalog. Run it from
-inside a package and rototo adds that package's custom rules to the list, so you
+inside a package and rototo adds that package's custom rules to the output, so you
 see exactly what *this* package will be checked against. The human view is a
 table of `rule | entity | severity | title`; the JSON view carries the same
 fields plus each rule's `help`.
 
-That command is the source of truth - it can't drift the way a hand-written list
+That command is the source of truth - it can't drift the way a hand-written page
 in these docs would.
 
 ## How the built-in checks are grouped
@@ -87,48 +93,75 @@ There are a few dozen built-in rules, and they line up with the parts of a
 package. You don't need them all in your head; this is the map so you know
 roughly where a finding is coming from.
 
-- **Package** - the manifest exists, parses, declares `schema_version = 1`, and
-  any `[[trace]]` policies have a valid `when`. (e.g.
-  `rototo/package-manifest-missing`, `rototo/trace-when-invalid-reference`)
+- **Package** - the manifest exists, parses, declares `schema_version = 1`, any
+  `[[trace]]` policies have a valid `when`, and every rototo-recognized id is
+  snake_case. (e.g. `rototo/package-manifest-missing`,
+  `rototo/trace-when-invalid-reference`, `rototo/id-not-snake-case`)
+- **Governance** - `governance.toml` parses, its blocks are keyed
+  `[<kind>.<id>]` with known kinds, operations, and policy keys, allowlists
+  aren't empty, delete policies carry no field scope, field names exist in the
+  catalog schema, every block names an entity the package declares, and update
+  grants scope their fields (a warning when they don't - an unscoped grant
+  silently includes fields added later). (e.g.
+  `rototo/governance-parse-failed`, `rototo/governance-shape`,
+  `rototo/governance-unknown-target`, `rototo/governance-unscoped-update`)
 - **Evaluation contexts** - context schemas are valid JSON Schema, don't use
-  reserved fields, and every sample matches its schema. (e.g.
+  reserved fields, only use list targets in `x-rototo-ref`, and every sample
+  matches its schema, including any list member pins. (e.g.
   `rototo/evaluation-context-sample-schema-mismatch`)
-- **Qualifiers** - they parse, declare a version, have a `when`, and that `when`
-  only references real qualifiers and declared context paths with the right
-  types. This group also flags qualifiers that form a cycle, and warns about ones
-  nothing uses. (e.g. `rototo/qualifier-when-unknown-qualifier`,
-  `rototo/qualifier-cycle`, `rototo/qualifier-unreferenced`)
 - **Variables** - they parse, declare a `type` and a `[resolve]` default, their
   values match the declared type, catalog-backed variables point at real catalog
-  entries, and rule `when` expressions reference real qualifiers and context
-  paths. (e.g. `rototo/variable-value-type-mismatch`,
-  `rototo/variable-unknown-value`, `rototo/variable-resolve-missing-default`)
+  entries, list-backed variables use declared lists and stay inside the member
+  set, and rule `when` expressions reference real variables and declared
+  context paths with the right types. This group also flags variables whose
+  references form a cycle. Allocation-backed variables (`method =
+  "allocation"`) name a real allocation and cover its arms exactly. (e.g.
+  `rototo/variable-value-type-mismatch`,
+  `rototo/variable-rule-unknown-variable`, `rototo/variable-unknown-list`,
+  `rototo/variable-reference-cycle`, `rototo/variable-unknown-allocation`,
+  `rototo/variable-allocation-shape`)
 - **Variable rules** - warnings about rules that can never fire because an
   earlier rule shadows them, or rules that just re-select the default anyway.
   (e.g. `rototo/variable-rule-shadowed`)
+- **Layers** - each layer file under `layers/` parses, declares
+  `schema_version = 1`, has a valid `unit` and `buckets`, and its allocations
+  are well-shaped, with arms across the whole layer claiming disjoint buckets.
+  (e.g. `rototo/layer-parse-failed`, `rototo/layer-schema-version`,
+  `rototo/layer-shape`, `rototo/layer-bucket-overlap`)
 - **Catalogs** - schemas are valid JSON Schema, and any UI widget hints make
   sense for the property they're on. (e.g. `rototo/catalog-schema-invalid`)
-- **Catalog entries** - each entry parses and validates against its catalog's
-  schema. (e.g. `rototo/catalog-entry-schema-mismatch`)
+- **Catalog entries** - each entry parses, validates against its catalog's
+  schema, and any `x-rototo-ref` values point at real catalog entries or list
+  members. (e.g. `rototo/catalog-entry-schema-mismatch`,
+  `rototo/catalog-entry-unknown-reference`)
+- **Lists** - each file under `lists/` parses, declares
+  `schema_version = 1`, a scalar `type`, and a non-empty `members` array of
+  distinct values matching that type. (e.g. `rototo/list-parse-failed`,
+  `rototo/list-schema-version`, `rototo/list-shape`)
 - **Custom lint** - your Lua files register cleanly, without conflicting or
   duplicate rule metadata. (e.g. `rototo/custom-lint-registration-invalid`)
 
 A good rule of thumb: if the rule name starts with the thing you just edited, the
 finding is about that thing.
 
+One historical note: earlier rototo versions had a separate qualifier entity
+with its own `rototo/qualifier-*` rules. Qualifiers were dissolved into
+condition variables (plain bool variables), so those rule ids are gone: they
+no longer fire and they don't appear in the catalog.
+
 ## Errors versus warnings
 
 There are only two severities, and the line between them is simple.
 
 An **error** means the package can't be trusted to run - a value doesn't match
-its type, a qualifier points at one that doesn't exist, an entry breaks its
+its type, a rule points at a variable that doesn't exist, an entry breaks its
 schema. `Package::load` in the SDK rejects a package with lint errors, so these
 genuinely block a release.
 
 A **warning** is something you probably want to know but that won't break
-anything: a qualifier nothing references, a rule that can never fire, a custom
-lint file that registered no rules. Warnings are how lint nudges you toward a
-cleaner package without standing in your way.
+anything: a rule that can never fire, a rule that just re-selects the default,
+a custom lint file that registered no rules. Warnings are how lint nudges you
+toward a cleaner package without standing in your way.
 
 ## Your own checks, in Lua
 
@@ -146,7 +179,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout-redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     severity = "error",
     handler = "check_heading",
   })
@@ -166,19 +199,20 @@ What each field in `lint:rule({...})` does:
 - `title` - a short summary. Required.
 - `help` - how to fix it. Required.
 - `handler` - the name of the function rototo calls. Required.
-- `target` - what the rule runs against (defaults to `/`, the whole package).
+- `target` - what the rule runs against (defaults to `package=`, the whole package).
 - `severity` - `error` or `warning` (defaults to `error`).
 
-The handler gets the `package` and the current `target`, and returns a list of
+The handler gets the `package` and the current `target`, and returns an array of
 problems. Each problem needs a `message`, and can optionally point at the exact
-spot with a `path` or `field`. Returning an empty list (or `nil`) means "nothing
+spot with a `path` or `field`. Returning an empty array (or `nil`) means "nothing
 wrong here."
 
 A couple of guardrails worth knowing, since they shape what your Lua can do: the
 handlers run in a locked-down sandbox - just the `table`, `string`, `utf8`, and
-`math` libraries, no file or network access - with limits on memory, work, and a
-two-second timeout per handler. Custom lint is for *inspecting* the package, not
-reaching outside it.
+`math` libraries, no file or network access. The limits are concrete: 16 MB of
+Lua memory, one million VM instructions per handler run, and a two-second
+timeout, and hitting any of them fails that rule loudly instead of hanging
+lint. Custom lint is for *inspecting* the package, not reaching outside it.
 
 ## The JSON shape
 
@@ -190,9 +224,9 @@ with the fields you'll actually use up top:
   "rule": "rototo/variable-value-type-mismatch",
   "severity": "error",
   "message": "value 3 does not match declared type bool",
-  "help": "Use a value matching the variable's declared type.",
+  "help": "Update the value so it matches the declared primitive type.",
   "location": {
-    "path": "variables/checkout-redesign.toml",
+    "path": "variables/checkout_redesign.toml",
     "range": {
       "start": { "line": 8, "character": 8 },
       "end": { "line": 8, "character": 9 }
@@ -200,8 +234,8 @@ with the fields you'll actually use up top:
   },
   "stage": "value",
   "target": {
-    "entity": { "kind": "variable", "id": "checkout-redesign" },
-    "field": { "kind": "resolveDefault" }
+    "entity": { "kind": "variable", "id": "checkout_redesign" },
+    "field": { "kind": "variable_resolve_default" }
   },
   "related": [
     { "location": { "path": "...", "range": { } }, "message": "declared here" }

@@ -1,0 +1,13 @@
+{
+  "$comment": "An AI model configuration for the support assistant. The fastest-churning config in the package: prompt versions and parameters change weekly, deploys should not.",
+  "type": "object",
+  "title": "Assistant model configuration",
+  "properties": {
+    "name": { "type": "string" },
+    "model_id": { "type": "string" },
+    "prompt_version": { "type": "string" },
+    "max_tokens": { "type": "integer", "minimum": 1 },
+    "temperature": { "type": "number", "minimum": 0, "maximum": 2 }
+  },
+  "required": ["name", "model_id", "prompt_version", "max_tokens", "temperature"]
+}

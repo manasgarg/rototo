@@ -1,0 +1,12 @@
+# context.tier is declared only through a JSON Schema enum of strings, which
+# matches the string members of lists/plan_tiers. Expect no diagnostics here.
+schema_version = 1
+description = "Whether the request names a real plan tier"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.tier in lists.plan_tiers'
+value = true

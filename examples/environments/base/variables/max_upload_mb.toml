@@ -1,0 +1,7 @@
+schema_version = 1
+description = "Largest source image accepted"
+type = "int"
+
+[resolve]
+method = "rules"
+default = 25

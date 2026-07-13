@@ -1,0 +1,31 @@
+# Governance for the thumbnail service's environment layering.
+#
+# Environment overlays may replace VALUES but never the CONTRACT: every variable
+# grants update, nothing else grants anything, so dev and staging can differ in
+# values while schemas, lists, and the variable set stay identical everywhere.
+#
+# FRICTION FINDING (deliberately preserved): governance blocks are per-entity, so
+# "every variable is overridable" is five blocks today and a sixth the day one is
+# added, with nothing forcing the sixth. Vertical layering wants a wildcard grant
+# ([variable."*"]) or a package-level default. Recorded in the README; this file
+# is the evidence.
+
+[variable.storage_bucket]
+allowed_operations = ["update"]
+denied_operations = []
+
+[variable.origin_timeout_ms]
+allowed_operations = ["update"]
+denied_operations = []
+
+[variable.max_upload_mb]
+allowed_operations = ["update"]
+denied_operations = []
+
+[variable.enable_debug_endpoints]
+allowed_operations = ["update"]
+denied_operations = []
+
+[variable.log_level]
+allowed_operations = ["update"]
+denied_operations = []

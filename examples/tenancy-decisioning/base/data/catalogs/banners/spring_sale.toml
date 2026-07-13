@@ -1,0 +1,7 @@
+name = "Spring sale"
+headline = "Spring sale: 20% off everything."
+cta_url = "/sale"
+priority = 90
+audiences = []
+starts = "2027-03-01T00:00:00Z"
+ends = "2027-04-01T00:00:00Z"

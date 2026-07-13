@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Shipping discount percentage at checkout"
+type = "int"
+
+[resolve]
+default = 0
+
+[[resolve.rule]]
+when = 'variables["lane_stage"]'
+value = 5
+
+[[resolve.rule]]
+when = 'variables["premium_users"]'
+value = 15
+
+[[resolve.rule]]
+when = 'variables["high_value_cart"]'
+value = 25

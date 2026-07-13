@@ -1,0 +1,59 @@
+# After comparing a context path pinned to a list, the legal literals are the
+# list's members, quoted and ready to insert, offered ahead of the generic
+# expression roots. The pin and the list both live in unsaved overlays.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'context.account.plan_tier == $0'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "lists/plan_tiers.toml"
+text = '''
+schema_version = 1
+type = "string"
+members = ["free", "team", "business"]
+'''
+
+[[also_open]]
+file = "model/context/request.schema.json"
+text = '''
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "account": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "plan_tier": {
+          "type": "string",
+          "x-rototo-ref": "list=plan_tiers"
+        }
+      }
+    }
+  }
+}
+'''
+
+[[expect.includes]]
+label = '"free"'
+detail = "list member"
+
+[[expect.includes]]
+label = '"business"'
+detail = "list member"
+
+[[expect.includes]]
+label = "context."
+detail = "expression root"

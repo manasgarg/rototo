@@ -1,0 +1,16 @@
+schema_version = 1
+description = "The plan in force for this account's tier: entitlements and seat limit"
+type = "catalog=plans"
+
+# A keyed lookup: exactly one plan entry exists per tier, so the filter selects
+# it and the whole entry is the value. Application code reads the fields it
+# needs: `"sso" in plan.features` for an entitlement check, `plan.seat_limit`
+# for the quota. The design wanted these as separate projected variables
+# (plan_entitlements, seat_limit), but query projection is not implemented yet;
+# see the hard-parts section of the README.
+# No default: an account with an unknown tier is a hard error, and the tier
+# list on the context schema catches it before the query runs.
+[resolve]
+method = "query"
+from = "plans"
+filter = 'entry.tier == context.account.plan_tier'

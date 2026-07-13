@@ -1,0 +1,33 @@
+# Inside bucket()'s salt argument, the declared layer ids are offered as
+# quoted literals: sharing a layer's salt makes the expression agree with
+# that layer's bucket positions. The layer lives in an unsaved overlay.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'bucket(context.user.id, $0'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "layers/checkout.toml"
+text = '''
+schema_version = 1
+unit = "context.user.id"
+buckets = 1000
+'''
+
+[[expect.includes]]
+label = '"checkout"'
+detail = "layer id"
+
+[[expect.includes]]
+label = "context."
+detail = "expression root"

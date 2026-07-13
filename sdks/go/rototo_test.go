@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,15 +17,15 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	variable, err := pkg.ResolveVariable(
-		"premium-message",
+		"premium_message",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	qualifier, err := pkg.ResolveQualifier(
-		"premium-users",
+	condition, err := pkg.ResolveVariable(
+		"premium_users",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
 	)
@@ -32,7 +33,7 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if variable.ID != "premium-message" {
+	if variable.ID != "premium_message" {
 		t.Fatalf("variable id = %q", variable.ID)
 	}
 	if !reflect.DeepEqual(variable.Source, map[string]any{"kind": "literal"}) {
@@ -41,8 +42,8 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 	if variable.Value != "Welcome back, premium member." {
 		t.Fatalf("value = %#v", variable.Value)
 	}
-	if !qualifier {
-		t.Fatalf("qualifier value = false")
+	if condition.Value != true {
+		t.Fatalf("condition value = %#v", condition.Value)
 	}
 }
 
@@ -61,7 +62,7 @@ func TestInspectedPackageCanLintButNotResolve(t *testing.T) {
 		t.Fatalf("diagnostics = %#v", lint.Diagnostics)
 	}
 
-	_, err = pkg.ResolveVariable("premium-message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable("premium_message", map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected inspected package resolution to fail")
 	}
@@ -75,7 +76,7 @@ func TestContextValidationCanBeSkipped(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	result, err := pkg.ResolveVariable(
-		"premium-message",
+		"premium_message",
 		map[string]any{"user": map[string]any{"tier": map[string]any{"bad": "shape"}}},
 		&ResolveOptions{SkipContextValidation: true},
 	)
@@ -94,6 +95,42 @@ func TestLoadRejectsInvalidLintMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "lint must be 'deny' or 'skip'") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestScopedPackageTokensLoadAndStayOffLocalSources(t *testing.T) {
+	pkg, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageTokens: map[string]string{"https://config.acme.com/team-a": "token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePackage(t, pkg)
+	servedFallback, err := pkg.ServedFallback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servedFallback {
+		t.Fatal("local load unexpectedly served the fallback")
+	}
+}
+
+func TestBareAndScopedPackageTokensAreMutuallyExclusive(t *testing.T) {
+	_, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageToken:  "bare",
+		PackageTokens: map[string]string{"https://config.acme.com": "scoped"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot both be set") {
+		t.Fatalf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestScopedPackageTokenPrefixesAreValidated(t *testing.T) {
+	_, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageTokens: map[string]string{"http://config.acme.com": "token"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must start with https://") {
+		t.Fatalf("expected prefix validation error, got %v", err)
 	}
 }
 
@@ -251,7 +288,11 @@ type contractCase struct {
 	Name      string         `json:"name"`
 	Operation string         `json:"operation"`
 	Package   string         `json:"package"`
+	Fallback  string         `json:"fallback"`
 	ID        string         `json:"id"`
+	Catalog   string         `json:"catalog"`
+	Entry     string         `json:"entry"`
+	Address   string         `json:"address"`
 	Context   map[string]any `json:"context"`
 	Expect    contractExpect `json:"expect"`
 }
@@ -305,17 +346,18 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"value":  result.Value,
 			"source": result.Source,
 		}, nil
-	case "resolve_qualifier":
-		pkg, err := Load(context.Background(), source, nil)
+	case "load_package_with_fallback":
+		fallback := filepath.Join(repoRoot(t), filepath.FromSlash(sdkCase.Fallback))
+		pkg, err := Load(context.Background(), source, &LoadOptions{FallbackSource: fallback})
 		if err != nil {
 			return nil, err
 		}
 		defer closePackage(t, pkg)
-		result, err := pkg.ResolveQualifier(sdkCase.ID, sdkCase.Context, nil)
+		servedFallback, err := pkg.ServedFallback()
 		if err != nil {
 			return nil, err
 		}
-		return result, nil
+		return map[string]any{"servedFallback": servedFallback}, nil
 	case "package_identity":
 		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
@@ -334,6 +376,48 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"releaseId": releaseID,
 			"immutable": identity.Immutable,
 		}, nil
+	case "read_entry":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		value, err := pkg.ReadEntry(sdkCase.Catalog, sdkCase.Entry)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"value": value}, nil
+	case "read_list":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		config, err := pkg.ReadList(sdkCase.ID)
+		if err != nil {
+			return nil, err
+		}
+		var description any
+		if config.Description != nil {
+			description = *config.Description
+		}
+		return map[string]any{
+			"id":          config.ID,
+			"description": description,
+			"memberType":  config.MemberType,
+			"members":     config.Members,
+		}, nil
+	case "resolve_reference":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		value, err := pkg.ResolveReference(sdkCase.Address)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"value": value}, nil
 	default:
 		t.Fatalf("unsupported contract operation: %s", sdkCase.Operation)
 		return nil, nil
@@ -538,5 +622,53 @@ default = "` + message + `"
 `
 	if err := os.WriteFile(filepath.Join(variables, "message.toml"), []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReflectionSurface(t *testing.T) {
+	pkg, err := Load(context.Background(), filepath.Join(repoRoot(t), "examples", "billing"), nil)
+	if err != nil {
+		t.Fatalf("load billing: %v", err)
+	}
+	defer closePackage(t, pkg)
+
+	lists, err := pkg.ListIds()
+	if err != nil {
+		t.Fatalf("list lists: %v", err)
+	}
+	if !slices.Contains(lists, "plan_tiers") {
+		t.Fatalf("plan_tiers missing from %v", lists)
+	}
+	planTiers, err := pkg.ReadList("plan_tiers")
+	if err != nil {
+		t.Fatalf("read list: %v", err)
+	}
+	if planTiers.MemberType != "string" {
+		t.Fatalf("unexpected member type %q", planTiers.MemberType)
+	}
+
+	entries, err := pkg.EntryIds("features")
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if !slices.Contains(entries, "sso") {
+		t.Fatalf("sso missing from %v", entries)
+	}
+	value, err := pkg.ResolveReference("catalog=features:entry=sso#/name")
+	if err != nil {
+		t.Fatalf("resolve reference: %v", err)
+	}
+	if value != "Single sign-on" {
+		t.Fatalf("unexpected reference value %v", value)
+	}
+	value, err = pkg.ResolveEntryRef("sso#/name", []string{"features"})
+	if err != nil {
+		t.Fatalf("resolve entry ref: %v", err)
+	}
+	if value != "Single sign-on" {
+		t.Fatalf("unexpected entry ref value %v", value)
+	}
+	if _, err := pkg.ResolveReference("catalog=features:entry=absent"); err == nil {
+		t.Fatalf("expected missing entry to error")
 	}
 }

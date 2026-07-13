@@ -131,7 +131,6 @@ fn lsp_symbol_kind(kind: PackageDocumentSymbolKind) -> u8 {
     match kind {
         PackageDocumentSymbolKind::PackageExtends => 18,
         PackageDocumentSymbolKind::PackageExtendSource => 15,
-        PackageDocumentSymbolKind::Qualifier => 19,
         PackageDocumentSymbolKind::Variable => 13,
         PackageDocumentSymbolKind::Catalog => 13,
         PackageDocumentSymbolKind::CatalogEntry => 14,
@@ -139,12 +138,15 @@ fn lsp_symbol_kind(kind: PackageDocumentSymbolKind) -> u8 {
         PackageDocumentSymbolKind::Value => 14,
         PackageDocumentSymbolKind::Resolve => 3,
         PackageDocumentSymbolKind::Rule => 8,
+        PackageDocumentSymbolKind::Layer => 13,
+        PackageDocumentSymbolKind::Allocation => 5,
+        PackageDocumentSymbolKind::Arm => 14,
     }
 }
 
 pub(super) fn lsp_completion_item_kind(kind: PackageCompletionItemKind) -> u8 {
     match kind {
-        PackageCompletionItemKind::Qualifier => 18,
+        PackageCompletionItemKind::Variable => 18,
         PackageCompletionItemKind::Value => 12,
         PackageCompletionItemKind::FieldSelector => 5,
         PackageCompletionItemKind::Function => 3,

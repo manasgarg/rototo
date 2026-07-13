@@ -4,12 +4,16 @@ use super::PackageLintSnapshot;
 use crate::expression::{ContextScalarType, Expression};
 
 use super::index::{ProjectField, SemanticIndex};
-use super::references::{ReferenceIndex, ReferenceSource, ReferenceTarget};
+use super::references::ReferenceIndex;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EvaluationContextCompatibility {
-    pub(crate) qualifiers: BTreeMap<String, BTreeSet<String>>,
     pub(crate) variables: BTreeMap<String, BTreeSet<String>>,
+    /// Variables whose resolution reaches at least one caller-supplied
+    /// `context` path, directly or through another variable. Kept separate
+    /// from `variables`: an empty compatible-context set can also mean the
+    /// variable uses context but no declared schema satisfies it.
+    pub(crate) context_dependent_variables: BTreeSet<String>,
 }
 
 pub(crate) fn compatibility(snapshot: &PackageLintSnapshot) -> EvaluationContextCompatibility {
@@ -22,30 +26,152 @@ pub(in crate::lint) fn compatibility_for(
 ) -> EvaluationContextCompatibility {
     let mut builder = CompatibilityBuilder {
         index,
-        qualifier_cache: BTreeMap::new(),
+        variable_cache: BTreeMap::new(),
         visiting: BTreeSet::new(),
     };
 
-    let mut qualifiers = BTreeMap::new();
-    for qualifier_id in index.qualifiers.keys() {
-        let contexts = builder.qualifier_contexts(qualifier_id);
-        qualifiers.insert(qualifier_id.clone(), contexts);
+    let mut variables = BTreeMap::new();
+    let mut context_dependent_variables = BTreeSet::new();
+    for variable_id in index.variables.keys() {
+        let requirement = builder.variable_contexts(variable_id);
+        if requirement.is_some() {
+            context_dependent_variables.insert(variable_id.clone());
+        }
+        let contexts = requirement.unwrap_or_default();
+        variables.insert(variable_id.clone(), contexts);
     }
 
-    let mut variables = BTreeMap::new();
-    for (variable_id, variable) in &index.variables {
-        let mut contexts: Option<BTreeSet<String>> = None;
-        let Some(resolve) = variable.resolve.as_rules() else {
-            variables.insert(variable_id.clone(), BTreeSet::new());
-            continue;
+    EvaluationContextCompatibility {
+        variables,
+        context_dependent_variables,
+    }
+}
+
+/// The caller-supplied context paths each variable's resolution reads,
+/// directly or through referenced variables: rule conditions, the query
+/// pipeline, and an allocation's layer expressions all contribute. A union
+/// where compatibility intersects, because the question here is "which facts
+/// does this variable look at", not "which schemas satisfy it".
+pub(crate) fn context_paths(snapshot: &PackageLintSnapshot) -> BTreeMap<String, BTreeSet<String>> {
+    let mut builder = ContextPathsBuilder {
+        index: &snapshot.index,
+        cache: BTreeMap::new(),
+        visiting: BTreeSet::new(),
+    };
+    snapshot
+        .index
+        .variables
+        .keys()
+        .map(|variable_id| (variable_id.clone(), builder.variable_paths(variable_id)))
+        .collect()
+}
+
+struct ContextPathsBuilder<'a> {
+    index: &'a SemanticIndex,
+    cache: BTreeMap<String, BTreeSet<String>>,
+    visiting: BTreeSet<String>,
+}
+
+impl ContextPathsBuilder<'_> {
+    fn variable_paths(&mut self, variable_id: &str) -> BTreeSet<String> {
+        if let Some(paths) = self.cache.get(variable_id) {
+            return paths.clone();
+        }
+        if !self.visiting.insert(variable_id.to_owned()) {
+            // A reference cycle; the graph lint owns reporting it.
+            return BTreeSet::new();
+        }
+        let paths = self.variable_paths_uncached(variable_id);
+        self.visiting.remove(variable_id);
+        self.cache.insert(variable_id.to_owned(), paths.clone());
+        paths
+    }
+
+    fn variable_paths_uncached(&mut self, variable_id: &str) -> BTreeSet<String> {
+        let Some(variable) = self.index.variables.get(variable_id) else {
+            return BTreeSet::new();
         };
-        for rule in resolve {
-            let mut rule_contexts: Option<BTreeSet<String>> = None;
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
+        let mut paths = BTreeSet::new();
+        for rule in variable.resolve.as_rules().unwrap_or_default() {
+            for expression in [&rule.when].into_iter().flatten() {
                 let ProjectField::Present(expression) = expression else {
                     continue;
                 };
-                let expression_contexts = builder.expression_contexts(&expression.value);
+                self.expression_paths(&expression.value, &mut paths);
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            self.expression_paths(&expression.value, &mut paths);
+        }
+        for expression in variable_allocation_expressions(self.index, variable) {
+            self.expression_paths(expression, &mut paths);
+        }
+        paths
+    }
+
+    fn expression_paths(&mut self, expression: &Expression, paths: &mut BTreeSet<String>) {
+        let references = expression.references();
+        paths.extend(
+            references
+                .context_paths
+                .iter()
+                .filter(|path| !path.is_empty())
+                .cloned(),
+        );
+        for variable in &references.variables {
+            paths.extend(self.variable_paths(variable));
+        }
+    }
+}
+
+struct CompatibilityBuilder<'a> {
+    index: &'a SemanticIndex,
+    variable_cache: BTreeMap<String, Option<BTreeSet<String>>>,
+    visiting: BTreeSet<String>,
+}
+
+impl<'a> CompatibilityBuilder<'a> {
+    /// The evaluation contexts compatible with every CEL expression involved
+    /// in a variable's resolution, following `variables["<id>"]` references
+    /// transitively. `None` means resolution imposes no context requirement.
+    fn variable_contexts(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
+        if let Some(contexts) = self.variable_cache.get(variable_id) {
+            return contexts.clone();
+        }
+        let key = format!("variable://{variable_id}");
+        if !self.visiting.insert(key.clone()) {
+            // A reference cycle; the graph lint owns reporting it.
+            return Some(BTreeSet::new());
+        }
+
+        let contexts = self.variable_contexts_uncached(variable_id);
+        self.visiting.remove(&key);
+        self.variable_cache
+            .insert(variable_id.to_owned(), contexts.clone());
+        contexts
+    }
+
+    fn variable_contexts_uncached(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
+        let variable = self.index.variables.get(variable_id)?;
+        let mut contexts: Option<BTreeSet<String>> = None;
+        for rule in variable.resolve.as_rules().unwrap_or_default() {
+            let mut rule_contexts: Option<BTreeSet<String>> = None;
+            for expression in [&rule.when].into_iter().flatten() {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                // Expressions that only read `env` (a pure time gate such as
+                // `env.now >= "..."`) impose no context requirement; only
+                // context paths and variable references narrow the set.
+                let references = expression.value.references();
+                if references.variables.is_empty()
+                    && references.context_paths.iter().all(|path| path.is_empty())
+                {
+                    continue;
+                }
+                let Some(expression_contexts) = self.expression_contexts(&expression.value) else {
+                    continue;
+                };
                 rule_contexts = Some(match rule_contexts {
                     Some(current) => current
                         .intersection(&expression_contexts)
@@ -62,52 +188,55 @@ pub(in crate::lint) fn compatibility_for(
                 None => rule_contexts,
             });
         }
-        variables.insert(variable_id.clone(), contexts.unwrap_or_default());
-    }
-
-    EvaluationContextCompatibility {
-        qualifiers,
-        variables,
-    }
-}
-
-struct CompatibilityBuilder<'a> {
-    index: &'a SemanticIndex,
-    qualifier_cache: BTreeMap<String, BTreeSet<String>>,
-    visiting: BTreeSet<String>,
-}
-
-impl<'a> CompatibilityBuilder<'a> {
-    fn qualifier_contexts(&mut self, qualifier_id: &str) -> BTreeSet<String> {
-        if let Some(contexts) = self.qualifier_cache.get(qualifier_id) {
-            return contexts.clone();
+        for expression in variable_query_expressions(variable) {
+            // Query expressions that only read `entry` (or `env`) impose no
+            // context requirement; only context paths and variable references
+            // narrow the compatible set.
+            let references = expression.value.references();
+            if references.variables.is_empty()
+                && references.context_paths.iter().all(|path| path.is_empty())
+            {
+                continue;
+            }
+            let Some(expression_contexts) = self.expression_contexts(&expression.value) else {
+                continue;
+            };
+            contexts = Some(match contexts {
+                Some(current) => current
+                    .intersection(&expression_contexts)
+                    .cloned()
+                    .collect(),
+                None => expression_contexts,
+            });
         }
-        if !self.visiting.insert(qualifier_id.to_owned()) {
-            return BTreeSet::new();
+        for expression in variable_allocation_expressions(self.index, variable) {
+            let references = expression.references();
+            if references.variables.is_empty()
+                && references.context_paths.iter().all(|path| path.is_empty())
+            {
+                continue;
+            }
+            let Some(expression_contexts) = self.expression_contexts(expression) else {
+                continue;
+            };
+            contexts = Some(match contexts {
+                Some(current) => current
+                    .intersection(&expression_contexts)
+                    .cloned()
+                    .collect(),
+                None => expression_contexts,
+            });
         }
-
-        let contexts = self.qualifier_contexts_uncached(qualifier_id);
-        self.visiting.remove(qualifier_id);
-        self.qualifier_cache
-            .insert(qualifier_id.to_owned(), contexts.clone());
         contexts
     }
 
-    fn qualifier_contexts_uncached(&mut self, qualifier_id: &str) -> BTreeSet<String> {
-        let Some(qualifier) = self.index.qualifiers.get(qualifier_id) else {
-            return BTreeSet::new();
-        };
-        let ProjectField::Present(when) = &qualifier.when else {
-            return BTreeSet::new();
-        };
-        self.expression_contexts(&when.value)
-    }
-
-    fn expression_contexts(&mut self, expression: &Expression) -> BTreeSet<String> {
+    fn expression_contexts(&mut self, expression: &Expression) -> Option<BTreeSet<String>> {
         let mut contexts: Option<BTreeSet<String>> = None;
 
-        for qualifier in &expression.references().qualifiers {
-            let nested_contexts = self.qualifier_contexts(qualifier);
+        for variable in &expression.references().variables {
+            let Some(nested_contexts) = self.variable_contexts(variable) else {
+                continue;
+            };
             contexts = Some(match contexts {
                 Some(current) => current.intersection(&nested_contexts).cloned().collect(),
                 None => nested_contexts,
@@ -144,21 +273,8 @@ impl<'a> CompatibilityBuilder<'a> {
             });
         }
 
-        contexts.unwrap_or_default()
+        contexts
     }
-}
-
-pub(in crate::lint) fn qualifier_uses_context_attribute(
-    references: &ReferenceIndex,
-    qualifier_id: &str,
-) -> bool {
-    references.edges().iter().any(|edge| {
-        matches!(
-            &edge.source,
-            ReferenceSource::QualifierWhenContextAttribute { qualifier }
-                if qualifier == qualifier_id
-        ) && matches!(&edge.target, ReferenceTarget::ContextAttribute(_))
-    })
 }
 
 pub(in crate::lint) fn variable_rule_condition_reference_count(
@@ -175,17 +291,13 @@ pub(in crate::lint) fn variable_rule_condition_reference_count(
             rules
                 .iter()
                 .filter(|rule| {
-                    [&rule.when, &rule.query]
-                        .into_iter()
-                        .flatten()
-                        .any(|expression| {
-                            let ProjectField::Present(expression) = expression else {
-                                return false;
-                            };
-                            let references = expression.value.references();
-                            !references.qualifiers.is_empty()
-                                || !references.context_paths.is_empty()
-                        })
+                    [&rule.when].into_iter().flatten().any(|expression| {
+                        let ProjectField::Present(expression) = expression else {
+                            return false;
+                        };
+                        let references = expression.value.references();
+                        !references.variables.is_empty() || !references.context_paths.is_empty()
+                    })
                 })
                 .count()
         })
@@ -208,6 +320,56 @@ pub(in crate::lint) fn variable_resolve_rules(
     variable: &super::index::VariableNode,
 ) -> Option<&[super::index::VariableRuleNode]> {
     variable.resolve.as_rules()
+}
+
+/// The layer expressions behind a `method = "allocation"` variable: the
+/// diversion's `unit` and the allocation's `eligibility`, when present.
+pub(in crate::lint) fn variable_allocation_expressions<'a>(
+    index: &'a super::index::SemanticIndex,
+    variable: &super::index::VariableNode,
+) -> Vec<&'a crate::expression::Expression> {
+    let Some(assignments) = variable.resolve.as_assignments() else {
+        return Vec::new();
+    };
+    let super::index::ProjectField::Present(allocation_id) = &assignments.allocation else {
+        return Vec::new();
+    };
+    let Some((layer, allocation)) = index.layers.values().find_map(|layer| {
+        layer
+            .allocations
+            .iter()
+            .find(|candidate| {
+                matches!(&candidate.id, super::index::ProjectField::Present(id) if id.value == allocation_id.value)
+            })
+            .map(|allocation| (layer, allocation))
+    }) else {
+        return Vec::new();
+    };
+    let mut expressions = Vec::new();
+    if let super::index::ProjectField::Present(unit) = &layer.unit {
+        expressions.push(&unit.value);
+    }
+    if let Some(super::index::ProjectField::Present(eligibility)) = &allocation.eligibility {
+        expressions.push(&eligibility.value);
+    }
+    expressions
+}
+
+/// The present `filter`/`sort` expressions of a variable's `method = "query"`
+/// pipeline, if any.
+pub(in crate::lint) fn variable_query_expressions(
+    variable: &super::index::VariableNode,
+) -> Vec<&super::index::Spanned<crate::expression::Expression>> {
+    let Some(query) = variable.resolve.as_query() else {
+        return Vec::new();
+    };
+    [&query.filter, &query.sort]
+        .iter()
+        .filter_map(|field| match field {
+            Some(super::index::ProjectField::Present(expression)) => Some(expression),
+            _ => None,
+        })
+        .collect()
 }
 
 /// How a context schema's declaration of a path lines up with the scalar types
@@ -257,8 +419,9 @@ pub(in crate::lint) fn context_path_type_fit(
 }
 
 /// The JSON Schema scalar type tokens a field constrains its value to. A field
-/// can pin its type with `type`, but also implicitly through `const` or `enum`,
-/// so those are honored too. Returns `None` when no scalar type is declared.
+/// can pin its type with `type`, but also implicitly through `const` or a
+/// JSON Schema `enum`, so those are honored too. Returns `None` when no
+/// scalar type is declared.
 fn schema_field_type_tokens(field: &serde_json::Value) -> Option<BTreeSet<String>> {
     if let Some(declared) = field.get("type") {
         return match declared {

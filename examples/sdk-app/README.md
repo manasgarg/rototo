@@ -15,11 +15,11 @@ cargo run --manifest-path examples/sdk-app/Cargo.toml
 
 The app resolves:
 
-- `premium-users` and `enterprise-accounts` qualifiers
-- `checkout-redesign`, a catalog-backed variable
-- `llm-agent-config`, a catalog-backed variable loaded from
+- `premium_users` and `enterprise_accounts` qualifiers
+- `checkout_redesign`, a catalog-backed variable
+- `llm_agent_config`, a catalog-backed variable loaded from
   `catalogs/llm-agent-config-entries/*.toml`
-- `support-banner`, a catalog-backed operational banner variable
+- `support_banner`, a catalog-backed operational banner variable
 
 Applications should use `Package::load` instead of shelling out to the CLI so
 package lint, context validation, qualifier evaluation, and variable

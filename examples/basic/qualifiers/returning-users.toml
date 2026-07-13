@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Users with more than one prior session"
-
-when = "(context.user.session_count >= 2)"

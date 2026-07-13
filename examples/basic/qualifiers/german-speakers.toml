@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Users who prefer German language content"
-
-when = '(context.user.language == "de")'

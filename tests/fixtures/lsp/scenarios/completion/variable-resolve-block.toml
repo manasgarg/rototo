@@ -12,7 +12,7 @@ $0
 '''
 
 [expect]
-exact = ["default", "[[resolve.rule]]"]
+exact = ["method", "default", "from", "filter", "sort", "order", "limit", "allocation", "[[resolve.rule]]", "[[resolve.assign]]"]
 
 [[expect.includes]]
 label = "default"

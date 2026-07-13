@@ -8,8 +8,8 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, PackageIdentity, PackageLayerIdentity, RefreshEvent,
-    RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceStreamItem, TraceSubscription,
+    RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceStreamItem, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::{Mutex, broadcast};
@@ -29,14 +29,16 @@ struct PyPackage {
 #[pymethods]
 impl PyPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, package_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, package_token = None, package_tokens = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         package_token: Option<String>,
+        package_tokens: Option<Vec<(String, String)>>,
         lint: &str,
+        fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let options = load_options(package_token, lint)?;
+        let options = load_options(package_token, package_tokens, lint, fallback_source)?;
         future_into_py(py, async move {
             let package = rototo::Package::load_with_options(source, options)
                 .await
@@ -79,6 +81,10 @@ impl PyPackage {
         self.inner.root().display().to_string()
     }
 
+    fn served_fallback(&self) -> bool {
+        self.inner.served_fallback()
+    }
+
     fn identity(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         json_to_py(py, &package_identity_to_json(&self.inner.identity()))
     }
@@ -109,20 +115,39 @@ impl PyPackage {
         variable_resolution_to_py(py, resolution)
     }
 
-    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
-    fn resolve_qualifier<'py>(
+    fn list_ids(&self) -> PyResult<Vec<String>> {
+        self.inner.list_ids().map_err(py_err)
+    }
+
+    fn read_list(&self, py: Python<'_>, id: String) -> PyResult<Py<PyAny>> {
+        let config = self.inner.read_list(&id).map_err(py_err)?;
+        json_to_py(py, &config.to_json())
+    }
+
+    fn entry_ids(&self, catalog: String) -> PyResult<Vec<String>> {
+        self.inner.entry_ids(&catalog).map_err(py_err)
+    }
+
+    fn read_entry(&self, py: Python<'_>, catalog: String, entry: String) -> PyResult<Py<PyAny>> {
+        let value = self.inner.read_entry(&catalog, &entry).map_err(py_err)?;
+        json_to_py(py, &value)
+    }
+
+    fn resolve_reference(&self, py: Python<'_>, address: String) -> PyResult<Py<PyAny>> {
+        let value = self.inner.resolve_reference_at(&address).map_err(py_err)?;
+        json_to_py(py, &value)
+    }
+
+    fn resolve_entry_ref(
         &self,
-        _py: Python<'py>,
-        id: String,
-        context: Bound<'py, PyAny>,
-        validate_context: bool,
-        trace: bool,
-    ) -> PyResult<bool> {
-        let context = json_from_py(&context)?;
-        let context = EvaluationContext::from_json(context).map_err(py_err)?;
-        self.inner
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(py_err)
+        py: Python<'_>,
+        value: String,
+        pins: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference = rototo::ValueRef::from_entry_ref(&value, &pins).map_err(py_err)?;
+        let resolved = self.inner.resolve_reference(&reference).map_err(py_err)?;
+        json_to_py(py, &resolved)
     }
 
     fn subscribe_trace_events(&self) -> PyTraceEvents {
@@ -140,15 +165,17 @@ struct PyRefreshingPackage {
 #[pymethods]
 impl PyRefreshingPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, package_tokens = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         period_seconds: Option<f64>,
         package_token: Option<String>,
+        package_tokens: Option<Vec<(String, String)>>,
         lint: &str,
+        fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let load_options = load_options(package_token, lint)?;
+        let load_options = load_options(package_token, package_tokens, lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds)?;
         future_into_py(py, async move {
             let package =
@@ -183,24 +210,6 @@ impl PyRefreshingPackage {
             .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(py_err)?;
         variable_resolution_to_py(py, resolution)
-    }
-
-    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
-    fn resolve_qualifier<'py>(
-        &self,
-        _py: Python<'py>,
-        id: String,
-        context: Bound<'py, PyAny>,
-        validate_context: bool,
-        trace: bool,
-    ) -> PyResult<bool> {
-        let context = json_from_py(&context)?;
-        let context = EvaluationContext::from_json(context).map_err(py_err)?;
-        let guard = self.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(py_err)
     }
 
     fn refresh_now<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -347,7 +356,12 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> PyResult<LoadOptions> {
+fn load_options(
+    package_token: Option<String>,
+    package_tokens: Option<Vec<(String, String)>>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> PyResult<LoadOptions> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -357,12 +371,35 @@ fn load_options(package_token: Option<String>, lint: &str) -> PyResult<LoadOptio
             )));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        }))
+        .with_source_auth(source_auth(package_token, package_tokens)?);
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens: Option<Vec<(String, String)>>,
+) -> PyResult<SourceAuth> {
+    match (package_token, package_tokens) {
+        (Some(_), Some(_)) => Err(PyValueError::new_err(
+            "package_token and package_tokens cannot both be set; scope every token",
+        )),
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut entries = entries;
+            entries.sort();
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped.with_prefix(prefix, token).map_err(py_err)?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(period_seconds: Option<f64>) -> PyResult<RefreshOptions> {
@@ -429,6 +466,7 @@ fn refresh_status_to_py(py: Python<'_>, status: rototo::RefreshStatus) -> PyResu
         "last_error": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "serving_fallback": status.serving_fallback,
     });
     json_to_py(py, &value)
 }
@@ -506,6 +544,7 @@ fn refresh_snapshot_to_json(snapshot: &RefreshSnapshot) -> JsonValue {
         "last_error": snapshot.last_error,
         "refreshing": snapshot.refreshing,
         "immutable": snapshot.immutable,
+        "serving_fallback": snapshot.serving_fallback,
     })
 }
 

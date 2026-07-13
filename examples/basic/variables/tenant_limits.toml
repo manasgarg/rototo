@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Nested account limits and enabled tenant features"
+type = "catalog=tenant_limits"
+
+[resolve]
+default = "growth"
+
+[[resolve.rule]]
+when = 'variables["enterprise_accounts"]'
+value = "enterprise"

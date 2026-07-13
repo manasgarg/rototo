@@ -1,0 +1,2 @@
+[catalog.plans]
+allowed_operations = ["update"]

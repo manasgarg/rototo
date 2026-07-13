@@ -30,7 +30,11 @@ public final class RefreshingPackage implements AutoCloseable {
                         periodSeconds == null ? 0.0 : periodSeconds,
                         periodSeconds != null,
                         resolved.packageToken(),
-                        resolved.lint().wireValue())),
+                        resolved.lint().wireValue(),
+                        resolved.fallbackSource(),
+                        resolved.packageTokens() == null
+                                ? null
+                                : Json.stringify(resolved.packageTokens()))),
                 Rototo.executor());
     }
 
@@ -60,28 +64,6 @@ public final class RefreshingPackage implements AutoCloseable {
                 value.get("source"));
     }
 
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context) {
-        return resolveQualifier(id, context, ResolveOptions.defaults());
-    }
-
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context,
-            ResolveOptions options) {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(context, "context");
-        ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
-        String json = Native.refreshingPackageResolveQualifierNative(
-                openHandle(),
-                id,
-                Json.stringify(context),
-                resolved.validateContext(),
-                resolved.trace());
-        return Json.asBoolean(Json.parse(json));
-    }
-
     public CompletableFuture<String> refreshNow() {
         return CompletableFuture.supplyAsync(
                 () -> Native.refreshingPackageRefreshNowNative(openHandle()),
@@ -99,7 +81,8 @@ public final class RefreshingPackage implements AutoCloseable {
                     Json.asLong(value.get("consecutiveFailures")),
                     Json.asNullableString(value.get("lastError")),
                     Json.asBoolean(value.get("refreshing")),
-                    Json.asBoolean(value.get("immutable")));
+                    Json.asBoolean(value.get("immutable")),
+                    Json.asBoolean(value.get("servingFallback")));
         }, Rototo.executor());
     }
 

@@ -1,0 +1,5 @@
+schema_version = 1
+description = "Legal jurisdictions the service operates in"
+type = "string"
+
+members = ["us", "eu", "uk", "in"]

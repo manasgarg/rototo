@@ -1,0 +1,709 @@
+// Route wiring. Two invariants every route obeys:
+//
+// - Mutations require the `x-rototo-console` header plus an Origin check
+//   (ported from the old console; CSRF cannot forge either).
+// - Anything the browser renders as a capability came from `decide()`, and
+//   the server recomputes `decide()` inside every mutation. Explanation is
+//   never authority.
+
+import path from "node:path";
+
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+import { Hono } from "hono";
+
+import {
+    GitHubAppCredentials,
+    NO_APP,
+    type ActingCredential,
+    type AppCredentials,
+} from "./app-credential.ts";
+import { BRANCH_PREFIX, ChangeSets } from "./change-sets.ts";
+import type { ServerConfig } from "./config.ts";
+import type { ConsoleContext } from "./context.ts";
+import {
+    type Action,
+    ACTIONS,
+    type Decision,
+    DecisionPoint,
+    type Resource,
+    type Subject,
+    resourceString,
+} from "./decide.ts";
+import { type GitOps, GitHubGit } from "./git.ts";
+import type { GitHubFacts } from "./github.ts";
+import { LocalAuth } from "./local-auth.ts";
+import { LspBridge } from "./lsp-bridge.ts";
+import { native } from "./native.ts";
+import type { OidcExchange } from "./oidc.ts";
+import { OidcProvider } from "./oidc.ts";
+import { PackageStager, resolveExtend } from "./packages.ts";
+import { Reconciler } from "./reconciler.ts";
+import { adminRoutes } from "./routes/admin.ts";
+import { authRoutes, defaultOauthExchange } from "./routes/auth.ts";
+import { changeSetRoutes } from "./routes/change-sets.ts";
+import { lspRoutes } from "./routes/lsp.ts";
+import { packageRoutes } from "./routes/packages.ts";
+import { sessionPrincipalId } from "./sessions.ts";
+import type { SourceTreeRow, Store } from "./store.ts";
+import { TokenCrypto } from "./token-crypto.ts";
+
+export const CONSOLE_HEADER = "x-rototo-console";
+
+export type AppDeps = {
+    config: ServerConfig;
+    store: Store;
+    github: GitHubFacts;
+    // Test seam for the OAuth code exchange; defaults to the real GitHub
+    // endpoint.
+    oauthExchange?: (code: string) => Promise<string>;
+    // Test seam for the OIDC code exchange; defaults to the configured
+    // provider's own verified exchange.
+    oidcExchange?: OidcExchange;
+    // Test seam for the GitHub App installation tokens; defaults to the
+    // configured App, or no App at all.
+    appCredentials?: AppCredentials;
+    // Git-data operations; tests substitute a local fake, production is the
+    // GitHub REST implementation.
+    git?: GitOps;
+    // Where a source tree's git remote is; tests point at local bare repos.
+    gitRemote?: (tree: SourceTreeRow) => string;
+    // Where staged pins live; defaults under the data dir, or a per-process
+    // scratch directory in ephemeral mode.
+    pinCacheRoot?: string;
+};
+
+export type App = {
+    fetch: (request: Request) => Response | Promise<Response>;
+    decision: DecisionPoint;
+    reconciler: Reconciler;
+};
+
+type CapabilitySummary = Record<Action, Decision>;
+
+export function buildApp(deps: AppDeps): App {
+    const { config, store, github } = deps;
+    const localAuth = new LocalAuth({
+        explicitToken: config.packageToken,
+        dataDir: config.dataDir,
+        github,
+    });
+
+    let crypto: TokenCrypto | null = null;
+    const tokenCrypto = (): TokenCrypto => {
+        if (crypto === null) {
+            if (config.tokenEncryptionKey === null) {
+                throw new Error(
+                    "ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY is required before GitHub sign-in",
+                );
+            }
+            crypto = TokenCrypto.fromEnvValue(config.tokenEncryptionKey);
+        }
+        return crypto;
+    };
+
+    // The extends-adjacency of a tree's packages, for the lineage-derived
+    // view. Read with the App credential (composition is content, not
+    // permission); when no credential can read the tree the derivation is
+    // simply inert, exactly like Backend A's repo-wide view makes it.
+    const linksCache = new Map<
+        string,
+        { at: number; links: Map<string, string[]> }
+    >();
+    const packageLinks = async (
+        sourceTreeId: string,
+    ): Promise<Map<string, string[]>> => {
+        const cached = linksCache.get(sourceTreeId);
+        if (cached !== undefined && Date.now() - cached.at < 300_000) {
+            return cached.links;
+        }
+        const links = new Map<string, string[]>();
+        try {
+            const tree = store.getSourceTree(sourceTreeId);
+            if (
+                tree === null ||
+                tree.kind !== "github" ||
+                tree.owner === null ||
+                tree.name === null
+            ) {
+                throw new Error("not a github tree");
+            }
+            const token =
+                (await appCredentials.installationToken(
+                    tree.owner,
+                    tree.name,
+                )) ?? "";
+            const pin = await git.getRef(
+                token,
+                { owner: tree.owner, name: tree.name },
+                tree.defaultBranch ?? "main",
+            );
+            if (pin === null) {
+                throw new Error("no default branch");
+            }
+            const treeRoot = await stager.stageTree(tree, pin, token);
+            const packages = await native.discoverPackages(treeRoot);
+            const known = new Set(packages);
+            for (const packagePath of packages) {
+                const model = (await native
+                    .semanticModel(stager.packageRoot(treeRoot, packagePath))
+                    .catch(() => null)) as {
+                    extends?: { source: string }[];
+                } | null;
+                for (const extend of model?.extends ?? []) {
+                    const to = resolveExtend(packagePath, extend.source, known);
+                    if (to !== null) {
+                        links.set(packagePath, [
+                            ...(links.get(packagePath) ?? []),
+                            to,
+                        ]);
+                        links.set(to, [...(links.get(to) ?? []), packagePath]);
+                    }
+                }
+            }
+        } catch {
+            // Inert: an empty adjacency derives nothing.
+        }
+        linksCache.set(sourceTreeId, { at: Date.now(), links });
+        return links;
+    };
+
+    const decision = new DecisionPoint({
+        authMode: config.authMode,
+        store,
+        github,
+        tokenCrypto,
+        packageLinks,
+    });
+
+    // The acting credential for a principal (user tokens only in C2): the
+    // stored GitHub credential in team mode, the ambient token in local
+    // mode. Null means the principal cannot act on GitHub right now.
+    const principalToken = async (
+        principalId: string,
+    ): Promise<string | null> => {
+        if (config.authMode === "local" || principalId === "local") {
+            return (await localAuth.token())?.token ?? null;
+        }
+        const identity = store
+            .identitiesForPrincipal(principalId)
+            .find(
+                (row) =>
+                    row.provider === "github" &&
+                    row.credentialCiphertext !== null,
+            );
+        if (identity === undefined) {
+            return null;
+        }
+        try {
+            return tokenCrypto().decrypt(
+                identity.credentialCiphertext as string,
+            );
+        } catch {
+            return null;
+        }
+    };
+
+    const subjectId = (subject: Subject): string =>
+        subject.kind === "principal" ? subject.id : "local";
+
+    const appCredentials =
+        deps.appCredentials ??
+        (config.githubApp !== null
+            ? new GitHubAppCredentials(config.githubApp)
+            : NO_APP);
+
+    // Whose token does the work (design/console-git-ops.md): the person's
+    // own GitHub credential when they have one — GitHub enforces, the
+    // console predicts — else the App's installation token, where the
+    // console itself is the enforcement point. Null means read-only.
+    const actingCredential = async (
+        subject: Subject,
+        tree: SourceTreeRow,
+    ): Promise<ActingCredential | null> => {
+        const token = await principalToken(subjectId(subject));
+        if (token !== null) {
+            return { token, mode: "user" };
+        }
+        if (
+            tree.kind === "github" &&
+            tree.owner !== null &&
+            tree.name !== null
+        ) {
+            const appToken = await appCredentials.installationToken(
+                tree.owner,
+                tree.name,
+            );
+            if (appToken !== null) {
+                return { token: appToken, mode: "app" };
+            }
+        }
+        return null;
+    };
+
+    const git = deps.git ?? new GitHubGit();
+    // The pin store is a pure cache (commit-keyed, size-bounded), shared
+    // across processes and restarts; config.cacheDir puts it in the XDG
+    // cache home, or alongside the store under an explicit --data-dir.
+    const stager = new PackageStager({
+        cacheRoot: deps.pinCacheRoot ?? path.join(config.cacheDir, "pins"),
+        remoteFor: deps.gitRemote,
+    });
+    const changeSets = new ChangeSets({ store, git, stager });
+    const reconciler = new Reconciler({
+        store,
+        git,
+        // The author's own credential, or the App's for change sets whose
+        // authors have none (they could not have created them otherwise).
+        tokenFor: async (changeSet) => {
+            const token = await principalToken(changeSet.authorPrincipal);
+            if (token !== null) {
+                return token;
+            }
+            const tree = store.getSourceTree(changeSet.sourceTreeId);
+            if (
+                tree !== null &&
+                tree.kind === "github" &&
+                tree.owner !== null &&
+                tree.name !== null
+            ) {
+                return appCredentials.installationToken(tree.owner, tree.name);
+            }
+            return null;
+        },
+    });
+
+    const app = new Hono();
+
+    // The mutation guard: header plus Origin allowlist on anything unsafe.
+    // The webhook endpoint is the one exception: a machine caller whose
+    // authentication is its HMAC signature, checked in the route.
+    app.use("/api/*", async (c, next) => {
+        const method = c.req.method.toUpperCase();
+        if (c.req.path === "/api/webhooks/github") {
+            return next();
+        }
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+            if (c.req.header(CONSOLE_HEADER) === undefined) {
+                return c.json(
+                    {
+                        error: {
+                            message: `missing ${CONSOLE_HEADER} request header`,
+                        },
+                    },
+                    403,
+                );
+            }
+            const origin = c.req.header("origin");
+            if (
+                origin !== undefined &&
+                !config.allowedOrigins.includes(origin)
+            ) {
+                return c.json(
+                    { error: { message: `origin ${origin} is not allowed` } },
+                    403,
+                );
+            }
+        }
+        await next();
+    });
+
+    const subjectFor = (cookieHeader: string | undefined): Subject | null => {
+        if (config.authMode === "local") {
+            return { kind: "local" };
+        }
+        const principalId = sessionPrincipalId(store, cookieHeader);
+        return principalId === null
+            ? null
+            : { kind: "principal", id: principalId };
+    };
+
+    const capabilities = async (
+        subject: Subject,
+        resource: Resource,
+    ): Promise<CapabilitySummary> => {
+        const summary = {} as CapabilitySummary;
+        for (const action of ACTIONS) {
+            summary[action] = await decision.decide(subject, action, resource);
+        }
+        return summary;
+    };
+
+    const treePayload = async (
+        subject: Subject,
+        tree: SourceTreeRow,
+    ): Promise<Record<string, unknown>> => ({
+        id: tree.id,
+        kind: tree.kind,
+        owner: tree.owner,
+        name: tree.name,
+        defaultBranch: tree.defaultBranch,
+        status: tree.status,
+        resource: resourceString({
+            kind: "source-tree",
+            sourceTree: tree.id,
+        }),
+        capabilities: await capabilities(subject, {
+            kind: "source-tree",
+            sourceTree: tree.id,
+        }),
+    });
+
+    const ctx: ConsoleContext = {
+        config,
+        store,
+        decision,
+        git,
+        stager,
+        changeSets,
+        reconciler,
+        lsp: new LspBridge(),
+        subjectFor,
+        subjectId,
+        actingToken: (subject) => principalToken(subjectId(subject)),
+        actingCredential,
+    };
+    app.route("/api", packageRoutes(ctx));
+    app.route("/api", changeSetRoutes(ctx));
+    app.route("/api", lspRoutes(ctx));
+    app.route("/api", adminRoutes(ctx));
+    app.route(
+        "/api",
+        authRoutes({
+            config,
+            store,
+            github,
+            oauthExchange: deps.oauthExchange ?? defaultOauthExchange(config),
+            oidc: config.oidc === null ? null : new OidcProvider(config.oidc),
+            oidcExchange: deps.oidcExchange ?? null,
+            tokenCrypto,
+        }),
+    );
+
+    app.get("/api/health", (c) => c.json({ ok: true }));
+
+    // Webhooks are nudges, never truth (design/console-git-ops.md rule 4):
+    // the payload is verified, reduced to "check sooner", and dropped. If
+    // every webhook were lost, the reconciler's own loop would still make
+    // the rows right, just a little later.
+    app.post("/api/webhooks/github", async (c) => {
+        if (config.webhookSecret === null) {
+            return c.json(
+                { error: { message: "webhooks are not configured" } },
+                404,
+            );
+        }
+        const payload = await c.req.text();
+        const signature = c.req.header("x-hub-signature-256") ?? "";
+        const expected = `sha256=${createHmac("sha256", config.webhookSecret)
+            .update(payload)
+            .digest("hex")}`;
+        const left = Buffer.from(signature, "utf8");
+        const right = Buffer.from(expected, "utf8");
+        if (left.length !== right.length || !timingSafeEqual(left, right)) {
+            return c.json(
+                { error: { message: "the webhook signature does not verify" } },
+                401,
+            );
+        }
+        const event = c.req.header("x-github-event") ?? "";
+        let nudged = false;
+        if (event === "pull_request" || event === "push") {
+            const body = JSON.parse(payload) as {
+                pull_request?: { head?: { ref?: string } };
+                ref?: string;
+            };
+            const ref =
+                body.pull_request?.head?.ref ??
+                body.ref?.replace(/^refs\/heads\//, "") ??
+                "";
+            if (ref.startsWith(BRANCH_PREFIX)) {
+                // The nudge: run the reconciler's normal pass now instead
+                // of at the next interval. Nothing is copied out of the
+                // payload.
+                await reconciler.reconcileAll();
+                nudged = true;
+            }
+        }
+        return c.json({ ok: true, nudged });
+    });
+
+    app.get("/api/me", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+
+        if (config.authMode === "local") {
+            const identity = await localAuth.localIdentity();
+            const ambient = await localAuth.token();
+            const displayName =
+                identity.kind === "github"
+                    ? (identity.name ?? identity.login)
+                    : (identity.name ?? identity.email ?? "local git");
+            return c.json({
+                authMode: "local",
+                principal: {
+                    id: "local",
+                    kind: "human",
+                    displayName,
+                    status: "active",
+                },
+                identities: [identity],
+                enrollment: "enrolled",
+                githubCredentialSource: ambient?.source ?? null,
+                capabilities: {
+                    deployment: await capabilities(
+                        { kind: "local" },
+                        {
+                            kind: "deployment",
+                        },
+                    ),
+                    sourceTrees: await Promise.all(
+                        store
+                            .listSourceTrees()
+                            .map((tree) =>
+                                treePayload({ kind: "local" }, tree),
+                            ),
+                    ),
+                },
+            });
+        }
+
+        const signIn = {
+            github: config.githubOAuth !== null,
+            oidc:
+                config.oidc === null
+                    ? null
+                    : { displayName: config.oidc.displayName },
+        };
+        if (subject === null) {
+            return c.json({
+                authMode: "team",
+                principal: null,
+                identities: [],
+                enrollment: null,
+                signIn,
+            });
+        }
+        const principal =
+            subject.kind === "principal"
+                ? store.getPrincipal(subject.id)
+                : null;
+        if (principal === null) {
+            return c.json({
+                authMode: "team",
+                principal: null,
+                identities: [],
+                enrollment: null,
+                signIn,
+            });
+        }
+        const trees = store.listSourceTrees();
+        const treeSummaries = [];
+        for (const tree of trees) {
+            const payload = await treePayload(subject, tree);
+            const summary = payload.capabilities as CapabilitySummary;
+            if (summary.view.allow) {
+                treeSummaries.push(payload);
+            }
+        }
+        return c.json({
+            authMode: "team",
+            principal: {
+                id: principal.id,
+                kind: principal.kind,
+                displayName: principal.displayName,
+                status: principal.status,
+            },
+            identities: store
+                .identitiesForPrincipal(principal.id)
+                .map((identity) => ({
+                    provider: identity.provider,
+                    subject: identity.subject,
+                    login: identity.login,
+                    name: identity.name,
+                    email: identity.email,
+                    emailVerified: identity.emailVerified,
+                    avatarUrl: identity.avatarUrl,
+                    hasCredential: identity.credentialCiphertext !== null,
+                    lastSeenAt: identity.lastSeenAt,
+                })),
+            enrollment: "enrolled",
+            capabilities: {
+                deployment: await capabilities(subject, {
+                    kind: "deployment",
+                }),
+                sourceTrees: treeSummaries,
+            },
+        });
+    });
+
+    app.get("/api/source-trees", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        const trees = [];
+        for (const tree of store.listSourceTrees()) {
+            const payload = await treePayload(subject, tree);
+            if ((payload.capabilities as CapabilitySummary).view.allow) {
+                trees.push(payload);
+            }
+        }
+        return c.json({ sourceTrees: trees });
+    });
+
+    app.post("/api/source-trees", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        // Registration is a deployment-level act gated by administer.
+        const verdict = await decision.decide(subject, "administer", {
+            kind: "deployment",
+        });
+        if (!verdict.allow) {
+            return c.json({ error: { message: verdict.reason } }, 403);
+        }
+        const body = (await c.req.json().catch(() => null)) as {
+            kind?: string;
+            owner?: string;
+            name?: string;
+            defaultBranch?: string;
+        } | null;
+        if (
+            body === null ||
+            body.kind !== "github" ||
+            typeof body.owner !== "string" ||
+            typeof body.name !== "string"
+        ) {
+            return c.json(
+                {
+                    error: {
+                        message:
+                            'expected { kind: "github", owner, name, defaultBranch? }',
+                    },
+                },
+                400,
+            );
+        }
+        // The default branch is a repo fact; fill it from GitHub when the
+        // registration omits it, with the registrar's own credential.
+        let defaultBranch = body.defaultBranch ?? null;
+        if (defaultBranch === null) {
+            const token = await principalToken(subjectId(subject));
+            if (token !== null) {
+                const facts = await github
+                    .repoFacts(token, body.owner, body.name)
+                    .catch(() => null);
+                defaultBranch = facts?.defaultBranch ?? null;
+            }
+        }
+        // (kind, owner, name) is the tree's identity: registering it again
+        // reactivates the existing row (and its merged history) instead of
+        // minting a second identity for the same repository.
+        const existing = store.findSourceTree("github", body.owner, body.name);
+        if (existing !== null) {
+            store.setSourceTreeStatus(existing.id, "active");
+            if (defaultBranch !== null) {
+                store.setSourceTreeDefaultBranch(existing.id, defaultBranch);
+            }
+            return c.json(
+                await treePayload(
+                    subject,
+                    store.getSourceTree(existing.id) as SourceTreeRow,
+                ),
+                200,
+            );
+        }
+        const tree = store.insertSourceTree({
+            kind: "github",
+            owner: body.owner,
+            name: body.name,
+            defaultBranch,
+            createdBy: subject.kind === "principal" ? subject.id : "local",
+        });
+        return c.json(await treePayload(subject, tree), 201);
+    });
+
+    // The default branch is the one updatable fact about a registered tree;
+    // owner and name are its identity.
+    app.post("/api/source-trees/:id/default-branch", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        const verdict = await decision.decide(subject, "administer", {
+            kind: "deployment",
+        });
+        if (!verdict.allow) {
+            return c.json({ error: { message: verdict.reason } }, 403);
+        }
+        const tree = store.getSourceTree(c.req.param("id"));
+        if (tree === null) {
+            return c.json({ error: { message: "no such source tree" } }, 404);
+        }
+        const body = (await c.req.json().catch(() => null)) as {
+            defaultBranch?: string;
+        } | null;
+        if (
+            body === null ||
+            typeof body.defaultBranch !== "string" ||
+            body.defaultBranch.trim() === ""
+        ) {
+            return c.json(
+                { error: { message: "expected { defaultBranch }" } },
+                400,
+            );
+        }
+        store.setSourceTreeDefaultBranch(tree.id, body.defaultBranch.trim());
+        return c.json(
+            await treePayload(
+                subject,
+                store.getSourceTree(tree.id) as SourceTreeRow,
+            ),
+        );
+    });
+
+    // Deregistering is a soft status: the row and its merged history stay
+    // for audit, and the store rebuilds from GitHub anyway, so a hard
+    // delete would not even stay deleted. Open change sets block it.
+    app.post("/api/source-trees/:id/deregister", async (c) => {
+        const subject = subjectFor(c.req.header("cookie"));
+        if (subject === null) {
+            return c.json({ error: { message: "sign in first" } }, 401);
+        }
+        const verdict = await decision.decide(subject, "administer", {
+            kind: "deployment",
+        });
+        if (!verdict.allow) {
+            return c.json({ error: { message: verdict.reason } }, 403);
+        }
+        const tree = store.getSourceTree(c.req.param("id"));
+        if (tree === null) {
+            return c.json({ error: { message: "no such source tree" } }, 404);
+        }
+        const open = store
+            .listChangeSets(tree.id)
+            .filter((row) => row.state === "draft" || row.state === "proposed");
+        if (open.length > 0) {
+            return c.json(
+                {
+                    error: {
+                        message:
+                            `${open.length} open change set${open.length === 1 ? "" : "s"} ` +
+                            `(${open.map((row) => row.title).join(", ")}) must merge or abandon first`,
+                    },
+                },
+                409,
+            );
+        }
+        store.setSourceTreeStatus(tree.id, "deregistered");
+        return c.json(
+            await treePayload(
+                subject,
+                store.getSourceTree(tree.id) as SourceTreeRow,
+            ),
+        );
+    });
+
+    return { fetch: app.fetch, decision, reconciler };
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Request facts whose paths declare their types only through JSON Schema enum values, never a type keyword.",
+  "type": "object",
+  "properties": {
+    "tier": { "enum": ["free", "team", "business"] },
+    "level": { "enum": [1, 2, 3] }
+  }
+}

@@ -43,7 +43,6 @@ impl PackageDocumentSymbol {
 pub(crate) enum PackageDocumentSymbolKind {
     PackageExtends,
     PackageExtendSource,
-    Qualifier,
     Variable,
     Catalog,
     CatalogEntry,
@@ -51,6 +50,9 @@ pub(crate) enum PackageDocumentSymbolKind {
     Value,
     Resolve,
     Rule,
+    Layer,
+    Allocation,
+    Arm,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,7 +91,7 @@ impl PackageCompletionItem {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PackageCompletionItemKind {
-    Qualifier,
+    Variable,
     Value,
     FieldSelector,
     Function,

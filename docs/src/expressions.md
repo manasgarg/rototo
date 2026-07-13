@@ -1,9 +1,11 @@
 # The Expression Language
 
-Two places in a package ask a question about the runtime: a qualifier's `when`
-("is this a premium user?") and a variable rule's `when` or `query` ("does this
-rule apply?"). Both are written in the same little expression language, and this
-page is the whole language in one sitting.
+A few places in a package ask a question about the runtime: a variable rule's
+`when` ("does this rule apply?"), a catalog query's `filter` ("does this
+entry belong in the result?"), a layer's `unit` ("what value do we hash for
+this request?"), and an allocation's `eligibility` ("is this unit enrolled?").
+All of them are written in the same little expression language, and this page
+is the whole language in one sitting.
 
 If you've ever written a CEL expression, this will feel familiar - it *is* a
 subset of CEL under the hood. But you don't need to know CEL to read on. The
@@ -14,14 +16,14 @@ expressions look a lot like a condition in any programming language: comparisons
 when = '(context.user.tier == "premium")'
 ```
 
-That's a real qualifier condition. It reads "the user's tier is premium," and
-when that's true, the qualifier matches. Let's unpack what an expression can
-actually reach.
+That's a real rule condition. It reads "the user's tier is premium," and when
+that's true, the rule matches. Let's unpack what an expression can actually
+reach.
 
-## The three things an expression can read
+## The five things an expression can read
 
-An expression can only look at three roots. That's it - three names, and
-everything hangs off them. Keeping the list short is what makes expressions easy
+An expression can only look at five roots. That's it - five names, and
+everything hangs off them. Keeping that set short is what makes expressions easy
 to reason about and easy for lint to check.
 
 ### `context` - the facts your app passed in
@@ -41,49 +43,89 @@ here doesn't quietly become "always false" in production.
 
 ### `entry` - the catalog entry in front of you
 
-`entry` only shows up inside a `query` (more on those below). When you're
-filtering a catalog, `entry` is the one entry currently being looked at, and you
-read its fields the same dotted way:
+`entry` only shows up inside a catalog query's `filter` or `sort` (more on
+those below). When you're filtering a catalog, `entry` is the one entry
+currently being looked at, and you read its fields the same dotted way:
 
 ```toml
-query = "entry.enabled == true"
+filter = "entry.enabled == true"
 ```
 
 Outside of a query, `entry` doesn't exist - there's no entry to talk about.
 
+### `variables` - other variables' resolved values
+
+`variables` reads the resolved value of *another* variable, by its id. Write it
+with a dot (`variables.premium_users`) or with brackets
+(`variables["premium_users"]`). Ids are snake_case, so the dot form always
+works for a plain id; brackets are what you need for a namespaced id like
+`variables["payments/retry_limit"]`, since `/` can't appear in a dot path.
+
+This is how a named condition gets reused. Define the condition once as a bool
+variable (a "condition variable": `type = "bool"`, default `false`, a rule that
+sets it `true`), and every other rule can lean on it by name:
+
+```toml
+when = '(variables["premium_users"]) && (variables["beta_rollout_bucket"])'
+```
+
+The referenced variable resolves lazily, against the same context, and the
+result is memoized for the rest of that one resolution - so ten rules reading
+`variables["premium_users"]` cost one evaluation, and they all see the same
+answer. A chain of variables referencing each other is fine; a *cycle* is not.
+Lint catches cycles at edit time (`rototo/variable-reference-cycle`), and
+resolution refuses them too.
+
+### `lists` - a named set of legal values
+
+`lists` reads the member set of a list you declared under `lists/<id>.toml`.
+Write it with a dot (`lists.plan_tiers`) or with brackets for a namespaced id
+(`lists["geo/regions"]`). The value is the plain array of members, so the natural
+use is a membership test:
+
+```toml
+when = 'context.account.plan_tier in lists.plan_tiers'
+```
+
+The point is naming the set instead of restating it. Without this, every rule
+that cares about "a real plan tier" carries its own copy of
+`["free", "team", "business"]`, and adding a tier means hunting them all down.
+With `lists.plan_tiers`, the list file is the one place the set lives, and the
+rules follow it.
+
+Because the member set is an ordinary value, the collection tools work on it too:
+`size(lists.plan_tiers)` or a `.exists(...)` comprehension are fine. Referencing
+a list the package doesn't declare is a lint error
+(`rototo/expression-unknown-list`), and lint also checks that the context path
+you're testing has a type the list's members could actually match.
+
 ### `env` - what rototo provides
 
 `env` is the stuff rototo fills in for you. It has a small, fixed set of members:
-
-- **`env.qualifier["<id>"]`** - the yes/no result of *another* qualifier, by its
-  id. This is how qualifiers build on each other:
-
-  ```toml
-  when = '(env.qualifier["premium-users"]) && (env.qualifier["beta-rollout-bucket"])'
-  ```
 
 - **`env.now`** - the current time, as an RFC3339 string. It's captured once at
   the start of a resolution, so every mention of `env.now` in that one
   resolution sees the exact same instant. No risk of two checks disagreeing
   because a millisecond ticked over.
 
-- **`env.resolving.variable`** and **`env.resolving.qualifier`** - the id of
-  whatever's being resolved right now (one will be set, the other null). These
-  are special: they *only* work inside a `[[trace]]` policy in the manifest. A
-  qualifier or a rule can't read them, and that's deliberate - a condition has to
-  be a function of the request, not of who happens to be asking.
+- **`env.resolving.variable`** - the id of the variable being resolved right
+  now. This one is special: it *only* works inside a `[[trace]]` policy in the
+  manifest. A rule can't read it, and that's deliberate - a condition has to be
+  a function of the request, not of who happens to be asking.
 
   ```toml
   [[trace]]
-  when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
+  when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "tester-123"'
   ```
 
 ### What you can't read
 
-Anything outside those three roots is rejected at lint time. Two cases come up
+Anything outside those five roots is rejected at lint time. Two cases come up
 most:
 
-- The old bare `qualifier["id"]` form. It's gone - write `env.qualifier["id"]`.
+- The retired qualifier spellings, `qualifier["id"]` and `env.qualifier["id"]`.
+  Qualifiers were dissolved into condition variables - write
+  `variables["id"]` instead, and lint's error points you there.
 - Made-up `env` members like `env.region` or a typo like `env.noww`. If it isn't
   one of the members above, lint stops you.
 
@@ -99,7 +141,7 @@ Comparisons, logic, and membership all work the way you'd guess:
 | Equal / not equal | `==`, `!=` |
 | Ordering | `<`, `<=`, `>`, `>=` |
 | And / or / not | `&&`, `\|\|`, `!` |
-| Is it in a list? | `context.region in ["us","eu"]` |
+| Is it one of these? | `context.region in ["us","eu"]` |
 | Is this item in an array field? | `"admin" in context.user.roles` |
 | Does a field exist? | `has(context.user.tier)` |
 
@@ -107,8 +149,10 @@ You can index with dots (`context.user.tier`) or with brackets when a key has
 funny characters (`context["account.plan"]`).
 
 A few things are *not* in the language, because the CEL subset leaves them out:
-no loops, no comprehensions, no assigning to things, no defining your own
-functions. Expressions are meant to *ask a question*, not run a program. And
+no loops, no assigning to things, no defining your own functions.
+(Comprehension macros like `.exists(...)` are fine - they ask a question over
+a collection, they don't run a program.) Expressions are meant to *ask a
+question*, not run a program. And
 because lint knows your context schema, it'll also catch type mismatches - like
 comparing a string field against a number.
 
@@ -123,7 +167,7 @@ same thing.
 | --- | --- |
 | Text starts with something | `startsWith` / `starts_with` / `prefix` |
 | Text ends with something | `endsWith` / `ends_with` / `suffix` |
-| Text (or a list) contains something | `contains` |
+| Text (or an array) contains something | `contains` |
 | Text matches a pattern | `matches` / `regex`, or `glob` for glob-style |
 | Version comparison | `semver` |
 | A deterministic rollout bucket | `bucket` (see below) |
@@ -142,7 +186,7 @@ something to "10% of users" and have that 10% stay the same 10% from one request
 to the next.
 
 ```toml
-when = '(bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))'
+when = '(bucket(context.user.id, "checkout_redesign_2026_05", 0, 1000))'
 ```
 
 You call it `bucket(value, salt, start, end)`. Here's the idea:
@@ -162,32 +206,72 @@ The `salt` is what lets you run independent rollouts. Change the salt and you ge
 a fresh, unrelated 10% - so two different features rolling out to "10%" don't
 hit the exact same users.
 
+`bucket` is the inline form, good for a one-off condition inside a single
+rule. When several variables need to read one shared assignment - an
+experiment driving the layout, the copy, and the CTA together - that's a layer
+and `method = "allocation"`, covered below and on the
+[concepts page](./concepts.md).
+
 ## Queries: picking catalog entries with an expression
 
-The last place expressions show up is a `query`, and it's only for variables
-typed `list<catalog:...>` - a variable whose value is a *list* of catalog
-entries. Instead of hardcoding which entries go in the list, a query describes
-them, and rototo keeps every entry the query says yes to.
+Expressions also show up in a catalog query - a variable whose
+`[resolve]` block declares `method = "query"` and reads its value straight out
+of a catalog's entries. Which entries match is often a fact the entries
+already carry, so instead of hardcoding the answer in the variable, the query's
+`filter` describes it:
 
 ```toml
-[[resolve.rule]]
-query = "entry.channel == context.channel && entry.active == true && env.qualifier[\"premium\"]"
+[resolve]
+method = "query"
+from = "notifications"
+filter = 'entry.channel == context.channel && entry.active == true && variables["premium_users"]'
 ```
 
-rototo runs that expression once per catalog entry. For each entry, `entry` is
-that entry, `context` and `env` are the same as everywhere else, and if the whole
-thing comes out true, the entry makes the list. The result is every matching
-entry, in order.
+rototo runs the `filter` once per entry in the `from` catalog. For each entry,
+`entry` is that entry, and `context`, `variables`, and `env` are the same as
+everywhere else. If the whole thing comes out true, the entry stays.
 
 A simpler one:
 
 ```toml
-query = "entry.enabled == true"
+filter = "entry.enabled == true"
 ```
 
-That's "give me every enabled entry." Queries read the same roots as a `when`
-(`context`, `entry`, `env.qualifier[...]`, `env.now`) and use all the same
+That's "keep every enabled entry." A query can also order the survivors with a
+`sort` expression - evaluated once per entry, it produces the sort key rather
+than a true/false answer - and trim the result with `order` and `limit`. The
+exact field list, and the single-entry form where the top sorted entry wins,
+live in the [package format](./package-format.md) reference. From the
+expression language's side there are just two slots: `filter` asks a question
+like a `when` does, `sort` produces a value. Both read the same roots
+(`context`, `entry`, `variables[...]`, `env.now`) and use all the same
 operators and functions - the only new thing is that `entry` is now in play.
+
+## Layers: `unit` and `eligibility`
+
+The last two slots live in a layer file - the shared bucket lines behind
+`method = "allocation"` variables (the [concepts page](./concepts.md) tells
+that story). A layer has a `unit` expression, and each of its allocations can
+have an `eligibility` expression:
+
+```toml
+unit = "context.user.id"
+
+[[allocation]]
+id = "cta_copy_test"
+eligibility = '!variables["enterprise_accounts"]'
+```
+
+`unit` produces the value that gets hashed onto the layer's buckets - usually
+a stable id. It may read `context` only: no `variables`, no `entry`. That
+restriction is what keeps assignment a pure function of the request, so the
+same user lands on the same bucket every time.
+
+`eligibility` asks a question like a `when` does: is this unit enrolled in the
+allocation at all? It can read `context` and `variables[...]` - handy for
+keeping a whole named condition's worth of users out of an experiment - but
+not `entry`. There's no catalog entry in play here, so `entry` doesn't exist,
+same as outside a query.
 
 ## A note on stability
 

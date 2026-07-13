@@ -1,4 +1,5 @@
-# Once `default` is set in the resolve block, only another rule block remains.
+# Once `default` is set in the resolve block, the remaining fields are the
+# resolution method, the query pipeline keys, and another rule block.
 package = "basic"
 file = "variables/message.toml"
 
@@ -12,4 +13,4 @@ $0
 '''
 
 [expect]
-exact = ["[[resolve.rule]]"]
+exact = ["[[resolve.assign]]", "[[resolve.rule]]", "allocation", "filter", "from", "limit", "method", "order", "sort"]

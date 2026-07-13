@@ -6,7 +6,7 @@ use toml::Value;
 use crate::error::{Result, RototoError};
 use crate::model::{
     CatalogConfig, CatalogInspection, EvaluationContextInspection, LinterInspection,
-    PackageInspection, QualifierConfig, QualifierInspection, VariableConfig, VariableInspection,
+    PackageInspection, VariableConfig, VariableInspection,
 };
 
 const PACKAGE_MANIFEST: &str = "rototo-package.toml";
@@ -20,7 +20,6 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
     validate_package_manifest(&manifest)?;
     let evaluation_contexts = discover_evaluation_contexts(&package_root).await?;
     let catalogs = discover_catalogs(&package_root).await?;
-    let qualifiers = discover_qualifiers(&package_root).await?;
     let variables = discover_variables(&package_root).await?;
     let linters = discover_linters(&package_root).await?;
 
@@ -28,7 +27,6 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
         root: package_root,
         evaluation_contexts,
         catalogs,
-        qualifiers,
         variables,
         linters,
     })
@@ -78,17 +76,6 @@ pub async fn read_variable_toml(
     read_toml(&package_root.join(&variable.path)).await
 }
 
-pub fn qualifier_for_id<'a>(
-    inspection: &'a PackageInspection,
-    id: &str,
-) -> Result<&'a QualifierInspection> {
-    inspection
-        .qualifiers
-        .iter()
-        .find(|qualifier| qualifier.id == id)
-        .ok_or_else(|| RototoError::new(format!("qualifier not found: qualifier://{id}")))
-}
-
 pub fn variable_for_id<'a>(
     inspection: &'a PackageInspection,
     id: &str,
@@ -111,22 +98,12 @@ pub fn catalog_for_id<'a>(
         .ok_or_else(|| RototoError::new(format!("catalog not found: catalog://{id}")))
 }
 
-pub async fn list_qualifiers(package_root: &Path) -> Result<Vec<QualifierInspection>> {
-    Ok(inspect_package(package_root).await?.qualifiers)
-}
-
-pub async fn list_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
+pub async fn inspect_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
     Ok(inspect_package(package_root).await?.variables)
 }
 
-pub async fn list_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
+pub async fn inspect_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     Ok(inspect_package(package_root).await?.catalogs)
-}
-
-pub async fn read_qualifier(package_root: &Path, id: &str) -> Result<QualifierConfig> {
-    let inspection = inspect_package(package_root).await?;
-    let qualifier = qualifier_for_id(&inspection, id)?;
-    qualifier_config(&inspection.root, qualifier).await
 }
 
 pub async fn read_variable(package_root: &Path, id: &str) -> Result<VariableConfig> {
@@ -139,15 +116,6 @@ pub async fn read_catalog(package_root: &Path, id: &str) -> Result<CatalogConfig
     let inspection = inspect_package(package_root).await?;
     let catalog = catalog_for_id(&inspection, id)?;
     catalog_config(&inspection.root, catalog).await
-}
-
-pub async fn read_qualifiers(package_root: &Path) -> Result<Vec<QualifierConfig>> {
-    let inspection = inspect_package(package_root).await?;
-    let mut configs = Vec::new();
-    for qualifier in &inspection.qualifiers {
-        configs.push(qualifier_config(&inspection.root, qualifier).await?);
-    }
-    Ok(configs)
 }
 
 pub async fn read_variables(package_root: &Path) -> Result<Vec<VariableConfig>> {
@@ -208,21 +176,6 @@ pub fn package_extends_sources(manifest: &Value) -> Result<Vec<String>> {
     Ok(sources)
 }
 
-async fn qualifier_config(
-    package_root: &Path,
-    qualifier: &QualifierInspection,
-) -> Result<QualifierConfig> {
-    let value = serde_json::to_value(read_toml(&package_root.join(&qualifier.path)).await?)
-        .map_err(|err| RototoError::new(err.to_string()))?;
-
-    Ok(QualifierConfig {
-        id: qualifier.id.clone(),
-        uri: qualifier.uri.clone(),
-        path: qualifier.path.clone(),
-        value,
-    })
-}
-
 async fn variable_config(
     package_root: &Path,
     variable: &VariableInspection,
@@ -269,9 +222,7 @@ async fn read_catalog_entries_toml(
     package_root: &Path,
     catalog: &CatalogInspection,
 ) -> Result<serde_json::Map<String, JsonValue>> {
-    let entries_dir = package_root
-        .join("catalogs")
-        .join(format!("{}-entries", catalog.id));
+    let entries_dir = package_root.join("data/catalogs").join(&catalog.id);
     let mut catalog_entries = serde_json::Map::new();
     let Ok(mut entries) = tokio::fs::read_dir(&entries_dir).await else {
         return Ok(catalog_entries);
@@ -297,25 +248,12 @@ async fn read_catalog_entries_toml(
     Ok(catalog_entries)
 }
 
-async fn discover_qualifiers(package_root: &Path) -> Result<Vec<QualifierInspection>> {
-    let mut qualifiers = Vec::new();
-    for path in discover_named_toml_files(package_root, "qualifiers").await? {
-        let id = id_from_path(&path)?;
-        let relative_path = relative_path(package_root, &path)?;
-        qualifiers.push(QualifierInspection {
-            uri: format!("qualifier://{id}"),
-            id,
-            path: relative_path,
-        });
-    }
-    qualifiers.sort_by(|left, right| left.uri.cmp(&right.uri));
-    Ok(qualifiers)
-}
-
 async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
     let mut variables = Vec::new();
     for path in discover_named_toml_files(package_root, "variables").await? {
-        let id = id_from_path(&path)?;
+        let Some(id) = namespaced_id_from_path(package_root, "variables", &path, ".toml") else {
+            continue;
+        };
         let relative_path = relative_path(package_root, &path)?;
         variables.push(VariableInspection {
             uri: format!("variable://{id}"),
@@ -329,8 +267,10 @@ async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspectio
 
 async fn discover_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     let mut catalogs = Vec::new();
-    for path in discover_named_files(package_root, "catalogs", "json").await? {
-        let Some(id) = catalog_id_from_path(&path) else {
+    for path in discover_named_files(package_root, "model/catalogs", "json").await? {
+        let Some(id) =
+            namespaced_id_from_path(package_root, "model/catalogs", &path, ".schema.json")
+        else {
             continue;
         };
         let relative_path = relative_path(package_root, &path)?;
@@ -348,8 +288,23 @@ async fn discover_evaluation_contexts(
     package_root: &Path,
 ) -> Result<Vec<EvaluationContextInspection>> {
     let mut evaluation_contexts = Vec::new();
-    for path in discover_named_files(package_root, "evaluation-contexts", "json").await? {
-        let Some(id) = evaluation_context_id_from_path(&path) else {
+    for path in discover_named_files(package_root, "model/context", "json").await? {
+        if path
+            .strip_prefix(package_root.join("model/context"))
+            .ok()
+            .and_then(|relative| relative.parent())
+            .is_some_and(|parent| {
+                parent
+                    .iter()
+                    .filter_map(|component| component.to_str())
+                    .any(|component| component.ends_with("-samples"))
+            })
+        {
+            continue;
+        }
+        let Some(id) =
+            namespaced_id_from_path(package_root, "model/context", &path, ".schema.json")
+        else {
             continue;
         };
         let relative_path = relative_path(package_root, &path)?;
@@ -401,23 +356,29 @@ async fn discover_named_files(
     dir: &str,
     extension: &str,
 ) -> Result<Vec<PathBuf>> {
+    // Directories namespace ids for every collection, so discovery walks
+    // subdirectories too.
     let dir = package_root.join(dir);
     let mut paths = Vec::new();
-    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
-        return Ok(paths);
-    };
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
-    {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) == Some(extension)
-            && tokio::fs::metadata(&path)
-                .await
-                .is_ok_and(|metadata| metadata.is_file())
-        {
-            paths.push(path);
+    let mut pending = vec![dir.clone()];
+    while let Some(directory) = pending.pop() {
+        let Ok(mut entries) = tokio::fs::read_dir(&directory).await else {
+            continue;
+        };
+        while let Some(entry) = entries.next_entry().await.map_err(|err| {
+            RototoError::new(format!("failed to read {}: {err}", directory.display()))
+        })? {
+            let path = entry.path();
+            let Ok(metadata) = tokio::fs::metadata(&path).await else {
+                continue;
+            };
+            if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file()
+                && path.extension().and_then(|value| value.to_str()) == Some(extension)
+            {
+                paths.push(path);
+            }
         }
     }
     Ok(paths)
@@ -430,20 +391,18 @@ fn id_from_path(path: &Path) -> Result<String> {
         .ok_or_else(|| RototoError::new(format!("path has no valid id: {path:?}")))
 }
 
-fn evaluation_context_id_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|file_name| file_name.to_str())
-        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
-}
-
-fn catalog_id_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|file_name| file_name.to_str())
-        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
+/// The namespaced id a file names below its collection root: the relative
+/// path with separators normalized to `/` and the suffix stripped.
+fn namespaced_id_from_path(
+    package_root: &Path,
+    dir: &str,
+    path: &Path,
+    suffix: &str,
+) -> Option<String> {
+    let relative = path.strip_prefix(package_root.join(dir)).ok()?;
+    let relative = relative.to_str()?.replace(std::path::MAIN_SEPARATOR, "/");
+    let id = relative.strip_suffix(suffix)?;
+    (!id.is_empty() && !id.ends_with('/')).then(|| id.to_owned())
 }
 
 fn relative_path(package_root: &Path, path: &Path) -> Result<PathBuf> {

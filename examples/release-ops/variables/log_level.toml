@@ -1,0 +1,15 @@
+schema_version = 1
+description = "Observability dial: log verbosity, bumped for employees"
+type = "list=log_levels"
+visibility = "internal"
+
+# During an incident, add a rule targeting the affected population (a region, a
+# beta cohort) at "debug", then revert the commit. This variable is read on a
+# hot path, so resolution caching guidance matters; see the README's hard parts.
+[resolve]
+method = "rules"
+default = "warn"
+
+[[resolve.rule]]
+when = 'context.user.is_employee'
+value = "debug"

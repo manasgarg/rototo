@@ -1,0 +1,15 @@
+schema_version = 1
+
+description = "Risk score threshold above which checkout asks for review"
+type = "number"
+
+[resolve]
+default = 0.82
+
+[[resolve.rule]]
+when = 'variables["lane_dev"]'
+value = 0.92
+
+[[resolve.rule]]
+when = 'variables["high_value_cart"]'
+value = 0.70

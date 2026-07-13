@@ -10,21 +10,20 @@ fn inspects_basic_package() {
         .success()
         .stdout(predicate::str::contains("package: "))
         .stdout(predicate::str::contains("catalogs:"))
-        .stdout(predicate::str::contains("catalog: checkout-redesign"))
+        .stdout(predicate::str::contains("catalog: checkout_redesign"))
         .stdout(predicate::str::contains(
-            "schema: catalogs/checkout-redesign.schema.json",
+            "schema: model/catalogs/checkout_redesign.schema.json",
         ))
-        .stdout(predicate::str::contains("qualifiers:"))
-        .stdout(predicate::str::contains("qualifier: premium-users"))
-        .stdout(predicate::str::contains("qualifier: premium-beta-users"))
+        .stdout(predicate::str::contains("variable: premium_users"))
+        .stdout(predicate::str::contains("variable: premium_beta_users"))
         .stdout(predicate::str::contains(
             "----------------------------------------",
         ))
         .stdout(predicate::str::contains("variables:"))
-        .stdout(predicate::str::contains("variable: checkout-redesign"))
-        .stdout(predicate::str::contains("variable: tenant-limits"))
+        .stdout(predicate::str::contains("variable: checkout_redesign"))
+        .stdout(predicate::str::contains("variable: tenant_limits"))
         .stdout(predicate::str::contains("linters:"))
-        .stdout(predicate::str::contains("linter: checkout-redesign"))
+        .stdout(predicate::str::contains("linter: checkout_redesign"))
         .stdout(predicate::str::contains(
             "consumer-experience/checkout-heading-required",
         ))
@@ -32,7 +31,7 @@ fn inspects_basic_package() {
         .stdout(predicate::str::contains(
             "lint authority: consumer-experience",
         ))
-        .stdout(predicate::str::contains("variable://checkout-redesign").not());
+        .stdout(predicate::str::contains("variable://checkout_redesign").not());
 }
 
 #[test]
@@ -44,18 +43,18 @@ fn inspects_discovered_package() {
         .assert()
         .success()
         .stdout(predicate::str::contains("package: "))
-        .stdout(predicate::str::contains("qualifier: premium-users"));
+        .stdout(predicate::str::contains("variable: premium_users"));
 }
 
 #[test]
 fn inspect_human_conditions_show_values() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--qualifier", "premium-users"])
+        .args(["inspect", "examples/basic", "--variable", "premium_users"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"when: (context.user.tier == "premium")"#,
+            r#"if (context.user.tier == "premium") -> true"#,
         ));
 
     Command::cargo_bin("rototo")
@@ -63,13 +62,13 @@ fn inspect_human_conditions_show_values() {
         .args([
             "inspect",
             "examples/basic",
-            "--qualifier",
-            "beta-rollout-bucket",
+            "--variable",
+            "beta_rollout_bucket",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"when: (bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))"#,
+            r#"if (bucket(context.user.id, "checkout_redesign_2026_05", 0, 1000)) -> true"#,
         ));
 }
 
@@ -77,17 +76,17 @@ fn inspect_human_conditions_show_values() {
 fn inspect_human_values_show_config_values() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--catalog", "tenant-limits"])
+        .args(["inspect", "examples/basic", "--catalog", "tenant_limits"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("catalog: tenant-limits"))
+        .stdout(predicate::str::contains("catalog: tenant_limits"))
         .stdout(predicate::str::contains("enterprise = {"))
         .stdout(predicate::str::contains(r#""support_tier":"dedicated""#))
         .stdout(predicate::str::contains(
-            "variable tenant-limits  variables/tenant-limits.toml",
+            "variable tenant_limits  variables/tenant_limits.toml",
         ))
-        .stdout(predicate::str::contains("variable tenant-limits type").not())
-        .stdout(predicate::str::contains("enterprise  inline  variables/tenant-limits.toml").not());
+        .stdout(predicate::str::contains("variable tenant_limits type").not())
+        .stdout(predicate::str::contains("enterprise  inline  variables/tenant_limits.toml").not());
 }
 
 #[test]
@@ -98,18 +97,18 @@ fn inspect_human_variable_rules_show_when_expressions() {
             "inspect",
             "examples/console-runtime",
             "--variable",
-            "console-request-observability",
+            "console_request_observability",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"rule[0] if env.qualifier["request-dev-console"] -> "dev-all""#,
+            r#"rule[0] if variables["request_dev_console"] -> "dev_all""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[1] if env.qualifier["request-server-error"] -> "retain-errors""#,
+            r#"rule[1] if variables["request_server_error"] -> "retain_errors""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[2] if env.qualifier["request-slow"] -> "retain-slow""#,
+            r#"rule[2] if variables["request_slow"] -> "retain_slow""#,
         ))
         .stdout(predicate::str::contains("if <missing>").not());
 }
@@ -123,19 +122,18 @@ fn inspects_basic_package_as_json() {
         .success()
         .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(
-            r#""path": "catalogs/checkout-redesign.schema.json""#,
+            r#""path": "model/catalogs/checkout_redesign.schema.json""#,
         ))
-        .stdout(predicate::str::contains(r#""qualifiers": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(r#""lint_authorities": ["#))
         .stdout(predicate::str::contains(
             r#""authority": "consumer-experience""#,
         ))
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium_users""#,
         ))
         .stdout(predicate::str::contains(
-            r#""uri": "variable://checkout-redesign""#,
+            r#""uri": "variable://checkout_redesign""#,
         ));
 }
 
@@ -148,12 +146,12 @@ fn inspect_json_variable_rules_include_when_expressions() {
             "inspect",
             "examples/basic",
             "--variable",
-            "checkout-redesign",
+            "checkout_redesign",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""when": "env.qualifier[\"premium-users\"]""#,
+            r#""when": "variables[\"premium_users\"]""#,
         ));
 }
 
@@ -165,12 +163,12 @@ fn inspect_json_hides_structural_text_spans() {
             "--json",
             "inspect",
             "examples/basic",
-            "--qualifier",
-            "returning-users",
+            "--variable",
+            "returning_users",
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""id": "returning-users""#))
+        .stdout(predicate::str::contains(r#""id": "returning_users""#))
         .stdout(predicate::str::contains(
             r#""when": "(context.user.session_count >= 2)""#,
         ))
@@ -186,7 +184,7 @@ fn json_is_a_trailing_global_arg() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium_users""#,
         ));
 }
 
@@ -199,21 +197,20 @@ fn inspects_variable_resolution_trace_as_json() {
             "inspect",
             "examples/basic",
             "--variable",
-            "checkout-redesign",
+            "checkout_redesign",
             "--context",
             r#"{"user":{"tier":"premium"}}"#,
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""id": "checkout-redesign""#))
+        .stdout(predicate::str::contains(r#""id": "checkout_redesign""#))
         .stdout(predicate::str::contains(
-            r#""catalog": "checkout-redesign""#,
+            r#""catalog": "checkout_redesign""#,
         ))
         .stdout(predicate::str::contains(r#""value": "premium""#))
         .stdout(predicate::str::contains(r#""matched": true"#))
-        .stdout(predicate::str::contains(r#""qualifier_traces": ["#))
         .stdout(predicate::str::contains(
-            r#""when": "(context.user.tier == \"premium\")""#,
+            r#""condition": "variables[\"premium_users\"]""#,
         ));
 }
 
@@ -260,17 +257,17 @@ fn inspect_lint_rule_shows_emitted_diagnostics() {
 fn inspect_linter_output_is_readable() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--linter", "checkout-redesign"])
+        .args(["inspect", "examples/basic", "--linter", "checkout_redesign"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("linter: checkout-redesign"))
-        .stdout(predicate::str::contains("path: lint/checkout-redesign.lua"))
+        .stdout(predicate::str::contains("linter: checkout_redesign"))
+        .stdout(predicate::str::contains("path: lint/checkout_redesign.lua"))
         .stdout(predicate::str::contains("registrations:"))
         .stdout(predicate::str::contains(
             "[0] consumer-experience/checkout-heading-required",
         ))
         .stdout(predicate::str::contains(
-            "target: /catalogs/checkout-redesign/entries",
+            "target: catalog=checkout_redesign:entry=",
         ))
         .stdout(predicate::str::contains("runs during: policy lint stage"))
         .stdout(predicate::str::contains("handler: check_heading"))
@@ -302,11 +299,11 @@ fn inspect_variable_context_resolves_without_extra_input() {
             "inspect",
             "examples/basic",
             "--variable",
-            "checkout-redesign",
+            "checkout_redesign",
             "--context",
             r#"{"user":{"tier":"premium"}}"#,
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("trace: checkout-redesign:premium"));
+        .stdout(predicate::str::contains("trace: checkout_redesign:premium"));
 }

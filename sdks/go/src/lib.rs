@@ -5,8 +5,8 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceSubscription,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{Mutex, broadcast};
@@ -52,12 +52,16 @@ pub extern "C" fn rototo_go_package_load(
     source: *const c_char,
     package_token: *const c_char,
     lint: *const c_char,
+    fallback_source: *const c_char,
+    package_tokens_json: *const c_char,
 ) -> RototoGoHandleResult {
     handle_result(|| {
         let source = required_string(source, "source")?;
         let package_token = optional_string(package_token)?;
         let lint = required_string(lint, "lint")?;
-        let options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(fallback_source)?;
+        let package_tokens = optional_string(package_tokens_json)?;
+        let options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let package = runtime()
             .block_on(rototo::Package::load_with_options(source, options))
             .map_err(|err| err.to_string())?;
@@ -88,6 +92,14 @@ pub extern "C" fn rototo_go_package_root(handle: *mut c_void) -> RototoGoStringR
         let package = package_from_handle(handle)?;
         Ok(package.root().display().to_string())
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_served_fallback(handle: *mut c_void) -> c_int {
+    let Ok(package) = package_from_handle(handle) else {
+        return 0;
+    };
+    c_int::from(package.served_fallback())
 }
 
 #[unsafe(no_mangle)]
@@ -124,8 +136,9 @@ pub extern "C" fn rototo_go_package_resolve_variable(
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = evaluation_context(context_json)?;
+        let options = resolve_options(validate_context, trace);
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
@@ -136,21 +149,98 @@ pub extern "C" fn rototo_go_package_resolve_variable(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_package_resolve_qualifier(
+pub extern "C" fn rototo_go_package_list_ids(
+    handle: *mut c_void,
+    _a: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let lists = package.list_ids().map_err(|err| err.to_string())?;
+        json_string(serde_json::json!(lists))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_read_list(
     handle: *mut c_void,
     id: *const c_char,
-    context_json: *const c_char,
-    validate_context: c_int,
-    trace: c_int,
+    _b: *const c_char,
 ) -> RototoGoStringResult {
     string_result(|| {
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let context = evaluation_context(context_json)?;
+        let config = package.read_list(&id).map_err(|err| err.to_string())?;
+        json_string(config.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_entry_ids(
+    handle: *mut c_void,
+    catalog: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(catalog, "catalog")?;
+        let entries = package.entry_ids(&catalog).map_err(|err| err.to_string())?;
+        json_string(serde_json::json!(entries))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_read_entry(
+    handle: *mut c_void,
+    catalog: *const c_char,
+    entry: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(catalog, "catalog")?;
+        let entry = required_string(entry, "entry")?;
         let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
+            .read_entry(&catalog, &entry)
             .map_err(|err| err.to_string())?;
-        json_string(serde_json::json!(value))
+        json_string(value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_resolve_reference(
+    handle: *mut c_void,
+    address: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let address = required_string(address, "address")?;
+        let value = package
+            .resolve_reference_at(&address)
+            .map_err(|err| err.to_string())?;
+        json_string(value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_resolve_entry_ref(
+    handle: *mut c_void,
+    value: *const c_char,
+    pins_json: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let value = required_string(value, "value")?;
+        let pins_json = required_string(pins_json, "pins")?;
+        let pins: Vec<String> =
+            serde_json::from_str(&pins_json).map_err(|err| format!("invalid pins: {err}"))?;
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference =
+            rototo::ValueRef::from_entry_ref(&value, &pins).map_err(|err| err.to_string())?;
+        let resolved = package
+            .resolve_reference(&reference)
+            .map_err(|err| err.to_string())?;
+        json_string(resolved)
     })
 }
 
@@ -170,12 +260,16 @@ pub extern "C" fn rototo_go_refreshing_package_load(
     has_period_seconds: c_int,
     package_token: *const c_char,
     lint: *const c_char,
+    fallback_source: *const c_char,
+    package_tokens_json: *const c_char,
 ) -> RototoGoHandleResult {
     handle_result(|| {
         let source = required_string(source, "source")?;
         let package_token = optional_string(package_token)?;
         let lint = required_string(lint, "lint")?;
-        let load_options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(fallback_source)?;
+        let package_tokens = optional_string(package_tokens_json)?;
+        let load_options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds, has_period_seconds)?;
         let package = runtime()
             .block_on(rototo::RefreshingPackage::load_with_options(
@@ -202,37 +296,17 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_variable(
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = evaluation_context(context_json)?;
+        let options = resolve_options(validate_context, trace);
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
             "value": resolution.value,
             "source": resolution.source,
         }))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_refreshing_package_resolve_qualifier(
-    handle: *mut c_void,
-    id: *const c_char,
-    context_json: *const c_char,
-    validate_context: c_int,
-    trace: c_int,
-) -> RototoGoStringResult {
-    string_result(|| {
-        let package = refreshing_package_from_handle(handle)?;
-        let id = required_string(id, "id")?;
-        let context = evaluation_context(context_json)?;
-        let guard = package.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        json_string(serde_json::json!(value))
     })
 }
 
@@ -583,7 +657,12 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions, String> {
+fn load_options(
+    package_token: Option<String>,
+    package_tokens_json: Option<String>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions, String> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -591,12 +670,43 @@ fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions
             return Err(format!("lint must be 'deny' or 'skip', got {other:?}"));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        }))
+        .with_source_auth(source_auth(package_token, package_tokens_json)?);
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens_json: Option<String>,
+) -> Result<SourceAuth, String> {
+    let scoped_entries = match package_tokens_json {
+        None => None,
+        Some(json) => {
+            let map: std::collections::BTreeMap<String, String> = serde_json::from_str(&json)
+                .map_err(|err| format!("invalid PackageTokens: {err}"))?;
+            Some(map)
+        }
+    };
+    match (package_token, scoped_entries) {
+        (Some(_), Some(_)) => {
+            Err("PackageToken and PackageTokens cannot both be set; scope every token".to_owned())
+        }
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped
+                    .with_prefix(prefix, token)
+                    .map_err(|err| err.to_string())?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(
@@ -678,6 +788,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> serde_json::Value {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 

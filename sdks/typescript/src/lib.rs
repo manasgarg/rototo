@@ -4,10 +4,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceSubscription,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use tokio::sync::{Mutex, broadcast};
 
 #[napi]
@@ -27,8 +28,15 @@ impl JsPackage {
         source: String,
         package_token: Option<String>,
         lint: Option<String>,
+        fallback_source: Option<String>,
+        package_tokens: Option<HashMap<String, String>>,
     ) -> Result<Self> {
-        let options = load_options(package_token, lint.as_deref())?;
+        let options = load_options(
+            package_token,
+            package_tokens,
+            lint.as_deref(),
+            fallback_source,
+        )?;
         let package = rototo::Package::load_with_options(source, options)
             .await
             .map_err(js_err)?;
@@ -51,6 +59,11 @@ impl JsPackage {
     #[napi]
     pub fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    #[napi(js_name = "servedFallback")]
+    pub fn served_fallback(&self) -> bool {
+        self.inner.served_fallback()
     }
 
     #[napi]
@@ -97,22 +110,36 @@ impl JsPackage {
         }))
     }
 
-    #[napi(js_name = "resolveQualifier")]
-    pub fn resolve_qualifier(
-        &self,
-        id: String,
-        context: JsonValue,
-        validate_context: Option<bool>,
-        trace: Option<bool>,
-    ) -> Result<bool> {
-        let context = EvaluationContext::from_json(context).map_err(js_err)?;
-        self.inner
-            .resolve_qualifier_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
-            )
-            .map_err(js_err)
+    #[napi(js_name = "listIds")]
+    pub fn list_ids(&self) -> Result<Vec<String>> {
+        self.inner.list_ids().map_err(js_err)
+    }
+
+    #[napi(js_name = "readList")]
+    pub fn read_list(&self, id: String) -> Result<JsonValue> {
+        Ok(self.inner.read_list(&id).map_err(js_err)?.to_json())
+    }
+
+    #[napi(js_name = "entryIds")]
+    pub fn entry_ids(&self, catalog: String) -> Result<Vec<String>> {
+        self.inner.entry_ids(&catalog).map_err(js_err)
+    }
+
+    #[napi(js_name = "readEntry")]
+    pub fn read_entry(&self, catalog: String, entry: String) -> Result<JsonValue> {
+        self.inner.read_entry(&catalog, &entry).map_err(js_err)
+    }
+
+    #[napi(js_name = "resolveReference")]
+    pub fn resolve_reference(&self, address: String) -> Result<JsonValue> {
+        self.inner.resolve_reference_at(&address).map_err(js_err)
+    }
+
+    #[napi(js_name = "resolveEntryRef")]
+    pub fn resolve_entry_ref(&self, value: String, pins: Vec<String>) -> Result<JsonValue> {
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference = rototo::ValueRef::from_entry_ref(&value, &pins).map_err(js_err)?;
+        self.inner.resolve_reference(&reference).map_err(js_err)
     }
 
     #[napi(js_name = "subscribeTraceEvents")]
@@ -136,8 +163,15 @@ impl JsRefreshingPackage {
         period_seconds: Option<f64>,
         package_token: Option<String>,
         lint: Option<String>,
+        fallback_source: Option<String>,
+        package_tokens: Option<HashMap<String, String>>,
     ) -> Result<Self> {
-        let load_options = load_options(package_token, lint.as_deref())?;
+        let load_options = load_options(
+            package_token,
+            package_tokens,
+            lint.as_deref(),
+            fallback_source,
+        )?;
         let refresh_options = refresh_options(period_seconds)?;
         let package =
             rototo::RefreshingPackage::load_with_options(source, load_options, refresh_options)
@@ -171,26 +205,6 @@ impl JsRefreshingPackage {
             "value": resolution.value,
             "source": resolution.source,
         }))
-    }
-
-    #[napi(js_name = "resolveQualifier")]
-    pub fn resolve_qualifier(
-        &self,
-        id: String,
-        context: JsonValue,
-        validate_context: Option<bool>,
-        trace: Option<bool>,
-    ) -> Result<bool> {
-        let context = EvaluationContext::from_json(context).map_err(js_err)?;
-        let guard = self.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        package
-            .resolve_qualifier_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
-            )
-            .map_err(js_err)
     }
 
     #[napi(js_name = "refreshNow")]
@@ -309,7 +323,12 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: Option<&str>) -> Result<LoadOptions> {
+fn load_options(
+    package_token: Option<String>,
+    package_tokens: Option<HashMap<String, String>>,
+    lint: Option<&str>,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions> {
     let lint = match lint.unwrap_or("deny") {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -319,12 +338,37 @@ fn load_options(package_token: Option<String>, lint: Option<&str>) -> Result<Loa
             )));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        }))
+        .with_source_auth(source_auth(package_token, package_tokens)?);
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens: Option<HashMap<String, String>>,
+) -> Result<SourceAuth> {
+    match (package_token, package_tokens) {
+        (Some(_), Some(_)) => Err(Error::from_reason(
+            "packageToken and packageTokens cannot both be set; scope every token",
+        )),
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut entries: Vec<(String, String)> = entries.into_iter().collect();
+            entries.sort();
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped
+                    .with_prefix(prefix, token)
+                    .map_err(|err| Error::from_reason(err.to_string()))?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(period_seconds: Option<f64>) -> Result<RefreshOptions> {
@@ -360,6 +404,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> JsonValue {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 

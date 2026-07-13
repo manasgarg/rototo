@@ -6,12 +6,10 @@ use tokio::io::AsyncWriteExt;
 use crate::error::{Result, RototoError};
 
 use super::PACKAGE_MANIFEST;
+use super::auth::SourceAuth;
 use super::path::{async_is_file, relative_path_is_safe, select_subdir};
-#[cfg(feature = "console")]
-use super::types::StagedSourceTree;
 use super::types::{
-    LoadedPackageSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
-    StagedPackage,
+    LoadedPackageSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
 };
 use super::uri::SourceUri;
 
@@ -50,35 +48,6 @@ pub(super) async fn stage_https_archive(
     })
 }
 
-#[cfg(feature = "console")]
-pub(super) async fn stage_https_archive_tree(
-    uri: &SourceUri,
-    original: &str,
-    options: &SourceOptions,
-) -> Result<StagedSourceTree> {
-    if uri.ref_.is_some() {
-        return Err(RototoError::new(
-            "https source trees only support #:subdir fragments",
-        ));
-    }
-
-    let ExtractedArchive {
-        extract_dir,
-        fingerprint,
-        tempdir,
-    } = extract_https_archive(uri, original, options).await?;
-    let root = match uri.subdir.as_deref() {
-        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
-        None => extract_dir,
-    };
-    Ok(StagedSourceTree::temporary(
-        root,
-        tempdir,
-        fingerprint,
-        false,
-    ))
-}
-
 struct ExtractedArchive {
     extract_dir: PathBuf,
     fingerprint: Option<SourceFingerprint>,
@@ -92,10 +61,7 @@ async fn extract_https_archive(
 ) -> Result<ExtractedArchive> {
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = https_archive_client(options)?;
-    let mut request = client.get(&url);
-    if let SourceAuth::Bearer(token) = options.auth() {
-        request = request.bearer_auth(token);
-    }
+    let request = apply_archive_auth(client.get(&url), &url, options)?;
     let response = request
         .send()
         .await
@@ -109,7 +75,8 @@ async fn extract_https_archive(
             format!(": {preview}")
         };
         return Err(RototoError::new(format!(
-            "failed to fetch package archive: HTTP {status}{detail}"
+            "failed to fetch package archive: HTTP {status}{detail}{}",
+            auth_failure_hint(status, &url, options)
         )));
     }
     let fingerprint = response_fingerprint(&response);
@@ -168,10 +135,7 @@ pub(super) async fn probe_https_archive(
     }
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = https_archive_client(options)?;
-    let mut request = client.head(&url);
-    if let SourceAuth::Bearer(token) = options.auth() {
-        request = request.bearer_auth(token);
-    }
+    let request = apply_archive_auth(client.head(&url), &url, options)?;
     let response = request
         .send()
         .await
@@ -179,7 +143,8 @@ pub(super) async fn probe_https_archive(
     let status = response.status();
     if !status.is_success() {
         return Err(RototoError::new(format!(
-            "failed to check package archive: HTTP {status}"
+            "failed to check package archive: HTTP {status}{}",
+            auth_failure_hint(status, &url, options)
         )));
     }
     let Some(fingerprint) = response_fingerprint(&response) else {
@@ -189,6 +154,56 @@ pub(super) async fn probe_https_archive(
         Ok(SourceProbe::Unchanged)
     } else {
         Ok(SourceProbe::Changed(Some(fingerprint)))
+    }
+}
+
+/// Attaches the bearer token this request's URL is entitled to. A bare token
+/// binds to the load graph's single archive origin (a second distinct origin
+/// fails the load); scoped tokens go to the longest matching prefix, and a
+/// URL no prefix matches goes out anonymous.
+///
+/// Tokens are attached per request, so on a redirect reqwest owns the header:
+/// its redirect layer strips `Authorization` whenever the redirect target's
+/// host or port differs from the previous hop
+/// (`reqwest::redirect::remove_sensitive_headers`), so a token never follows
+/// a cross-origin redirect.
+fn apply_archive_auth(
+    request: reqwest::RequestBuilder,
+    url: &str,
+    options: &SourceOptions,
+) -> Result<reqwest::RequestBuilder> {
+    match options.auth() {
+        SourceAuth::None => Ok(request),
+        SourceAuth::Bearer(token) => {
+            options.bearer_origin().bind(url)?;
+            Ok(request.bearer_auth(token))
+        }
+        SourceAuth::Scoped(tokens) => match tokens.token_for(url) {
+            Some(token) => Ok(request.bearer_auth(token)),
+            None => Ok(request),
+        },
+    }
+}
+
+/// Names what credential a failed archive request carried, so a 401 or 403
+/// says which entry to fix instead of leaving the operator to guess.
+fn auth_failure_hint(status: reqwest::StatusCode, url: &str, options: &SourceOptions) -> String {
+    if !matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return String::new();
+    }
+    let origin = super::auth::archive_origin(url);
+    match options.auth() {
+        SourceAuth::None => format!(
+            " (no package token configured; pass --package-token {origin}/...=TOKEN or set ROTOTO_PACKAGE_TOKEN)"
+        ),
+        SourceAuth::Bearer(_) => " (sent the bare package token)".to_owned(),
+        SourceAuth::Scoped(tokens) => match tokens.matching_prefix(url) {
+            Some(prefix) => format!(" (sent the token scoped to {prefix})"),
+            None => format!(" (no package token entry matched this URL; add {origin}/...=TOKEN)"),
+        },
     }
 }
 
@@ -750,5 +765,98 @@ mod tests {
                 "last-modified:Thu, 28 May 2026 12:00:00 GMT".to_owned()
             ))
         );
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::super::auth::ScopedBearerTokens;
+    use super::*;
+
+    fn authorization_header(request: reqwest::RequestBuilder) -> Option<String> {
+        let request = request.build().unwrap();
+        request
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .map(|value| value.to_str().unwrap().to_owned())
+    }
+
+    fn get(url: &str) -> reqwest::RequestBuilder {
+        reqwest::Client::new().get(url)
+    }
+
+    #[test]
+    fn anonymous_requests_carry_no_authorization_header() {
+        let options = SourceOptions::new();
+        let url = "https://config.example.com/pkg.tar.gz";
+        let request = apply_archive_auth(get(url), url, &options).unwrap();
+        assert_eq!(authorization_header(request), None);
+    }
+
+    #[test]
+    fn a_bare_token_attaches_and_binds_to_the_first_origin() {
+        let options = SourceOptions::new().with_auth(SourceAuth::Bearer("secret".to_owned()));
+        let url = "https://config.example.com/pkg.tar.gz";
+        let request = apply_archive_auth(get(url), url, &options).unwrap();
+        assert_eq!(
+            authorization_header(request).as_deref(),
+            Some("Bearer secret")
+        );
+
+        // The same origin keeps working; a second origin is refused rather
+        // than receiving a token minted for the first.
+        let same_origin = "https://config.example.com/other.tar.gz";
+        let _ = apply_archive_auth(get(same_origin), same_origin, &options).unwrap();
+        let other_origin = "https://cdn.example.net/pkg.tar.gz";
+        let err = apply_archive_auth(get(other_origin), other_origin, &options).unwrap_err();
+        assert!(err.to_string().contains("https://cdn.example.net"));
+    }
+
+    #[test]
+    fn scoped_tokens_attach_on_match_and_stay_silent_otherwise() {
+        let tokens = ScopedBearerTokens::new()
+            .with_prefix("https://config.example.com/team-a", "team-a-token")
+            .unwrap();
+        let options = SourceOptions::new().with_auth(SourceAuth::Scoped(tokens));
+
+        let matching = "https://config.example.com/team-a/pkg.tar.gz";
+        let request = apply_archive_auth(get(matching), matching, &options).unwrap();
+        assert_eq!(
+            authorization_header(request).as_deref(),
+            Some("Bearer team-a-token")
+        );
+
+        let unmatched = "https://config.example.com/team-b/pkg.tar.gz";
+        let request = apply_archive_auth(get(unmatched), unmatched, &options).unwrap();
+        assert_eq!(authorization_header(request), None);
+    }
+
+    #[test]
+    fn auth_failure_hints_name_the_credential_that_was_sent() {
+        let url = "https://config.example.com/team-a/pkg.tar.gz";
+
+        let anonymous = SourceOptions::new();
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, url, &anonymous);
+        assert!(hint.contains("no package token configured"));
+        assert!(hint.contains("https://config.example.com"));
+
+        let bare = SourceOptions::new().with_auth(SourceAuth::Bearer("secret".to_owned()));
+        let hint = auth_failure_hint(reqwest::StatusCode::FORBIDDEN, url, &bare);
+        assert!(hint.contains("bare package token"));
+
+        let tokens = ScopedBearerTokens::new()
+            .with_prefix("https://config.example.com/team-a", "token")
+            .unwrap();
+        let scoped = SourceOptions::new().with_auth(SourceAuth::Scoped(tokens.clone()));
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, url, &scoped);
+        assert!(hint.contains("scoped to https://config.example.com/team-a"));
+
+        let unmatched_url = "https://cdn.example.net/pkg.tar.gz";
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, unmatched_url, &scoped);
+        assert!(hint.contains("no package token entry matched"));
+
+        // A non-auth status never gets an auth hint.
+        let hint = auth_failure_hint(reqwest::StatusCode::NOT_FOUND, url, &scoped);
+        assert!(hint.is_empty());
     }
 }

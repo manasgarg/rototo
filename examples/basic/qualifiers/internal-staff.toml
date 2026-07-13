@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Employees using internal accounts"
-
-when = '(context.user.email_domain == "rototo.dev")'

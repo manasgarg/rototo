@@ -1,7 +1,7 @@
 # Catalog entry files derive field-name completion from their catalog's JSON
 # Schema properties.
 package = "basic"
-file = "catalogs/message-entries/default.toml"
+file = "data/catalogs/message/default.toml"
 
 overlay = '''
 hea$0

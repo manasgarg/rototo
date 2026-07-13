@@ -6,5 +6,5 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["missing-context-contract"]'
+when = 'context.account.plan == "enterprise"'
 value = "treatment"

@@ -1,0 +1,5 @@
+schema_version = 1
+description = "Serving regions"
+type = "string"
+
+members = ["us", "eu", "apac"]

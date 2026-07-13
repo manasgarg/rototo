@@ -147,22 +147,65 @@ oversight - config is exactly the kind of thing you don't want a network snoop
 or man-in-the-middle messing with, so the unencrypted forms are turned off on
 purpose. If you try one, rototo tells you to use `https://` instead.
 
-## Private sources need a token
+## Private archives need a token
 
-If your repo or archive is private, rototo needs a credential to fetch it. It
-uses a **bearer token**, and there are two ways to hand it over:
+If an `https://` archive is private, rototo sends a **bearer token** with the
+fetch. One important boundary first: this covers archive sources only. Git
+sources (`git+https://`, `git+ssh://`) authenticate through git itself - your
+SSH keys, credential helpers, or `gh auth` - and rototo stays out of that.
+
+The simple case is one private archive host:
 
 ```sh
 # as a flag
-rototo lint git+https://github.com/acme/private-config.git --package-token "$TOKEN"
+rototo lint https://config.acme.com/checkout/current.tar.gz --package-token "$TOKEN"
 
 # or as an environment variable
-ROTOTO_PACKAGE_TOKEN="$TOKEN" rototo lint git+https://github.com/acme/private-config.git
+ROTOTO_PACKAGE_TOKEN="$TOKEN" rototo lint https://config.acme.com/checkout/current.tar.gz
 ```
 
-The environment variable is the friendlier choice for CI and for running
-services, since you set it once and forget it. The same token flows through to
-private HTTPS archives, too.
+A bare token like that binds to a **single archive origin**: the first host the
+load fetches an archive from. That's deliberate. A composed package can pull
+archives from more than one host, and a token minted for one of them must not
+be broadcast to the others. If a load with a bare token touches a second
+origin, it fails and tells you to scope your tokens.
+
+Scoping is the general form. An entry is `PREFIX=TOKEN`, where the prefix is an
+`https://` URL prefix:
+
+```sh
+rototo lint ./overlay \
+  --package-token "https://config.acme.com/team-a=$TEAM_A_TOKEN" \
+  --package-token "https://archives.example.net=$PARTNER_TOKEN"
+```
+
+The environment variable takes the same entries, separated by whitespace:
+
+```sh
+ROTOTO_PACKAGE_TOKEN="https://config.acme.com/team-a=$TEAM_A_TOKEN https://archives.example.net=$PARTNER_TOKEN"
+```
+
+The rules are small and worth knowing:
+
+- **Longest matching prefix wins.** A token for
+  `https://config.acme.com/team-a` beats one for `https://config.acme.com`
+  when the archive lives under `/team-a`. Prefixes match at path boundaries:
+  `/team` never covers `/teammate`.
+- **No match means anonymous.** A request to a host you didn't scope a token
+  for carries no credential at all - a secret never goes somewhere you didn't
+  name.
+- **The `https://` spelling is what makes an entry scoped**, never the `=`
+  sign. A base64 token that happens to end in `=` padding is still one bare
+  token.
+- **A bare token must stand alone.** Mixing it with scoped entries, or passing
+  two bare tokens, is an error - there'd be no unambiguous answer for who gets
+  what.
+- **Tokens never follow a cross-origin redirect.** If an archive host
+  redirects to a different host, the request continues without the
+  Authorization header.
+
+In the SDKs, the same two shapes exist as load options: a single token string,
+or a map from URL prefixes to tokens.
 
 One habit worth keeping: when CI checks that production can really load the
 released package, use the *same* authenticated source production will use. That
@@ -171,16 +214,41 @@ way you find out about a permissions problem in CI, not at 2am.
 ## When one package builds on another
 
 A package can stand on top of other packages - shared defaults, a common set of
-qualifiers, that sort of thing. It does that by listing other sources in its
+condition variables, that sort of thing. It does that by listing other sources in its
 `rototo-package.toml`, and here's the part that matters for this page: those
 parent sources use the **exact same grammar** as everything above. A parent can
 be a local folder, a git repo with `#ref:subdir`, or an HTTPS archive.
 
 Relative paths in that list are resolved against the package doing the
 extending, so a package and the parents it leans on can travel together. The
-mechanics of how the layers combine live in the [package format
-reference](./package-format.md); the only thing to remember here is that there's
-nothing new to learn about the sources themselves.
+mechanics of how packages combine live in the [package format
+reference](./package-format.md); what belongs on this page is how the sources
+in that list behave.
+
+### The rules for sources in `extends`
+
+- **Every format works.** Local paths, `file://`, `git+https://`, `git+ssh://`,
+  `git+file://`, and `https://` archives, including the `#ref:subdir` and
+  `#:subdir` fragments. If you can type it as a package argument, you can list
+  it in `extends`.
+- **Relative paths resolve against the extending package**, not against
+  wherever you happened to run the command. That's what lets a repo carry
+  `extends = ["../shared-config"]` and load the same way from CI, your laptop,
+  or an app.
+- **A remote package can't reach into your filesystem.** Once a package has
+  been staged from a git or archive source, its `extends` entries may only be
+  relative paths inside its own checkout or other remote sources. An absolute
+  path, a `file://` entry, a `git+file://` entry, or a `../` that climbs out
+  of the checkout fails with "escapes a staged package". A fetched package naming `/etc` or your
+  home directory is not a composition feature; it's a problem.
+- **Remote extending remote is the cross-team shape.** A team publishes its
+  base package at a git ref or archive URL; your package extends it by that
+  source. Pin the parent to an immutable ref (a commit hash or a
+  content-addressed archive) when you want reproducible builds - the same
+  child commit then always composes against the same parent bytes.
+- **Chains have limits.** Extends can nest, and parents can have parents, up
+  to a depth of 32. A cycle (a package that ends up extending itself through
+  any chain) fails the load with the cycle spelled out.
 
 ## The whole grammar on one page
 

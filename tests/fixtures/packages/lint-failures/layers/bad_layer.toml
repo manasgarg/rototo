@@ -1,0 +1,17 @@
+schema_version = 1
+
+description = "Layer with a bad status and overlapping arms"
+unit = "context.user.id"
+buckets = 100
+
+[[allocation]]
+id = "cta_copy"
+status = "later"
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-49"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "40-99"

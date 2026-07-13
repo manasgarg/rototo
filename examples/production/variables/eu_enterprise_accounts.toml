@@ -1,0 +1,10 @@
+schema_version = 1
+description = "Enterprise accounts operating in the European region"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(variables["enterprise_accounts"]) && (context.request.region == "eu")'
+value = true

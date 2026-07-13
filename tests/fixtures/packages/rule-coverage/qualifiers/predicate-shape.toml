@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Predicate missing required fields"
-
-when = "context.user.tier ="

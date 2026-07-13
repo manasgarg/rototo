@@ -1,0 +1,5 @@
+schema_version = 1
+description = "Message delivery channels"
+type = "string"
+
+members = ["email", "sms"]

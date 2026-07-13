@@ -32,6 +32,7 @@ class RefreshStatus:
     last_error: str | None
     refreshing: bool
     immutable: bool
+    serving_fallback: bool
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ class RefreshSnapshot:
     last_error: str | None
     refreshing: bool
     immutable: bool
+    serving_fallback: bool
 
     @classmethod
     def _from_dict(cls, data: Mapping[str, Any]) -> RefreshSnapshot:
@@ -133,6 +135,7 @@ class RefreshSnapshot:
             last_error=data["last_error"],
             refreshing=data["refreshing"],
             immutable=data["immutable"],
+            serving_fallback=data["serving_fallback"],
         )
 
 
@@ -175,6 +178,16 @@ class RefreshEvent:
         )
 
 
+def _token_entries(
+    package_tokens: Mapping[str, str] | None,
+) -> list[tuple[str, str]] | None:
+    """package_tokens maps https:// URL prefixes to bearer tokens; the longest
+    matching prefix wins and unmatched requests go out anonymous."""
+    if package_tokens is None:
+        return None
+    return [(prefix, token) for prefix, token in package_tokens.items()]
+
+
 class Package:
     """Loaded rototo package."""
 
@@ -187,12 +200,16 @@ class Package:
         source: str,
         *,
         package_token: str | None = None,
+        package_tokens: Mapping[str, str] | None = None,
         lint: str = "deny",
+        fallback_source: str | None = None,
     ) -> Package:
         inner = await _Package.load(
             str(source),
             package_token=package_token,
+            package_tokens=_token_entries(package_tokens),
             lint=lint,
+            fallback_source=fallback_source,
         )
         return cls(inner)
 
@@ -210,6 +227,12 @@ class Package:
     def root(self) -> str:
         return self._inner.root()
 
+    @property
+    def served_fallback(self) -> bool:
+        """True when this package was loaded from the fallback source because
+        the primary source failed."""
+        return self._inner.served_fallback()
+
     def identity(self) -> PackageIdentity:
         return PackageIdentity._from_dict(self._inner.identity())
 
@@ -224,6 +247,7 @@ class Package:
         validate_context: bool = True,
         trace: bool = False,
     ) -> VariableResolution:
+        """Resolve a variable."""
         result = self._inner.resolve_variable(
             id,
             context,
@@ -236,20 +260,31 @@ class Package:
             source=result["source"],
         )
 
-    def resolve_qualifier(
-        self,
-        id: str,
-        context: JsonObject,
-        *,
-        validate_context: bool = True,
-        trace: bool = False,
-    ) -> bool:
-        return self._inner.resolve_qualifier(
-            id,
-            context,
-            validate_context=validate_context,
-            trace=trace,
-        )
+    def list_ids(self) -> list[str]:
+        """Every list id in the loaded package."""
+        return self._inner.list_ids()
+
+    def read_list(self, id: str) -> dict[str, Any]:
+        """One list: id, description, memberType, and members."""
+        return self._inner.read_list(id)
+
+    def entry_ids(self, catalog: str) -> list[str]:
+        """Every entry id of one catalog."""
+        return self._inner.entry_ids(catalog)
+
+    def read_entry(self, catalog: str, entry: str) -> Any:
+        """One raw catalog entry, exactly as authored."""
+        return self._inner.read_entry(catalog, entry)
+
+    def resolve_reference(self, address: str) -> Any:
+        """Follow one reference by address:
+        ``catalog=email_template:entry=welcome#/body``."""
+        return self._inner.resolve_reference(address)
+
+    def resolve_entry_ref(self, value: str, pins: list[str]) -> Any:
+        """Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics."""
+        return self._inner.resolve_entry_ref(value, pins)
 
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
         """Yield resolution trace stream items as they occur. Each item is a
@@ -278,13 +313,17 @@ class RefreshingPackage:
         *,
         period_seconds: float | None = None,
         package_token: str | None = None,
+        package_tokens: Mapping[str, str] | None = None,
         lint: str = "deny",
+        fallback_source: str | None = None,
     ) -> RefreshingPackage:
         inner = await _RefreshingPackage.load(
             str(source),
             period_seconds=period_seconds,
             package_token=package_token,
+            package_tokens=_token_entries(package_tokens),
             lint=lint,
+            fallback_source=fallback_source,
         )
         return cls(inner)
 
@@ -296,6 +335,7 @@ class RefreshingPackage:
         validate_context: bool = True,
         trace: bool = False,
     ) -> VariableResolution:
+        """Resolve a variable."""
         result = self._inner.resolve_variable(
             id,
             context,
@@ -306,21 +346,6 @@ class RefreshingPackage:
             id=result["id"],
             value=result["value"],
             source=result["source"],
-        )
-
-    def resolve_qualifier(
-        self,
-        id: str,
-        context: JsonObject,
-        *,
-        validate_context: bool = True,
-        trace: bool = False,
-    ) -> bool:
-        return self._inner.resolve_qualifier(
-            id,
-            context,
-            validate_context=validate_context,
-            trace=trace,
         )
 
     async def refresh_now(self) -> str:
@@ -346,6 +371,32 @@ class RefreshingPackage:
             if event is None:
                 return
             yield RefreshEvent._from_dict(event)
+
+    def list_ids(self) -> list[str]:
+        """Every list id in the loaded package."""
+        return self._inner.list_ids()
+
+    def read_list(self, id: str) -> dict[str, Any]:
+        """One list: id, description, memberType, and members."""
+        return self._inner.read_list(id)
+
+    def entry_ids(self, catalog: str) -> list[str]:
+        """Every entry id of one catalog."""
+        return self._inner.entry_ids(catalog)
+
+    def read_entry(self, catalog: str, entry: str) -> Any:
+        """One raw catalog entry, exactly as authored."""
+        return self._inner.read_entry(catalog, entry)
+
+    def resolve_reference(self, address: str) -> Any:
+        """Follow one reference by address:
+        ``catalog=email_template:entry=welcome#/body``."""
+        return self._inner.resolve_reference(address)
+
+    def resolve_entry_ref(self, value: str, pins: list[str]) -> Any:
+        """Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics."""
+        return self._inner.resolve_entry_ref(value, pins)
 
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
         """Yield resolution trace stream items as they occur. Each item is a

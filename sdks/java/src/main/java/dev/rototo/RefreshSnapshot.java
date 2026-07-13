@@ -12,6 +12,7 @@ public final class RefreshSnapshot {
     private final String lastError;
     private final boolean refreshing;
     private final boolean immutable;
+    private final boolean servingFallback;
 
     public RefreshSnapshot(
             PackageIdentity identity,
@@ -21,7 +22,8 @@ public final class RefreshSnapshot {
             long consecutiveFailures,
             String lastError,
             boolean refreshing,
-            boolean immutable) {
+            boolean immutable,
+            boolean servingFallback) {
         this.identity = identity;
         this.lastAttempt = lastAttempt;
         this.lastSuccess = lastSuccess;
@@ -30,6 +32,7 @@ public final class RefreshSnapshot {
         this.lastError = lastError;
         this.refreshing = refreshing;
         this.immutable = immutable;
+        this.servingFallback = servingFallback;
     }
 
     static RefreshSnapshot fromJson(Map<String, Object> value) {
@@ -42,7 +45,8 @@ public final class RefreshSnapshot {
                 Json.asLong(value.get("consecutiveFailures")),
                 Json.asNullableString(value.get("lastError")),
                 Json.asBoolean(value.get("refreshing")),
-                Json.asBoolean(value.get("immutable")));
+                Json.asBoolean(value.get("immutable")),
+                Json.asBoolean(value.get("servingFallback")));
     }
 
     public PackageIdentity identity() {
@@ -75,5 +79,10 @@ public final class RefreshSnapshot {
 
     public boolean immutable() {
         return immutable;
+    }
+
+    /** True while the serving package came from the fallback source. */
+    public boolean servingFallback() {
+        return servingFallback;
     }
 }

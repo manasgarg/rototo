@@ -1,0 +1,7 @@
+schema_version = 1
+
+description = "Variable backed by a catalog with an invalid schema reference"
+type = "catalog=bad_schema_ref"
+
+[resolve]
+default = "default"

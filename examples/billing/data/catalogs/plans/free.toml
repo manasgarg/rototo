@@ -1,0 +1,4 @@
+name = "Free"
+tier = "free"
+features = ["api_access"]
+seat_limit = 3

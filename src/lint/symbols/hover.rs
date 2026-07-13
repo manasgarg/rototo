@@ -21,7 +21,6 @@ pub(crate) fn hover(
     let mut candidates = Vec::new();
     push_diagnostic_hover_candidates(snapshot, path, position, &mut candidates);
     push_manifest_hover_candidates(&snapshot.index, path, position, &mut candidates);
-    push_qualifier_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_catalog_hover_candidates(&snapshot.index, path, position, &mut candidates);
     sort_hover_candidates(&mut candidates);
@@ -57,30 +56,6 @@ fn push_manifest_hover_candidates(
     candidates: &mut Vec<HoverCandidate>,
 ) {
     let _ = (path, position, candidates);
-}
-
-fn push_qualifier_hover_candidates(
-    index: &SemanticIndex,
-    path: &str,
-    position: SourcePosition,
-    candidates: &mut Vec<HoverCandidate>,
-) {
-    for qualifier in index.qualifiers.values() {
-        if qualifier.location.path != path {
-            continue;
-        }
-
-        if let Some(ProjectField::Present(description)) = &qualifier.description {
-            push_hover_candidate(
-                candidates,
-                path,
-                position,
-                &description.location,
-                2,
-                qualifier_hover_contents(qualifier),
-            );
-        }
-    }
 }
 
 fn push_variable_hover_candidates(
@@ -137,8 +112,22 @@ fn push_variable_hover_candidates(
             location,
             default,
             rules,
+            query,
+            ..
         } = &variable.resolve
         {
+            if let Some(query) = query {
+                for expression in [&query.filter, &query.sort].into_iter().flatten() {
+                    push_hover_candidate(
+                        candidates,
+                        path,
+                        position,
+                        &expression.location(),
+                        2,
+                        variable_query_hover_contents(variable, query),
+                    );
+                }
+            }
             push_hover_candidate(
                 candidates,
                 path,
@@ -167,7 +156,6 @@ fn push_variable_hover_candidates(
                     );
                     for location in [
                         rule.when.as_ref().map(ProjectField::location),
-                        rule.query.as_ref().map(ProjectField::location),
                         Some(rule.value.location()),
                     ]
                     .into_iter()
@@ -263,16 +251,6 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<PackageHover> {
         })
         .or_else(|| {
             index
-                .qualifiers
-                .values()
-                .find(|qualifier| qualifier.location.path == path)
-                .map(|qualifier| PackageHover {
-                    contents: qualifier_hover_contents(qualifier),
-                    location: qualifier.location.clone(),
-                })
-        })
-        .or_else(|| {
-            index
                 .catalogs
                 .values()
                 .find(|catalog| catalog.location.path == path)
@@ -325,15 +303,6 @@ fn custom_rule_definition(
         .rules
         .get(rule)
         .map(|rule| rule.definition.clone())
-}
-
-fn qualifier_hover_contents(qualifier: &QualifierNode) -> String {
-    let mut contents = format!("### Qualifier `{}`", qualifier.id);
-    if let Some(description) = project_field_string(&qualifier.description) {
-        contents.push_str("\n\n");
-        contents.push_str(description);
-    }
-    contents
 }
 
 fn variable_hover_contents(variable: &VariableNode) -> String {
@@ -415,6 +384,31 @@ fn variable_resolve_hover_contents(
     }
 }
 
+fn variable_query_hover_contents(variable: &VariableNode, query: &QueryNode) -> String {
+    let from = string_project_field_label(&query.from).unwrap_or_else(|| "<missing>".to_owned());
+    let mut summary = format!("Selects entries from catalog `{from}`");
+    if let Some(filter) = expression_project_field_label(&query.filter) {
+        summary.push_str(&format!(" where `{filter}`"));
+    }
+    if let Some(sort) = expression_project_field_label(&query.sort) {
+        summary.push_str(&format!(", sorted by `{sort}`"));
+    }
+    summary.push('.');
+    format!(
+        "### Query for `{}`
+
+{summary}",
+        variable.id
+    )
+}
+
+fn string_project_field_label(field: &ProjectField<String>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.clone()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
 fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode) -> String {
     format!(
         "### Rule {} for `{}`\n\n{}",
@@ -425,8 +419,7 @@ fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode
 }
 
 fn variable_rule_summary(rule: &VariableRuleNode) -> String {
-    let selector = expression_project_field_label(&rule.when)
-        .or_else(|| expression_project_field_label(&rule.query));
+    let selector = expression_project_field_label(&rule.when);
     match (selector, json_project_field_label(&rule.value)) {
         (Some(condition), Some(value)) => {
             format!("Condition `{condition}` selects value `{value}`.")
@@ -471,7 +464,7 @@ fn json_shape_label(value: &JsonValue) -> &'static str {
         JsonValue::Number(number) if number.is_i64() || number.is_u64() => "int",
         JsonValue::Number(_) => "number",
         JsonValue::String(_) => "string",
-        JsonValue::Array(_) => "list",
+        JsonValue::Array(_) => "array",
         JsonValue::Object(_) => "object",
     }
 }

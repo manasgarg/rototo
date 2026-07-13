@@ -1,0 +1,15 @@
+schema_version = 1
+
+description = "Queue used for manual fraud review"
+type = "string"
+
+[resolve]
+default = "risk-standard"
+
+[[resolve.rule]]
+when = 'variables["high_value_cart"]'
+value = "risk-priority"
+
+[[resolve.rule]]
+when = 'variables["eu_users"]'
+value = "risk-eu"

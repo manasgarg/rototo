@@ -1,25 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostics::{
-    DiagnosticLocation, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId, SemanticEntity,
-    SemanticField, Severity,
+    DiagnosticLocation, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId, SemanticField,
 };
 
 use super::super::engine::LintContext;
 use super::super::index::*;
-use super::super::references::QualifierReferenceEdge;
+use super::super::references::VariableReferenceEdge;
 use super::super::stages::push_graph_diagnostic;
 
-pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
-    let graph = ctx.references.qualifier_reference_graph();
-    let components = strongly_connected_qualifiers(&graph);
+pub(super) fn lint_variable_cycles(ctx: &mut LintContext) {
+    let graph = ctx.references.variable_reference_graph();
+    let components = strongly_connected_variables(&graph);
     let mut diagnostics = Vec::new();
 
     for component in components {
         let component_set: BTreeSet<_> = component.iter().cloned().collect();
         let cycle_edges = component
             .iter()
-            .flat_map(|qualifier_id| graph.get(qualifier_id).into_iter().flatten())
+            .flat_map(|variable_id| graph.get(variable_id).into_iter().flatten())
             .filter(|edge| component_set.contains(&edge.to))
             .cloned()
             .collect::<Vec<_>>();
@@ -31,24 +30,24 @@ pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
             continue;
         }
 
-        for qualifier_id in &component {
-            let Some(qualifier) = ctx.index.qualifiers.get(qualifier_id) else {
+        for variable_id in &component {
+            let Some(variable) = ctx.index.variables.get(variable_id) else {
                 continue;
             };
-            let primary_edge = cycle_edges.iter().find(|edge| edge.from == *qualifier_id);
+            let primary_edge = cycle_edges.iter().find(|edge| edge.from == *variable_id);
             let primary = primary_edge
                 .map(|edge| edge.location.clone())
-                .unwrap_or_else(|| qualifier.location.clone());
+                .unwrap_or_else(|| variable.location.clone());
             let mut diagnostic = LintDiagnostic::rototo(
-                RototoRuleId::QualifierCycle,
+                RototoRuleId::VariableReferenceCycle,
                 LintStage::Graph,
-                qualifier.target(),
+                variable.target(),
                 primary.clone(),
-                qualifier_cycle_message(qualifier_id, &component),
+                variable_cycle_message(variable_id, &component),
             );
             diagnostic.related = cycle_edges
                 .iter()
-                .filter(|edge| edge.from != *qualifier_id || edge.location != primary)
+                .filter(|edge| edge.from != *variable_id || edge.location != primary)
                 .map(|edge| RelatedLocation {
                     location: edge.location.clone(),
                     message: format!("cycle reference: {} -> {}", edge.from, edge.to),
@@ -61,78 +60,15 @@ pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
-fn qualifier_cycle_message(qualifier_id: &str, component: &[String]) -> String {
+fn variable_cycle_message(variable_id: &str, component: &[String]) -> String {
     if component.len() == 1 {
-        format!("qualifier references itself: {qualifier_id}")
+        format!("variable references itself: {variable_id}")
     } else {
         format!(
-            "qualifier participates in a reference cycle with: {}",
+            "variable participates in a reference cycle with: {}",
             component.join(", ")
         )
     }
-}
-
-pub(super) fn lint_unreferenced_qualifiers(ctx: &mut LintContext) {
-    let referenced = ctx.references.referenced_qualifier_ids();
-    let graph = ctx.references.qualifier_reference_graph();
-    let mut diagnostics = Vec::new();
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if referenced.contains(&qualifier.id)
-            || graph
-                .get(&qualifier.id)
-                .into_iter()
-                .flatten()
-                .any(|edge| edge.from == qualifier.id && edge.to == qualifier.id)
-        {
-            continue;
-        }
-
-        push_graph_diagnostic(
-            &mut diagnostics,
-            RototoRuleId::QualifierUnreferenced,
-            qualifier.target(),
-            qualifier.location.clone(),
-            format!("qualifier is not referenced: {}", qualifier.id),
-        );
-    }
-
-    ctx.diagnostics.extend(diagnostics);
-}
-
-pub(super) fn lint_unreachable_qualifiers(ctx: &mut LintContext) {
-    let reachable = ctx.references.resolution_reachable_qualifier_ids();
-    let referenced = ctx.references.referenced_qualifier_ids();
-    let mut diagnostics = Vec::new();
-    for qualifier in ctx.index.qualifiers.values() {
-        if reachable.contains(&qualifier.id)
-            || !referenced.contains(&qualifier.id)
-            || qualifier_has_existing_error(ctx, &qualifier.id)
-        {
-            continue;
-        }
-
-        push_graph_diagnostic(
-            &mut diagnostics,
-            RototoRuleId::QualifierUnreachable,
-            qualifier.target(),
-            qualifier.location.clone(),
-            format!("qualifier cannot affect resolution: {}", qualifier.id),
-        );
-    }
-
-    ctx.diagnostics.extend(diagnostics);
-}
-
-fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
-    ctx.diagnostics.iter().any(|diagnostic| {
-        diagnostic.severity == Severity::Error
-            && match &diagnostic.target.entity {
-                SemanticEntity::Qualifier { id } => id == qualifier_id,
-                SemanticEntity::Predicate { qualifier, .. } => qualifier == qualifier_id,
-                _ => false,
-            }
-    })
 }
 
 pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
@@ -235,58 +171,58 @@ struct TarjanState {
     components: Vec<Vec<String>>,
 }
 
-fn strongly_connected_qualifiers(
-    graph: &BTreeMap<String, Vec<QualifierReferenceEdge>>,
+fn strongly_connected_variables(
+    graph: &BTreeMap<String, Vec<VariableReferenceEdge>>,
 ) -> Vec<Vec<String>> {
     let mut state = TarjanState::default();
 
-    for qualifier_id in graph.keys() {
-        if !state.indices.contains_key(qualifier_id) {
-            strong_connect_qualifier(qualifier_id, graph, &mut state);
+    for variable_id in graph.keys() {
+        if !state.indices.contains_key(variable_id) {
+            strong_connect_variable(variable_id, graph, &mut state);
         }
     }
 
     state.components
 }
 
-fn strong_connect_qualifier(
-    qualifier_id: &str,
-    graph: &BTreeMap<String, Vec<QualifierReferenceEdge>>,
+fn strong_connect_variable(
+    variable_id: &str,
+    graph: &BTreeMap<String, Vec<VariableReferenceEdge>>,
     state: &mut TarjanState,
 ) {
     state
         .indices
-        .insert(qualifier_id.to_owned(), state.next_index);
+        .insert(variable_id.to_owned(), state.next_index);
     state
         .lowlinks
-        .insert(qualifier_id.to_owned(), state.next_index);
+        .insert(variable_id.to_owned(), state.next_index);
     state.next_index += 1;
-    state.stack.push(qualifier_id.to_owned());
-    state.on_stack.insert(qualifier_id.to_owned());
+    state.stack.push(variable_id.to_owned());
+    state.on_stack.insert(variable_id.to_owned());
 
-    if let Some(edges) = graph.get(qualifier_id) {
+    if let Some(edges) = graph.get(variable_id) {
         for edge in edges {
             if !state.indices.contains_key(&edge.to) {
-                strong_connect_qualifier(&edge.to, graph, state);
+                strong_connect_variable(&edge.to, graph, state);
                 let target_lowlink = state.lowlinks[&edge.to];
-                let lowlink = state.lowlinks.get_mut(qualifier_id).unwrap();
+                let lowlink = state.lowlinks.get_mut(variable_id).unwrap();
                 *lowlink = (*lowlink).min(target_lowlink);
             } else if state.on_stack.contains(&edge.to) {
                 let target_index = state.indices[&edge.to];
-                let lowlink = state.lowlinks.get_mut(qualifier_id).unwrap();
+                let lowlink = state.lowlinks.get_mut(variable_id).unwrap();
                 *lowlink = (*lowlink).min(target_index);
             }
         }
     }
 
-    if state.lowlinks[qualifier_id] != state.indices[qualifier_id] {
+    if state.lowlinks[variable_id] != state.indices[variable_id] {
         return;
     }
 
     let mut component = Vec::new();
     while let Some(member) = state.stack.pop() {
         state.on_stack.remove(&member);
-        let is_root = member == qualifier_id;
+        let is_root = member == variable_id;
         component.push(member);
         if is_root {
             break;

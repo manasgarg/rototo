@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for policy catalog values.",
+  "$id": "rototo://catalogs/policy.schema.json",
+  "type": "object",
+  "required": [
+    "email_subject",
+    "message_template",
+    "object_template",
+    "external_ref_template",
+    "ref_template"
+  ],
+  "properties": {
+    "email_subject": {
+      "type": "string",
+      "x-rototo-ref": "catalog=email_template"
+    },
+    "message_template": {
+      "type": "string",
+      "x-rototo-ref": [
+        "catalog=email_template",
+        "catalog=sms_template"
+      ]
+    },
+    "object_template": {
+      "type": "object",
+      "required": [
+        "catalog",
+        "entry"
+      ],
+      "properties": {
+        "catalog": {
+          "enum": [
+            "email_template",
+            "sms_template"
+          ]
+        },
+        "entry": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "string",
+          "format": "json-pointer"
+        }
+      },
+      "additionalProperties": false,
+      "x-rototo-ref": true
+    },
+    "external_ref_template": {
+      "$ref": "email_template.schema.json#/$defs/email_template_ref"
+    },
+    "ref_template": {
+      "$ref": "#/$defs/email_template_ref"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "email_template_ref": {
+      "type": "string",
+      "x-rototo-ref": "catalog=email_template"
+    }
+  }
+}

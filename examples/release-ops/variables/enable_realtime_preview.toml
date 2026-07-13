@@ -1,0 +1,19 @@
+schema_version = 1
+description = "Ring release: realtime preview, currently employees and beta opt-ins only"
+type = "bool"
+
+# Ring releases are rules on account facts, not bucket math: named groups get the
+# feature in order (employees, then beta, then everyone). Going GA means changing
+# the default to true and deleting the rules. The cohort facts come from context;
+# rototo does not maintain membership lists.
+[resolve]
+method = "rules"
+default = false
+
+[[resolve.rule]]
+when = 'context.user.is_employee'
+value = true
+
+[[resolve.rule]]
+when = 'context.user.beta_opt_in'
+value = true

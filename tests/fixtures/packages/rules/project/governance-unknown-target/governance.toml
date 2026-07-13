@@ -1,0 +1,2 @@
+[catalog.missing]
+allowed_operations = ["add"]

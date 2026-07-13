@@ -1,0 +1,18 @@
+schema_version = 1
+description = "API requests per minute this account may make"
+type = "int"
+
+# A quota ladder by tier. Governance grants override on this variable so an
+# enterprise contract layer can replace the resolution for a negotiated limit;
+# see governance.toml.
+[resolve]
+method = "rules"
+default = 60
+
+[[resolve.rule]]
+when = 'context.account.plan_tier == "team"'
+value = 600
+
+[[resolve.rule]]
+when = 'context.account.plan_tier == "business"'
+value = 6000

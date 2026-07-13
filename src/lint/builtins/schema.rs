@@ -271,7 +271,7 @@ fn check_ui_hint(
                 diagnostics,
                 RototoRuleId::SchemaUiWidgetParams,
                 format!(
-                    "{widget_name} widget at {pointer} requires an enum on the property or its items"
+                    "{widget_name} widget at {pointer} requires a JSON Schema enum on the property or its items"
                 ),
             );
         }

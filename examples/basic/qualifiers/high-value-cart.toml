@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Checkout sessions with a high cart value"
-
-when = "(context.cart.total_usd >= 250)"

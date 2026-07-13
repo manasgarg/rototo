@@ -1,5 +1,5 @@
 schema_version = 1
-type = "catalog:direct"
+type = "catalog=direct"
 description = "Variable with a normalized catalog schema reference"
 
 [resolve]

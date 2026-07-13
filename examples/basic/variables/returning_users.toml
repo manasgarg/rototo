@@ -1,0 +1,10 @@
+schema_version = 1
+description = "Users with more than one prior session"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "(context.user.session_count >= 2)"
+value = true

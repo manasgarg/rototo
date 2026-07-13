@@ -19,7 +19,7 @@ function register(lint)
     id = "policy/declared",
     title = "Declared custom registration rule",
     help = "Use this rule for registration contract checks.",
-    target = "/variables/message/value",
+    target = "variable=message#/resolve/default",
     handler = "check",
   })
 
@@ -27,7 +27,7 @@ function register(lint)
     id = "policy/declared",
     title = "Declared custom registration rule",
     help = "Use this rule for registration contract checks.",
-    target = "/variables/message/rules/not-number",
+    target = "list=tier",
     handler = "check",
   })
 end

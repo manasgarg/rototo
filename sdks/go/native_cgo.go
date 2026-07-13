@@ -62,12 +62,13 @@ typedef struct {
 } RototoGoVoidResult;
 
 typedef RototoGoStringResult (*rototo_go_version_fn)(void);
-typedef RototoGoHandleResult (*rototo_go_package_load_fn)(const char*, const char*, const char*);
+typedef RototoGoHandleResult (*rototo_go_package_load_fn)(const char*, const char*, const char*, const char*, const char*);
 typedef RototoGoHandleResult (*rototo_go_package_inspect_fn)(const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_package_string_fn)(void*);
+typedef int (*rototo_go_package_flag_fn)(void*);
 typedef RototoGoStringResult (*rototo_go_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef void (*rototo_go_handle_free_fn)(void*);
-typedef RototoGoHandleResult (*rototo_go_refreshing_package_load_fn)(const char*, double, int, const char*, const char*);
+typedef RototoGoHandleResult (*rototo_go_refreshing_package_load_fn)(const char*, double, int, const char*, const char*, const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_refreshing_package_string_fn)(void*);
 typedef RototoGoStringResult (*rototo_go_refreshing_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef RototoGoVoidResult (*rototo_go_refreshing_package_void_fn)(void*);
@@ -78,8 +79,11 @@ typedef void (*rototo_go_void_result_free_fn)(RototoGoVoidResult*);
 static RototoGoStringResult rototo_go_call_version(void* fn) {
     return ((rototo_go_version_fn)fn)();
 }
-static RototoGoHandleResult rototo_go_call_package_load(void* fn, const char* source, const char* token, const char* lint) {
-    return ((rototo_go_package_load_fn)fn)(source, token, lint);
+static RototoGoHandleResult rototo_go_call_package_load(void* fn, const char* source, const char* token, const char* lint, const char* fallback_source, const char* package_tokens_json) {
+    return ((rototo_go_package_load_fn)fn)(source, token, lint, fallback_source, package_tokens_json);
+}
+static int rototo_go_call_package_flag(void* fn, void* handle) {
+    return ((rototo_go_package_flag_fn)fn)(handle);
 }
 static RototoGoHandleResult rototo_go_call_package_inspect(void* fn, const char* source, const char* token) {
     return ((rototo_go_package_inspect_fn)fn)(source, token);
@@ -90,11 +94,15 @@ static RototoGoStringResult rototo_go_call_package_string(void* fn, void* handle
 static RototoGoStringResult rototo_go_call_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace) {
     return ((rototo_go_package_resolve_fn)fn)(handle, id, context, validate_context, trace);
 }
+typedef RototoGoStringResult (*rototo_go_package_str2_fn)(void*, const char*, const char*);
+static RototoGoStringResult rototo_go_call_package_str2(void* fn, void* handle, const char* a, const char* b) {
+    return ((rototo_go_package_str2_fn)fn)(handle, a, b);
+}
 static void rototo_go_call_handle_free(void* fn, void* handle) {
     ((rototo_go_handle_free_fn)fn)(handle);
 }
-static RototoGoHandleResult rototo_go_call_refreshing_package_load(void* fn, const char* source, double period_seconds, int has_period_seconds, const char* token, const char* lint) {
-    return ((rototo_go_refreshing_package_load_fn)fn)(source, period_seconds, has_period_seconds, token, lint);
+static RototoGoHandleResult rototo_go_call_refreshing_package_load(void* fn, const char* source, double period_seconds, int has_period_seconds, const char* token, const char* lint, const char* fallback_source, const char* package_tokens_json) {
+    return ((rototo_go_refreshing_package_load_fn)fn)(source, period_seconds, has_period_seconds, token, lint, fallback_source, package_tokens_json);
 }
 static RototoGoStringResult rototo_go_call_refreshing_package_string(void* fn, void* handle) {
     return ((rototo_go_refreshing_package_string_fn)fn)(handle);
@@ -131,33 +139,38 @@ import (
 )
 
 type nativeSymbols struct {
-	version                           unsafe.Pointer
-	packageLoad                       unsafe.Pointer
-	packageInspect                    unsafe.Pointer
-	packageRoot                       unsafe.Pointer
-	packageIdentity                   unsafe.Pointer
-	packageLint                       unsafe.Pointer
-	packageResolveVariable            unsafe.Pointer
-	packageResolveQualifier           unsafe.Pointer
-	packageFree                       unsafe.Pointer
-	refreshingPackageLoad             unsafe.Pointer
-	refreshingPackageResolveVariable  unsafe.Pointer
-	refreshingPackageResolveQualifier unsafe.Pointer
-	refreshingPackageRefreshNow       unsafe.Pointer
-	refreshingPackageStatus           unsafe.Pointer
-	refreshingPackageIdentity         unsafe.Pointer
-	refreshingPackageSnapshot         unsafe.Pointer
-	refreshingPackageSubscribeEvents  unsafe.Pointer
-	refreshEventsNext                 unsafe.Pointer
-	refreshEventsFree                 unsafe.Pointer
-	refreshingPackageSubscribeTrace   unsafe.Pointer
-	traceEventsNext                   unsafe.Pointer
-	traceEventsFree                   unsafe.Pointer
-	refreshingPackageShutdown         unsafe.Pointer
-	refreshingPackageFree             unsafe.Pointer
-	stringResultFree                  unsafe.Pointer
-	handleResultFree                  unsafe.Pointer
-	voidResultFree                    unsafe.Pointer
+	version                          unsafe.Pointer
+	packageLoad                      unsafe.Pointer
+	packageInspect                   unsafe.Pointer
+	packageRoot                      unsafe.Pointer
+	packageServedFallback            unsafe.Pointer
+	packageIdentity                  unsafe.Pointer
+	packageLint                      unsafe.Pointer
+	packageResolveVariable           unsafe.Pointer
+	packageListIds                   unsafe.Pointer
+	packageReadList                  unsafe.Pointer
+	packageEntryIds                  unsafe.Pointer
+	packageReadEntry                 unsafe.Pointer
+	packageResolveReference          unsafe.Pointer
+	packageResolveEntryRef           unsafe.Pointer
+	packageFree                      unsafe.Pointer
+	refreshingPackageLoad            unsafe.Pointer
+	refreshingPackageResolveVariable unsafe.Pointer
+	refreshingPackageRefreshNow      unsafe.Pointer
+	refreshingPackageStatus          unsafe.Pointer
+	refreshingPackageIdentity        unsafe.Pointer
+	refreshingPackageSnapshot        unsafe.Pointer
+	refreshingPackageSubscribeEvents unsafe.Pointer
+	refreshEventsNext                unsafe.Pointer
+	refreshEventsFree                unsafe.Pointer
+	refreshingPackageSubscribeTrace  unsafe.Pointer
+	traceEventsNext                  unsafe.Pointer
+	traceEventsFree                  unsafe.Pointer
+	refreshingPackageShutdown        unsafe.Pointer
+	refreshingPackageFree            unsafe.Pointer
+	stringResultFree                 unsafe.Pointer
+	handleResultFree                 unsafe.Pointer
+	voidResultFree                   unsafe.Pointer
 }
 
 var (
@@ -208,14 +221,19 @@ func loadNative() error {
 	native.packageLoad = symbol("rototo_go_package_load")
 	native.packageInspect = symbol("rototo_go_package_inspect")
 	native.packageRoot = symbol("rototo_go_package_root")
+	native.packageServedFallback = symbol("rototo_go_package_served_fallback")
 	native.packageIdentity = symbol("rototo_go_package_identity")
 	native.packageLint = symbol("rototo_go_package_lint")
 	native.packageResolveVariable = symbol("rototo_go_package_resolve_variable")
-	native.packageResolveQualifier = symbol("rototo_go_package_resolve_qualifier")
+	native.packageListIds = symbol("rototo_go_package_list_ids")
+	native.packageReadList = symbol("rototo_go_package_read_list")
+	native.packageEntryIds = symbol("rototo_go_package_entry_ids")
+	native.packageReadEntry = symbol("rototo_go_package_read_entry")
+	native.packageResolveReference = symbol("rototo_go_package_resolve_reference")
+	native.packageResolveEntryRef = symbol("rototo_go_package_resolve_entry_ref")
 	native.packageFree = symbol("rototo_go_package_free")
 	native.refreshingPackageLoad = symbol("rototo_go_refreshing_package_load")
 	native.refreshingPackageResolveVariable = symbol("rototo_go_refreshing_package_resolve_variable")
-	native.refreshingPackageResolveQualifier = symbol("rototo_go_refreshing_package_resolve_qualifier")
 	native.refreshingPackageRefreshNow = symbol("rototo_go_refreshing_package_refresh_now")
 	native.refreshingPackageStatus = symbol("rototo_go_refreshing_package_status")
 	native.refreshingPackageIdentity = symbol("rototo_go_refreshing_package_identity")
@@ -265,7 +283,7 @@ func nativeVersion() (string, error) {
 	return stringResult(result)
 }
 
-func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) {
+func nativePackageLoad(source, packageToken, lint, fallbackSource, packageTokensJSON string) (nativeHandle, error) {
 	if err := ensureNative(); err != nil {
 		return 0, err
 	}
@@ -275,9 +293,20 @@ func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) 
 	defer C.free(unsafe.Pointer(cLint))
 	cToken, freeToken := optionalCString(packageToken)
 	defer freeToken()
-	result := C.rototo_go_call_package_load(native.packageLoad, cSource, cToken, cLint)
+	cFallback, freeFallback := optionalCString(fallbackSource)
+	defer freeFallback()
+	cTokens, freeTokens := optionalCString(packageTokensJSON)
+	defer freeTokens()
+	result := C.rototo_go_call_package_load(native.packageLoad, cSource, cToken, cLint, cFallback, cTokens)
 	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
 	return handleResult(result)
+}
+
+func nativePackageServedFallback(handle nativeHandle) (bool, error) {
+	if err := ensureNative(); err != nil {
+		return false, err
+	}
+	return C.rototo_go_call_package_flag(native.packageServedFallback, pointer(handle)) != 0, nil
 }
 
 func nativePackageInspect(source, packageToken string) (nativeHandle, error) {
@@ -324,27 +353,50 @@ func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, v
 	if err := ensureNative(); err != nil {
 		return "", err
 	}
-	return nativePackageResolve(native.packageResolveVariable, handle, id, contextJSON, validateContext, trace)
-}
-
-func nativePackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
-	if err := ensureNative(); err != nil {
-		return "", err
-	}
-	return nativePackageResolve(native.packageResolveQualifier, handle, id, contextJSON, validateContext, trace)
-}
-
-func nativePackageResolve(fn unsafe.Pointer, handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
-	if err := ensureNative(); err != nil {
-		return "", err
-	}
 	cID := C.CString(id)
 	cContext := C.CString(contextJSON)
 	defer C.free(unsafe.Pointer(cID))
 	defer C.free(unsafe.Pointer(cContext))
-	result := C.rototo_go_call_package_resolve(fn, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
+	result := C.rototo_go_call_package_resolve(native.packageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
+}
+
+func nativePackageStr2(fn unsafe.Pointer, handle nativeHandle, a, b string) (string, error) {
+	if err := ensureNative(); err != nil {
+		return "", err
+	}
+	cA := C.CString(a)
+	cB := C.CString(b)
+	defer C.free(unsafe.Pointer(cA))
+	defer C.free(unsafe.Pointer(cB))
+	result := C.rototo_go_call_package_str2(fn, pointer(handle), cA, cB)
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	return stringResult(result)
+}
+
+func nativePackageListIds(handle nativeHandle) (string, error) {
+	return nativePackageStr2(native.packageListIds, handle, "", "")
+}
+
+func nativePackageReadList(handle nativeHandle, id string) (string, error) {
+	return nativePackageStr2(native.packageReadList, handle, id, "")
+}
+
+func nativePackageEntryIds(handle nativeHandle, catalog string) (string, error) {
+	return nativePackageStr2(native.packageEntryIds, handle, catalog, "")
+}
+
+func nativePackageReadEntry(handle nativeHandle, catalog, entry string) (string, error) {
+	return nativePackageStr2(native.packageReadEntry, handle, catalog, entry)
+}
+
+func nativePackageResolveReference(handle nativeHandle, address string) (string, error) {
+	return nativePackageStr2(native.packageResolveReference, handle, address, "")
+}
+
+func nativePackageResolveEntryRef(handle nativeHandle, value, pinsJSON string) (string, error) {
+	return nativePackageStr2(native.packageResolveEntryRef, handle, value, pinsJSON)
 }
 
 func nativePackageFree(handle nativeHandle) {
@@ -354,7 +406,7 @@ func nativePackageFree(handle nativeHandle) {
 	C.rototo_go_call_handle_free(native.packageFree, pointer(handle))
 }
 
-func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint string) (nativeHandle, error) {
+func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint, fallbackSource, packageTokensJSON string) (nativeHandle, error) {
 	if err := ensureNative(); err != nil {
 		return 0, err
 	}
@@ -364,6 +416,10 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 	defer C.free(unsafe.Pointer(cLint))
 	cToken, freeToken := optionalCString(packageToken)
 	defer freeToken()
+	cFallback, freeFallback := optionalCString(fallbackSource)
+	defer freeFallback()
+	cTokens, freeTokens := optionalCString(packageTokensJSON)
+	defer freeTokens()
 	var seconds C.double
 	var hasSeconds C.int
 	if periodSeconds != nil {
@@ -377,6 +433,8 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 		hasSeconds,
 		cToken,
 		cLint,
+		cFallback,
+		cTokens,
 	)
 	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
 	return handleResult(result)
@@ -386,25 +444,11 @@ func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON
 	if err := ensureNative(); err != nil {
 		return "", err
 	}
-	return nativeRefreshingPackageResolve(native.refreshingPackageResolveVariable, handle, id, contextJSON, validateContext, trace)
-}
-
-func nativeRefreshingPackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
-	if err := ensureNative(); err != nil {
-		return "", err
-	}
-	return nativeRefreshingPackageResolve(native.refreshingPackageResolveQualifier, handle, id, contextJSON, validateContext, trace)
-}
-
-func nativeRefreshingPackageResolve(fn unsafe.Pointer, handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
-	if err := ensureNative(); err != nil {
-		return "", err
-	}
 	cID := C.CString(id)
 	cContext := C.CString(contextJSON)
 	defer C.free(unsafe.Pointer(cID))
 	defer C.free(unsafe.Pointer(cContext))
-	result := C.rototo_go_call_refreshing_package_resolve(fn, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
+	result := C.rototo_go_call_refreshing_package_resolve(native.refreshingPackageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
 }

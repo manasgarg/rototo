@@ -1,0 +1,5 @@
+schema_version = 1
+description = "The sellable plan tiers"
+type = "string"
+
+members = ["free", "team", "business"]

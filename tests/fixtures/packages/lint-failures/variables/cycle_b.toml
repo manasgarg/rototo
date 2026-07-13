@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Condition that participates in a reference cycle"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["cycle_a"]'
+value = true

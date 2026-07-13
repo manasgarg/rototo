@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Acme accounts see the dedicated support desk banner"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.account.plan == "enterprise"'
+value = true

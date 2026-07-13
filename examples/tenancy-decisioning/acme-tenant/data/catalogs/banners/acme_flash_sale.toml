@@ -1,0 +1,7 @@
+# ADD: a new entry, permitted by the base's add grant on banners. The acme_
+# prefix is naming lint on tenant-minted ids, not a governance scope.
+name = "Acme flash sale"
+headline = "48 hours only: flash sale on the whole Acme range."
+cta_url = "/acme/flash"
+priority = 95
+audiences = ["acme_returning"]

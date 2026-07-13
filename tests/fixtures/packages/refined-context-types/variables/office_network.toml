@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Tests a context path as an IP, but the schema declares it without an ip format"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'cidr(context.net.ip, "10.0.0.0/8")'
+value = true

@@ -27,7 +27,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
-            apps/console/package-lock.json
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
             sdks/typescript/package-lock.json
       - uses: actions/setup-go@v6
         with:
@@ -39,7 +40,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/ci-logs
-          npm --prefix apps/console ci
+          npm --prefix apps/console-server ci
+          npm --prefix apps/console-web ci
           npm --prefix sdks/typescript ci
           just fmt-check 2>&1 | tee target/ci-logs/fmt.log
       - name: Reproduce locally
@@ -62,7 +64,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/console/package-lock.json
+          cache-dependency-path: |
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
       - name: Cache cargo registry and git deps
         uses: actions/cache@v4
         with:
@@ -79,7 +83,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/ci-logs
-          npm --prefix apps/console ci
+          npm --prefix apps/console-server ci
+          npm --prefix apps/console-web ci
           just lint 2>&1 | tee target/ci-logs/lint.log
       - name: Reproduce locally
         if: failure()
@@ -105,7 +110,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
-            apps/console/package-lock.json
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
             sdks/typescript/package-lock.json
       - uses: actions/setup-java@v5
         with:
@@ -131,6 +137,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/ci-logs
+          npm --prefix apps/console-server ci
+          npm --prefix apps/console-web ci
           just test 2>&1 | tee target/ci-logs/test.log
       - name: Reproduce locally
         if: failure()
@@ -142,8 +150,10 @@ jobs:
           name: ci-test-logs
           path: target/ci-logs
 
-  console-build:
-    name: console-build
+  console:
+    # The console ships as its own product (@rototo/console): build the web
+    # bundle and stage it into the server's serving layout.
+    name: console
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -151,14 +161,17 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/console/package-lock.json
-      - name: Build console
+          cache-dependency-path: |
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
+      - name: Build and stage the console web bundle
         shell: bash
         run: |
           set -o pipefail
           mkdir -p target/ci-logs
-          npm --prefix apps/console ci
-          npm --prefix apps/console run build 2>&1 | tee target/ci-logs/console-build.log
+          npm --prefix apps/console-server ci
+          npm --prefix apps/console-web ci
+          npm --prefix apps/console-server run stage:web 2>&1 | tee target/ci-logs/console-build.log
       - name: Reproduce locally
         if: failure()
         run: 'echo "Run locally: just console-build"'
@@ -180,7 +193,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
-            apps/console/package-lock.json
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
             sdks/typescript/package-lock.json
       - name: Install just
         run: cargo install just --locked
@@ -207,7 +221,7 @@ jobs:
       - fmt
       - lint
       - test
-      - console-build
+      - console
       - release-check
     runs-on: ubuntu-latest
     steps:
@@ -221,7 +235,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
-            apps/console/package-lock.json
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
             sdks/typescript/package-lock.json
       - uses: actions/setup-java@v5
         with:

@@ -60,7 +60,7 @@ fn project_type_source(
         (Some(item), None) => match item.as_str() {
             Some(type_name) => {
                 let location = item_location(document, item);
-                if let Some(catalog_id) = type_name.strip_prefix("catalog:") {
+                if let Some(catalog_id) = type_name.strip_prefix("catalog=") {
                     TypeSourceNode::Catalog(Spanned {
                         value: catalog_id.to_owned(),
                         location,
@@ -165,10 +165,142 @@ fn project_resolve(
         return ResolveNode::Invalid { location };
     };
 
+    let method = table.get("method").map(|item| {
+        Box::new(match item.as_str() {
+            Some(value) => Spanned {
+                value: value.to_owned(),
+                location: item_location(document, item),
+            },
+            None => Spanned {
+                value: String::new(),
+                location: item_location(document, item),
+            },
+        })
+    });
+
+    let query = project_query(document, table, &location).map(Box::new);
+    let assignments = project_assignments(document, table, &location).map(Box::new);
+
     ResolveNode::Resolve {
         location: location.clone(),
+        method,
         default: Box::new(json_field(document, table, "default", location.clone())),
         rules: project_rules(document, variable_id, table),
+        query,
+        assignments,
+    }
+}
+
+/// Project the allocation keys when any of them is present. The node exists
+/// whenever `allocation` or `assign` appears, so lint can flag them under the
+/// wrong method.
+fn project_assignments(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    location: &DiagnosticLocation,
+) -> Option<AssignmentsNode> {
+    if table.get("allocation").is_none() && table.get("assign").is_none() {
+        return None;
+    }
+
+    let allocation = string_query_field(document, table, "allocation", location.clone());
+
+    let mut assigns = Vec::new();
+    let mut assigns_invalid = false;
+    match table.get("assign") {
+        None => {}
+        Some(item) => match item.as_array() {
+            Some(values) => {
+                assigns = values
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| project_assign(document, index, value))
+                    .collect();
+            }
+            None => assigns_invalid = true,
+        },
+    }
+
+    Some(AssignmentsNode {
+        location: location.clone(),
+        allocation,
+        assigns,
+        assigns_invalid,
+    })
+}
+
+fn project_assign(document: &SourceDocument, index: usize, value: &TomlValue<'_>) -> AssignNode {
+    let location = value_location(document, value);
+    let Some(table) = value.as_table() else {
+        return AssignNode {
+            index,
+            location: location.clone(),
+            arm: ProjectField::Invalid {
+                location: location.clone(),
+            },
+            value: ProjectField::Invalid { location },
+            invalid_shape: true,
+        };
+    };
+
+    AssignNode {
+        index,
+        location: location.clone(),
+        arm: string_query_field(document, table, "arm", location.clone()),
+        value: json_field(document, table, "value", location),
+        invalid_shape: false,
+    }
+}
+
+/// Project the query pipeline keys when any of them is present. The node
+/// exists whenever query keys appear, so lint can flag them under the wrong
+/// method instead of silently ignoring them.
+fn project_query(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    location: &DiagnosticLocation,
+) -> Option<QueryNode> {
+    let keys = ["from", "filter", "sort", "order", "limit"];
+    if !keys.iter().any(|key| table.get(*key).is_some()) {
+        return None;
+    }
+    Some(QueryNode {
+        location: location.clone(),
+        from: string_query_field(document, table, "from", location.clone()),
+        filter: optional_expression_field(document, table, "filter"),
+        sort: optional_expression_field(document, table, "sort"),
+        order: optional_string_field(document, table, "order"),
+        limit: table.get("limit").map(|item| match item.as_integer() {
+            Some(value) => ProjectField::Present(Spanned {
+                value,
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        }),
+    })
+}
+
+fn string_query_field(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    key: &str,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<String> {
+    match table.get(key) {
+        Some(item) => match item.as_str() {
+            Some(value) => ProjectField::Present(Spanned {
+                value: value.to_owned(),
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
     }
 }
 
@@ -207,9 +339,7 @@ fn project_rule_from_value(
         return VariableRuleNode {
             index,
             location: location.clone(),
-            legacy_qualifier: None,
             when: None,
-            query: None,
             value: ProjectField::Invalid { location },
             invalid_shape: true,
         };
@@ -228,11 +358,7 @@ fn project_rule_from_table_like(
     VariableRuleNode {
         index,
         location: location.clone(),
-        legacy_qualifier: table
-            .get("qualifier")
-            .map(|item| item_location(document, item)),
         when: optional_expression_field(document, table, "when"),
-        query: optional_expression_field(document, table, "query"),
         value: json_field(document, table, "value", location.clone()),
         invalid_shape,
     }

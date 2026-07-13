@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Product recommendation strategy for shopping surfaces"
+type = "catalog=product_recommendations"
+
+[resolve]
+default = "baseline"
+
+[[resolve.rule]]
+when = 'variables["eu_premium_users"]'
+value = "personalized"
+
+[[resolve.rule]]
+when = 'variables["returning_users"]'
+value = "personalized"
+
+[[resolve.rule]]
+when = 'variables["enterprise_accounts"]'
+value = "enterprise"

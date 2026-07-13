@@ -6,18 +6,14 @@ mod server;
 mod transport;
 mod uri;
 
-#[cfg(feature = "console")]
-pub(crate) use server::serve;
-pub use server::serve_stdio;
-#[cfg(feature = "console")]
-pub(crate) use transport::{read_message, write_notification, write_request};
+pub use server::{serve, serve_stdio};
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use serde_json::{Value as JsonValue, json};
-    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
     use super::protocol::{LspCompletionItem, LspDocumentSymbol, LspLocation, initialize_result};
     use super::server::{LspServer, serve};
@@ -176,13 +172,13 @@ default = "hello"
         // kind, not from a shallow TOML/JSON parse of the current document.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -195,11 +191,18 @@ extends = ["../base"]
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
@@ -214,7 +217,7 @@ default = "hello"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
-        let catalog_path = root.join("catalogs/message.schema.json");
+        let catalog_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(
             &catalog_path,
             r#"{
@@ -227,7 +230,7 @@ default = "hello"
         )
         .await
         .unwrap();
-        let catalog_entry_path = root.join("catalogs/message-entries/external.toml");
+        let catalog_entry_path = root.join("data/catalogs/message/external.toml");
         tokio::fs::write(&catalog_entry_path, r#"value = "external""#)
             .await
             .unwrap();
@@ -249,7 +252,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
@@ -267,18 +270,18 @@ value = "welcome"
         let extends = child_symbol(&manifest_symbols, "extends");
         assert!(extends.children.iter().any(|child| child.name == "../base"));
 
-        // A qualifier definition is exposed as the named qualifier in the
+        // A condition variable is exposed as the named variable in the
         // editor outline.
-        let qualifier_symbols = server
+        let condition_symbols = server
             .document_symbols(json!({
                 "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
+                    "uri": format!("file://{}", condition_path.display())
                 }
             }))
             .await
             .unwrap();
-        let qualifier = child_symbol(&qualifier_symbols, "premium");
-        assert!(qualifier.children.is_empty());
+        let condition = child_symbol(&condition_symbols, "premium");
+        assert!(!condition.children.is_empty());
 
         // The variable outline includes the unsaved resolve rule, proving that
         // document symbols are snapshot-backed and overlay-aware.
@@ -297,7 +300,7 @@ value = "welcome"
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"] -> \"welcome\"")
+                .any(|child| child.name == "rule 1: variables[\"premium\"] -> \"welcome\"")
         );
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -330,20 +333,20 @@ value = "welcome"
     #[tokio::test]
     async fn lsp_hover_uses_snapshot_index_and_unsaved_overlays() {
         // Hover should explain the rototo concept under the cursor: descriptions,
-        // variable types, rule selections, qualifier definitions, and lint
-        // failures. The source of truth is again the overlay-aware snapshot.
+        // variable types, rule selections, and lint failures. The source of
+        // truth is again the overlay-aware snapshot.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -355,12 +358,19 @@ value = "welcome"
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
 description = "Premium accounts"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
@@ -377,7 +387,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("evaluation-contexts/request.schema.json"),
+            root.join("model/context/request.schema.json"),
             r#"{
   "type": "object",
   "properties": {
@@ -430,7 +440,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
@@ -450,11 +460,7 @@ value = "welcome"
             "selects value `\"welcome\"`",
         );
         assert_hover_contains(
-            &hover_contents(&server, &qualifier_path, 1, 17).await,
-            "Premium accounts",
-        );
-        assert_hover_contains(
-            &hover_contents(&server, &qualifier_path, 1, 17).await,
+            &hover_contents(&server, &condition_path, 1, 17).await,
             "Premium accounts",
         );
 
@@ -497,13 +503,10 @@ default = "hello"
         // the cursor is inside a query expression, not only inside rule `when`.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -513,23 +516,30 @@ default = "hello"
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message.schema.json"),
+            root.join("model/catalogs/message.schema.json"),
             r#"{"type":"string"}"#,
         )
         .await
         .unwrap();
         let disk_variable = r#"schema_version = 1
-type = "list<catalog:message>"
+type = "array<catalog=message>"
 
 [resolve]
 default = []
@@ -547,13 +557,12 @@ default = []
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 8,
                     "text": r#"schema_version = 1
-type = "list<catalog:message>"
+type = "array<catalog=message>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = 'env.qualifier["premium"]'
+method = "query"
+from = "message"
+filter = 'variables["premium"]'
 "#,
                 }
             }))
@@ -573,7 +582,7 @@ query = 'env.qualifier["premium"]'
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"]")
+                .any(|child| child.name == "query: message")
         );
 
         let completions = server
@@ -582,28 +591,28 @@ query = 'env.qualifier["premium"]'
                     "uri": format!("file://{}", variable_path.display())
                 },
                 "position": {
-                    "line": 7,
-                    "character": 25
+                    "line": 6,
+                    "character": 21
                 }
             }))
             .await
             .unwrap();
-        assert_completion(&completions, "premium", "qualifier");
+        assert_completion(&completions, "premium", "variable");
 
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 7, 25).await,
-            "Condition `env.qualifier[\"premium\"]`.",
+            &hover_contents(&server, &variable_path, 6, 21).await,
+            "Selects entries from catalog `message` where `variables[\"premium\"]`.",
         );
 
-        let definition = definition_location(&server, &variable_path, 7, 25).await;
-        assert!(definition.uri.ends_with("/qualifiers/premium.toml"));
+        let definition = definition_location(&server, &variable_path, 6, 21).await;
+        assert!(definition.uri.ends_with("/variables/premium.toml"));
 
-        let references = reference_locations(&server, &variable_path, 7, 25, true).await;
+        let references = reference_locations(&server, &variable_path, 6, 21, true).await;
         assert_eq!(references.len(), 2);
         assert!(
             references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
         assert!(
             references
@@ -620,20 +629,20 @@ query = 'env.qualifier["premium"]'
     #[tokio::test]
     async fn lsp_definition_uses_snapshot_index_and_unsaved_overlays() {
         // Go-to-definition should follow rototo references across package
-        // concepts: catalog-backed variable types, qualifier rules, and
-        // qualifier composition.
+        // concepts: catalog-backed variable types, rule conditions, and
+        // condition composition.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -643,30 +652,44 @@ query = 'env.qualifier["premium"]'
         )
         .await
         .unwrap();
-        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        let beta_condition_path = root.join("variables/beta.toml");
         tokio::fs::write(
-            &beta_qualifier_path,
+            &beta_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        let premium_condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &premium_qualifier_path,
+            &premium_condition_path,
             r#"schema_version = 1
-when = "env.qualifier[\"beta\"]"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "variables[\"beta\"]"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let schema_path = root.join("catalogs/message.schema.json");
+        let schema_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(&schema_path, r#"{"type":"string"}"#)
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message-entries/welcome.toml"),
+            root.join("data/catalogs/message/welcome.toml"),
             r#"value = "welcome""#,
         )
         .await
@@ -684,7 +707,7 @@ default = "hello"
 
         let mut server = LspServer::new();
         server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        // The variable only becomes catalog-backed and qualifier-referencing in
+        // The variable only becomes catalog-backed and condition-referencing in
         // the unsaved editor buffer, so every definition below also checks that
         // go-to-definition is overlay-aware.
         server
@@ -693,20 +716,20 @@ default = "hello"
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 6,
                     "text": r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "welcome"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
             }))
             .unwrap();
 
-        // The catalog type segment in `catalog:message` jumps to the schema.
+        // The catalog type segment in `catalog=message` jumps to the schema.
         let schema_definition = definition_location(&server, &variable_path, 1, 16).await;
         assert!(
             schema_definition
@@ -714,17 +737,17 @@ value = "welcome"
                 .ends_with("/catalogs/message.schema.json")
         );
 
-        // A variable resolve rule's qualifier id jumps to the qualifier file.
-        let qualifier_definition = definition_location(&server, &variable_path, 7, 18).await;
+        // A variable resolve rule's condition reference jumps to the variable file.
+        let condition_definition = definition_location(&server, &variable_path, 7, 15).await;
         assert!(
-            qualifier_definition
+            condition_definition
                 .uri
-                .ends_with("/qualifiers/premium.toml")
+                .ends_with("/variables/premium.toml")
         );
 
-        // A composed qualifier reference jumps to the qualifier it depends on.
-        let when_definition = definition_location(&server, &premium_qualifier_path, 1, 20).await;
-        assert!(when_definition.uri.ends_with("/qualifiers/beta.toml"));
+        // A composed condition reference jumps to the variable it depends on.
+        let when_definition = definition_location(&server, &premium_condition_path, 7, 15).await;
+        assert!(when_definition.uri.ends_with("/variables/beta.toml"));
 
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -738,16 +761,16 @@ value = "welcome"
         // but return every declaration/use site for the symbol under the cursor.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -757,45 +780,66 @@ value = "welcome"
         )
         .await
         .unwrap();
-        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        let beta_condition_path = root.join("variables/beta.toml");
         tokio::fs::write(
-            &beta_qualifier_path,
+            &beta_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let gamma_qualifier_path = root.join("qualifiers/gamma.toml");
+        let gamma_condition_path = root.join("variables/gamma.toml");
         tokio::fs::write(
-            &gamma_qualifier_path,
+            &gamma_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        let premium_condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &premium_qualifier_path,
+            &premium_condition_path,
             r#"schema_version = 1
-when = "env.qualifier[\"beta\"]"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "variables[\"beta\"]"
+value = true
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("evaluation-contexts/request.schema.json"),
+            root.join("model/context/request.schema.json"),
             r#"{"type":"object","properties":{"account":{"type":"object","properties":{"beta":{"type":"boolean"}}}}}"#,
         )
         .await
         .unwrap();
-        let message_schema_path = root.join("catalogs/message.schema.json");
+        let message_schema_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(&message_schema_path, r#"{"type":"string"}"#)
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message-entries/welcome.toml"),
+            root.join("data/catalogs/message/welcome.toml"),
             r#"value = "welcome""#,
         )
         .await
@@ -822,41 +866,41 @@ default = "hello"
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 7,
                     "text": r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "welcome"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
             }))
             .unwrap();
 
-        // `beta` is declared in its own qualifier file and used by `premium`.
-        let beta_references = reference_locations(&server, &beta_qualifier_path, 0, 0, true).await;
+        // `beta` is declared in its own variable file and used by `premium`.
+        let beta_references = reference_locations(&server, &beta_condition_path, 0, 0, true).await;
         assert_eq!(beta_references.len(), 2);
         assert!(
             beta_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+                .any(|location| location.uri.ends_with("/variables/beta.toml"))
         );
         assert!(
             beta_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
 
-        // `premium` is declared as a qualifier and used by the unsaved variable
-        // rule.
-        let premium_references = reference_locations(&server, &variable_path, 7, 18, true).await;
+        // `premium` is declared as a condition variable and used by the unsaved
+        // variable rule.
+        let premium_references = reference_locations(&server, &variable_path, 7, 15, true).await;
         assert_eq!(premium_references.len(), 2);
         assert!(
             premium_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
         assert!(
             premium_references
@@ -877,23 +921,23 @@ value = "welcome"
         assert!(catalog_value_references.iter().any(|location| {
             location
                 .uri
-                .ends_with("/catalogs/message-entries/welcome.toml")
+                .ends_with("/data/catalogs/message/welcome.toml")
         }));
 
-        // Context attributes are also indexed. Both qualifiers read
+        // Context attributes are also indexed. Both condition variables read
         // `account.beta`, so they should both be returned.
         let context_attribute_references =
-            reference_locations(&server, &beta_qualifier_path, 1, 20, true).await;
+            reference_locations(&server, &beta_condition_path, 7, 20, true).await;
         assert_eq!(context_attribute_references.len(), 2);
         assert!(
             context_attribute_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+                .any(|location| location.uri.ends_with("/variables/beta.toml"))
         );
         assert!(
             context_attribute_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/gamma.toml"))
+                .any(|location| location.uri.ends_with("/variables/gamma.toml"))
         );
 
         assert_eq!(
@@ -960,14 +1004,16 @@ value = "welcome"
         // This uses the real JSON-RPC transport loop instead of calling
         // LspServer methods directly. A bad request should return an error
         // response, but the session must stay alive for shutdown.
-        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
         let (server_read, server_write) = tokio::io::split(server_io);
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
         // No package has been initialized, so a document request fails.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -980,13 +1026,13 @@ value = "welcome"
             }),
         )
         .await;
-        let failed = read_lsp_message(&mut client).await;
+        let failed = read_lsp_message(&mut client_read).await;
         assert_eq!(failed["id"], 1);
         assert_eq!(failed["error"]["code"], -32603);
 
         // The server should still accept later requests after the failed one.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -994,14 +1040,14 @@ value = "welcome"
             }),
         )
         .await;
-        let shutdown = read_lsp_message(&mut client).await;
+        let shutdown = read_lsp_message(&mut client_read).await;
         assert_eq!(shutdown["id"], 2);
         assert!(shutdown["result"].is_null());
 
         // LSP exits only after shutdown; reaching this await proves the server
         // loop terminated cleanly.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "method": "exit"
@@ -1009,6 +1055,32 @@ value = "welcome"
         )
         .await;
         server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn exit_before_shutdown_is_a_protocol_error() {
+        // The LSP lifecycle is initialize .. shutdown -> exit. An exit
+        // notification with no shutdown first ends the session with an error
+        // instead of a clean break, so a crashing editor is distinguishable
+        // from an orderly close.
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (_client_read, mut client_write) = tokio::io::split(client_io);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "exit"
+            }),
+        )
+        .await;
+
+        let outcome = server.await.unwrap();
+        let err = outcome.expect_err("exit before shutdown should error");
+        assert!(err.to_string().contains("exit received before shutdown"));
     }
 
     #[tokio::test]
@@ -1021,7 +1093,7 @@ value = "welcome"
         server
             .open_document(json!({
                 "textDocument": {
-                    "uri": "file:///pkg/qualifiers/q.toml",
+                    "uri": "file:///pkg/variables/q.toml",
                     "text": "schema_version = 1\nwhen = \"a\"\n",
                     "version": 1
                 }
@@ -1031,7 +1103,7 @@ value = "welcome"
         // Replace the single character `a` on line 1 (columns 8..9) with `premium`.
         server
             .change_document(json!({
-                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 2 },
+                "textDocument": { "uri": "file:///pkg/variables/q.toml", "version": 2 },
                 "contentChanges": [{
                     "range": {
                         "start": { "line": 1, "character": 8 },
@@ -1043,19 +1115,19 @@ value = "welcome"
             .unwrap();
 
         assert_eq!(
-            server.overlay_text("qualifiers/q.toml"),
+            server.overlay_text("variables/q.toml"),
             Some("schema_version = 1\nwhen = \"premium\"\n")
         );
 
         // A change without a range still replaces the whole document.
         server
             .change_document(json!({
-                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 3 },
+                "textDocument": { "uri": "file:///pkg/variables/q.toml", "version": 3 },
                 "contentChanges": [{ "text": "schema_version = 1\n" }]
             }))
             .unwrap();
         assert_eq!(
-            server.overlay_text("qualifiers/q.toml"),
+            server.overlay_text("variables/q.toml"),
             Some("schema_version = 1\n")
         );
     }
@@ -1095,19 +1167,230 @@ value = "welcome"
     }
 
     #[tokio::test]
+    async fn lsp_publishes_diagnostics_asynchronously_and_supersedes_stale_edits() {
+        // didChange returns immediately; diagnostics arrive later from a
+        // debounced background build, and a quick follow-up edit supersedes
+        // the previous one so only the final buffers are published.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/flag.toml");
+        let clean = "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n";
+        tokio::fs::write(&variable_path, clean).await.unwrap();
+
+        let (client_io, server_io) = tokio::io::duplex(65536);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "rootUri": format!("file://{}", root.display()) }
+            }),
+        )
+        .await;
+        let initialized = read_lsp_message(&mut client_read).await;
+        assert_eq!(initialized["id"], 1);
+
+        let uri = format!("file://{}", variable_path.display());
+        // Open with a broken buffer, then immediately fix it: the broken
+        // generation is superseded, so the published diagnostics are clean.
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "version": 1,
+                        "text": "schema_version = 1\ntype = \"bool\"\n"
+                    }
+                }
+            }),
+        )
+        .await;
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{ "text": clean }]
+                }
+            }),
+        )
+        .await;
+
+        // A concurrent read answered while diagnostics are still pending.
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": uri } }
+            }),
+        )
+        .await;
+
+        let mut symbol_response = None;
+        let mut flag_diagnostics = None;
+        while symbol_response.is_none() || flag_diagnostics.is_none() {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 2 {
+                symbol_response = Some(message);
+            } else if message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"]
+                    .as_str()
+                    .is_some_and(|published| published.ends_with("variables/flag.toml"))
+            {
+                flag_diagnostics = Some(message);
+            }
+        }
+        let symbols = symbol_response.unwrap();
+        assert!(symbols["result"].is_array());
+        // The superseding edit fixed the file, so the eventual publication for
+        // it carries no diagnostics.
+        let diagnostics = flag_diagnostics.unwrap();
+        assert_eq!(
+            diagnostics["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0,
+            "{diagnostics:#}"
+        );
+
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown" }),
+        )
+        .await;
+        loop {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 9 {
+                break;
+            }
+        }
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn lsp_answers_concurrent_reads_in_any_order() {
+        // Two reads sent back to back both get responses; the server no longer
+        // requires the first to finish before the second starts.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/flag.toml");
+        tokio::fs::write(
+            &variable_path,
+            "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+        )
+        .await
+        .unwrap();
+
+        let (client_io, server_io) = tokio::io::duplex(65536);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "rootUri": format!("file://{}", root.display()) }
+            }),
+        )
+        .await;
+        read_lsp_message(&mut client_read).await;
+
+        let uri = format!("file://{}", variable_path.display());
+        for id in [2, 3] {
+            write_lsp_message(
+                &mut client_write,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "textDocument/documentSymbol",
+                    "params": { "textDocument": { "uri": uri } }
+                }),
+            )
+            .await;
+        }
+
+        let mut seen = std::collections::BTreeSet::new();
+        while seen.len() < 2 {
+            let message = read_lsp_message(&mut client_read).await;
+            if let Some(id) = message["id"].as_i64() {
+                assert!(message["result"].is_array(), "{message:#}");
+                seen.insert(id);
+            }
+        }
+        assert_eq!(seen, [2, 3].into_iter().collect());
+
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown" }),
+        )
+        .await;
+        loop {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 9 {
+                break;
+            }
+        }
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn lsp_cancelled_request_returns_request_cancelled() {
         // A request whose cancellation the server has already seen returns the
         // RequestCancelled error instead of a result. Sending the cancel ahead of
         // the request makes the outcome deterministic: it exercises the same
         // short-circuit the read-ahead loop reaches for the realistic order where
         // the cancel arrives just after the request.
-        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
         let (server_read, server_write) = tokio::io::split(server_io);
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "method": "$/cancelRequest",
@@ -1116,7 +1399,7 @@ value = "welcome"
         )
         .await;
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1126,21 +1409,25 @@ value = "welcome"
         )
         .await;
 
-        let cancelled = read_lsp_message(&mut client).await;
+        let cancelled = read_lsp_message(&mut client_read).await;
         assert_eq!(cancelled["id"], 1);
         assert_eq!(cancelled["error"]["code"], -32800);
 
         // The server is still healthy after a cancellation.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
         )
         .await;
-        let shutdown = read_lsp_message(&mut client).await;
+        let shutdown = read_lsp_message(&mut client_read).await;
         assert_eq!(shutdown["id"], 2);
         assert!(shutdown["result"].is_null());
 
-        write_lsp_message(&mut client, json!({ "jsonrpc": "2.0", "method": "exit" })).await;
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
         server.await.unwrap().unwrap();
     }
 
@@ -1248,11 +1535,13 @@ value = "welcome"
         writer.flush().await.unwrap();
     }
 
+    /// Read one framed message from a persistent buffered reader. The reader
+    /// must live across calls: with the concurrent server, frames arrive back
+    /// to back, and a per-call BufReader would drop what it read ahead.
     async fn read_lsp_message<R>(reader: &mut R) -> JsonValue
     where
-        R: AsyncRead + Unpin,
+        R: AsyncBufRead + Unpin,
     {
-        let mut reader = BufReader::new(reader);
         let mut content_length = None;
         loop {
             let mut line = String::new();
@@ -1266,7 +1555,7 @@ value = "welcome"
             }
         }
         let mut body = vec![0; content_length.unwrap()];
-        tokio::io::AsyncReadExt::read_exact(&mut reader, &mut body)
+        tokio::io::AsyncReadExt::read_exact(reader, &mut body)
             .await
             .unwrap();
         serde_json::from_slice(&body).unwrap()

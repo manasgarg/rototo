@@ -1,6 +1,0 @@
-schema_version = 1
-type = "catalog:dot-segment"
-description = "Variable with a dot-segment catalog schema reference"
-
-[resolve]
-default = "default"

@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "LLM agent profile loaded by production services"
+type = "catalog=agent_config"
+
+[resolve]
+default = "standard"
+
+[[resolve.rule]]
+when = 'variables["eu_enterprise_accounts"]'
+value = "enterprise"

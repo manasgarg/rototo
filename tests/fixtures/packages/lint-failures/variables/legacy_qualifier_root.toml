@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Condition using the retired qualifier root"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'qualifier["enterprise"]'
+value = true

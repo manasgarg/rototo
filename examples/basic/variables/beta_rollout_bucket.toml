@@ -1,0 +1,10 @@
+schema_version = 1
+description = "Stable ten percent rollout bucket for experiments"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(bucket(context.user.id, "checkout_redesign_2026_05", 0, 1000))'
+value = true

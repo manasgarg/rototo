@@ -1,0 +1,7 @@
+schema_version = 1
+
+description = "Agent config with a registered custom value lint"
+type = "array"
+
+[resolve]
+default = [6000]

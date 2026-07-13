@@ -17,27 +17,66 @@ all of this for you. This is just so you know what goes where:
 ```text
 my-package/
 ├── rototo-package.toml              # the manifest - marks this folder as a package
-├── qualifiers/                      # named runtime conditions
-│   └── premium-users.toml
+├── governance.toml                  # what overlays may change, when this is a base
 ├── variables/                       # the values your app reads
-│   └── checkout-redesign.toml
-├── catalogs/                        # structured value sets + their schemas
-│   ├── checkout-redesign.schema.json
-│   └── checkout-redesign-entries/
-│       └── control.toml
-├── evaluation-contexts/             # the shape of the facts your app passes in
-│   ├── request.schema.json
-│   └── request-samples/
-│       └── premium-enterprise.json
+│   ├── premium_users.toml
+│   └── checkout_redesign.toml
+├── lists/                           # named closed sets of scalar values
+│   └── plan_tiers.toml
+├── layers/                          # shared bucket lines for rollouts and experiments
+│   └── checkout.toml
+├── model/                           # contracts: what values must look like
+│   ├── catalogs/
+│   │   └── checkout_redesign.schema.json
+│   └── context/                     # the shape of the facts your app passes in
+│       ├── request.schema.json
+│       └── request-samples/
+│           └── premium_enterprise.json
+├── data/                            # values that satisfy those contracts
+│   └── catalogs/
+│       └── checkout_redesign/
+│           └── control.toml
 └── lint/                            # your own custom checks, in Lua
-    └── checkout-redesign.lua
+    └── checkout_redesign.lua
 ```
 
-The one rule that ties it together: **the file name is the id**. A file at
-`variables/checkout-redesign.toml` defines a variable whose id is
-`checkout-redesign`. A qualifier at `qualifiers/premium-users.toml` has the id
-`premium-users`. You never write the id *inside* the file - the filename already
-said it.
+Notice the split between `model/` and `data/`. `model/` holds contracts: catalog
+schemas and evaluation-context schemas. `data/` holds the values that have to
+satisfy those contracts: catalog entries. That separation matters in review: a
+change under `model/` changes what's *allowed*, a change under `data/` changes
+what's *there*. Variables, lists, and lint sit at the top level because each is
+its own thing - a variable or a list is both contract and value in one file,
+and lint is code. `governance.toml` appears only when the package is a base
+that other packages extend.
+
+Two rules tie the folder together.
+
+First, **the file name is the id**. A file at `variables/checkout_redesign.toml`
+defines a variable whose id is `checkout_redesign`. A catalog schema at
+`model/catalogs/checkout_redesign.schema.json` defines a catalog whose id is
+`checkout_redesign`. You never write the id *inside* the file - the filename
+already said it. Subdirectories are namespaces, for every collection alike:
+`variables/acme/in_trial.toml` is the variable `acme/in_trial` (referenced as
+`variables["acme/in_trial"]` in expressions), `lists/acme/tier.toml` is
+the list `acme/tier`, `model/catalogs/acme/plans.schema.json` is the catalog
+`acme/plans` with its entries under `data/catalogs/acme/plans/`, and the same
+holds for evaluation contexts and layers. Catalog entry ids themselves stay
+flat: an entry is always a direct child of its catalog's data directory.
+
+A file that sits under a rototo-owned directory but maps to no entity - a
+mistyped suffix, an entry directory for a catalog with no schema - draws a
+lint warning, `rototo/unrecognized-file`, instead of being silently ignored.
+
+Second, **ids are snake_case**. Every id rototo recognizes - variables, lists,
+catalogs, catalog entries, evaluation contexts, samples - is lowercase letters,
+digits, and underscores, with `/` allowed for namespacing (like
+`payments/retry_limit`). The reason is that ids show up in TOML table headers
+and in [expressions](./expressions.md), where a hyphen is the minus operator:
+`variables.premium-users` would parse as a subtraction. Snake_case keeps
+`variables.premium_users` working everywhere. Lint enforces this as an error,
+`rototo/id-not-snake-case`. (Diagnostic rule names like
+`rototo/id-not-snake-case` itself are a separate namespace and stay
+hyphenated.)
 
 ## The manifest: `rototo-package.toml`
 
@@ -55,8 +94,8 @@ it's how rototo knows it's reading a format it understands.
 There are two optional things you can add.
 
 The first is `extends`, for when this package builds on top of others - shared
-defaults, a common set of qualifiers, that kind of thing. You list the parent
-packages as [package sources](./package-sources.md):
+defaults, a common set of condition variables, that kind of thing. You list the
+parent packages as [package sources](./package-sources.md):
 
 ```toml
 schema_version = 1
@@ -65,67 +104,374 @@ extends = ["../shared-config", "git+https://github.com/acme/base-config.git#main
 
 Each entry follows the exact same source grammar you'd type on the command line.
 Relative paths are resolved against this package, so a package and its parents
-can travel together. (When you build a distributable archive with `rototo
-package`, the `extends` list gets flattened in and stripped out - the archive is
-already self-contained, so there's nothing left to point at.)
+can travel together. The full rules for what an `extends` entry may point at -
+including why a remotely staged package can't reach into your filesystem, and
+the depth and cycle limits - are in [the package sources
+reference](./package-sources.md#the-rules-for-sources-in-extends). (When you build a distributable archive with `rototo
+package`, the `extends` array gets flattened in and stripped out - the archive is
+already self-contained, so there's nothing left to point at.) How the layers
+actually combine - which files replace and which compose - gets its own
+section, [Extending: how packages combine](#extending-how-packages-combine),
+right after this one.
 
 The second is `[[trace]]`, which turns on resolution tracing for specific cases
 without redeploying your app. You can have as many as you like:
 
 ```toml
 [[trace]]
-when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "user-123"'
+when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "user-123"'
 ```
 
 The `when` is an [expression](./expressions.md) - same language as everywhere
 else. We cover what tracing is for in [Using Rototo](./adoption.md); here, just
 know it's a manifest thing.
 
-## Qualifiers: naming a runtime condition
+## Extending: how packages combine
 
-A **qualifier** gives a name to a yes/no condition about the runtime. "Is this a
-premium user?" "Is this request coming from Europe?" Naming it once means your
-variables can refer to it by that name instead of repeating the same logic
-everywhere.
+When a package extends others, rototo flattens them into one file tree before
+anything else happens - lint, resolution, `rototo package`, all of it sees the
+flattened result. Parents flatten in `extends` order, the child comes last.
+Flattening is deterministic: the packages are processed in a sorted, fixed order,
+so the same inputs always produce the same flattened package.
 
-Each qualifier is one file under `qualifiers/`. Here's `eu-users.toml`:
+One premise before the mechanics: modifying a base is permission-gated.
+Adding new ids is always free, but every update or delete of something a
+base declared needs that base to grant it in `governance.toml` - deny by
+default is unconditional, and a base without the file grants nothing. The
+composition rules below describe what the operations *do*; the
+[governance section](#governance-governancetoml) describes who may perform
+them. A base whose overlays are its own team typically opens itself with one
+broad `[defaults]` grant.
+
+The composition rules below describe the child landing on its bases - the
+overlay relationship, where one package was authored to change another. Two
+bases in the same `extends` array are a different relationship: siblings.
+Neither was authored as an overlay of the other, so nothing about them may
+silently merge. Each base is flattened on its own first, then the results
+union: the composed package has every variable, catalog, list, evaluation
+context, and layer from every base, and the bases have to be disjoint. Two
+bases touching the same entity - the same variable id, the same list, context,
+or layer - fails the load ("package extends bases conflict on ..."). Catalogs
+and evaluation context samples are the places siblings may share: two bases
+can each add their own entries to a catalog they both inherit from a common
+ancestor, or their own sample files for a shared context, because those files
+compose additively. The disjointness line just moves down a level - two bases
+providing the same entry, one base updating or deleting an entry another base
+provides, or two bases carrying different versions of the catalog schema, all
+still fail the load. If two bases genuinely share more than that, make one
+extend the other or move the shared piece into one package. Diamond ancestry
+stays fine everywhere: two bases extending a common ancestor both carry its
+files, and byte-identical restatements of the same file never conflict.
+
+Governance stays per-base: each base's `governance.toml` governs its own
+entities against the overlays that land after it, so the extending package
+needs each base's grants for what it changes in that base, and a base with no
+`governance.toml` stays ungoverned as usual.
+
+The default rule is the simple one: **a file replaces the file at the same path
+in the base packages, whole.** That's still what happens for `model/` schemas
+(catalog, list, and context), `layers/`, and `lint/` files. But
+four file shapes compose structurally instead, because whole-file replacement
+can't say the things an overlay needs to say: it can't disable one base catalog
+entry, can't change one field of an entry, can't add one list member, and it
+forces you to copy an entire variable file just to change its resolution.
+
+One bookkeeping note: while flattening, rototo records which package owns each
+variable's `[resolve]` block in a small provenance sidecar, and resolution
+traces read it back as the trace's `provenance` field. You never edit that
+file; it's how `rototo resolve` can print `resolve from <source>` for a
+composed package.
+
+### Why the merge rules are shaped this way
+
+Every composition system ends up answering the same four questions, and the
+answers here are deliberate, so they are worth stating before the file
+shapes.
+
+**Arrays have no merge.** The classic failure in overlay systems is partial
+updates inside arrays: which element does the overlay mean? Kubernetes grew
+per-field merge-key annotations to answer that, and the machinery is famously
+heavy. Rototo avoids the question structurally. Everything that would be a
+keyed array elsewhere - catalog entries, samples, variables - is a file in a
+directory, so "merge by key" is just the filesystem: the key is the filename.
+The one real ordered array left - a variable's rules - is positional, and
+splicing half of one package's rules into another's produces a resolution
+nobody wrote or reviewed. So rules never merge: an update's `[resolve]`
+block replaces the base's whole.
+
+**Inside one entry, fields merge; arrays replace.** A catalog entry's fields
+are independent facts, so an update names only the fields it changes and
+inherits the rest, recursing through nested tables. Arrays replace wholesale,
+never concatenate: merging two arrays invents an order and a membership
+nobody stated.
+
+**Deletion is a file, not a value.** Formats that delete with an in-band
+marker (JSON Merge Patch's `null`) lose the ability to ever set that value
+legitimately. A deleted marker is its own file, visible in the diff by its
+path alone, and it must name something real - an orphan marker fails the
+load.
+
+**Order means authorship.** An overlay chain is ordered because "I extend
+you" is a statement of intent, so the layer above wins. Sibling bases in one
+`extends` array carry no such statement, so between them there is no
+priority: agreement (byte-identical files) composes, disagreement fails the
+load. That is also why byte-identical restatement is always a no-op - it is
+what shared ancestry looks like, not an edit.
+
+The permission question - who may perform any of this - is governance's,
+covered [below](#governance-governancetoml), and it denies by default.
+
+### Variables update through a marker
+
+An overlay never restates a base variable's file. It updates one with a
+marker, the same shape catalog entries use:
+
+- `variables/<id>.update.toml` updates the base variable. The marker may
+  carry only `[resolve]` and `description` - the fields an overlay is allowed
+  to change. Each key it declares replaces the base's key whole; there is no
+  key-level merge *inside* `[resolve]`, the topmost package's resolve block
+  wins whole. The marker itself never lands in the flattened package.
+- A plain `variables/<id>.toml` is always an add. If the base already
+  declares the id, the load fails and points at the marker: "variable `<id>`
+  is declared in the base packages; update it with
+  `variables/<id>.update.toml` instead of restating the file". That keeps a
+  reviewer able to tell an add from an update by the file name alone.
+
+The marker may not carry `type` or `schema_version`, even restated with the
+base's exact values. The type is the contract applications were written
+against; repeating it in an overlay would force every reviewer to check it
+still agrees, and would silently pin the base's intent. An update file
+carries only what it changes.
+
+There is no `variables/<id>.deleted.toml`. An overlay never removes a base
+variable - every consumer resolving the id would break - it can only give
+the id different behavior. Removing a variable is the base's decision.
+
+An orphan marker (no base variable to update) fails the load, and one package
+providing both `<id>.toml` and `<id>.update.toml` is contradicting itself and
+fails too. The one exception to the no-restatement rule is a byte-identical
+copy of the base's file, which composes as a no-op - that is how diamond
+ancestry looks when two bases share an ancestor.
+
+An overlay can also add variables of its own, and subdirectories keep them out
+of the base's way: `variables/acme/in_trial.toml` defines the namespaced
+variable `acme/in_trial`, referenced as `variables["acme/in_trial"]`.
+
+### Catalog entries: union, deletes, and updates
+
+Catalog entries compose as a set. The active entries of a catalog are the
+entries the base packages provide, plus the entries this package provides, minus
+the entries this package deletes, with field updates applied. Two file shapes
+drive the minus and the update, both keyed by path next to the entries they act
+on:
+
+- `data/catalogs/<catalog>/<entry>.deleted.toml` removes the entry a base
+  package provided from this package's view. The base file is untouched; the
+  marker file itself never appears in the flattened package. By convention it
+  contains `deleted = true` and an optional `reason = "..."`.
+- `data/catalogs/<catalog>/<entry>.update.toml` updates fields of the entry
+  below: tables merge recursively, scalars and arrays replace, and any field
+  the update doesn't mention is inherited.
+
+Both shapes have to point at something real. A deleted marker with no entry in
+the base packages fails the load ("deleted marker has no catalog entry to
+remove in the base packages"), and an orphaned update marker fails the same way. A
+single package that both provides `<entry>.toml` and deletes or updates that
+same entry also fails the load - it's contradicting itself. So does carrying
+both an update and a deleted marker for one entry: updating and removing it
+are contradictory.
+
+Deleting an entry someone depends on is deliberately loud. If a base variable
+still names the deleted entry, lint catches it as
+`rototo/variable-unknown-value`, and the overlay has to override that
+variable's resolution too. Removing data quietly out from under a variable is
+exactly the drift this is designed to surface.
+
+### List members: union and delete
+
+An overlay adjusts a base list's members through an update marker,
+`lists/<id>.update.toml`, the same shape variables use. `members` declares
+what the package adds, and `deleted` names the base members it removes:
 
 ```toml
-schema_version = 1
-description = "Users whose country is in the European operating region"
-when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'
+# overlay's lists/plan_tiers.update.toml
+members = ["acme_enterprise"]
+deleted = ["legacy_bronze"]
 ```
 
-Three fields:
+The composed list has the base's members plus `acme_enterprise`, minus
+`legacy_bronze`. The marker is consumed during flattening and never appears
+in the flattened package. A marker may carry only `members`, `deleted`, and
+`description`: the list's `type` is the contract half and is never updatable
+from above, and restating `lists/<id>.toml` wholesale is rejected toward the
+marker.
 
-- `schema_version` - always `1`.
-- `description` - optional, but write one; it's what shows up when someone's
-  trying to understand the package.
-- `when` - the condition itself, written as an [expression](./expressions.md).
-  When it's true for the current request, the qualifier "matches."
+Deletes follow the same rules as catalog entry deletes. Every deleted value
+has to name a member some base package actually provides ("deleted list member
+is not in the base packages" fails the load), a single package may not both add
+and delete the same value, and deleting every member fails the load - an
+empty list is not a thing. In a package with no `extends`, a `deleted` key has
+nothing to remove from and lint flags it (`rototo/list-shape`).
 
-Qualifiers can lean on each other, too. This one is true only when two *other*
-qualifiers are both true:
+Deleting a member someone depends on is loud in the same way entry deletes
+are: if a base variable default, rule value, catalog entry, or context sample
+still uses the deleted member, lint on the flattened package catches it, and
+the overlay has to override that usage too.
+
+## Governance: `governance.toml`
+
+`extends` composition lets an overlay change things. For one team splitting a
+package across files, that's the point. For a tenant overlay, it's exactly
+wrong: the app ships a contract, and a tenant should only move *within* it.
+Governance is the file that makes layering safe - a dial on every capability
+that each successive overlay can only turn further down.
+
+The file is a single `governance.toml` at the package root. It holds one block
+per governed entity, keyed `[<kind>.<id>]`, where `kind` is one of `catalog`,
+`list`, `variable`, `evaluation_context`, or `layer`:
 
 ```toml
-schema_version = 1
-description = "Premium users who are also in the beta rollout bucket"
-when = '(env.qualifier["premium-users"]) && (env.qualifier["beta-rollout-bucket"])'
+[catalog.plans]
+allowed_operations = ["add", "update", "delete"]
+
+[catalog.plans.update_policy]
+allowed_fields = ["monthly_price", "limits"]
+denied_entries = ["free"]
+
+[catalog.plans.delete_policy]
+allowed_entries = ["*"]
+denied_entries = ["free"]
+
+[variable.active_plan]
+allowed_operations = ["update"]
 ```
 
-That `env.qualifier["..."]` is how you reference another qualifier by its id.
-More on that in the [expressions reference](./expressions.md).
+Read that as a contract: the overlay may add plan entries, may update
+`monthly_price` and `limits` on any plan except `free`, may delete any plan
+except `free`, and may update `active_plan`'s resolution. Everything else it
+might try on a base-declared entity is denied.
 
-One thing that's *gone*: older versions used `[[predicate]]` blocks. Those are
-rejected now - use a `when` string instead.
+### Deny by default, unconditionally
+
+Governance denies by default whether or not the file exists. A base with no
+`governance.toml` grants nothing: an overlay can add new ids next to it, but
+any update or delete of something the base declared fails the load with
+`governance denies <op> on <kind>.<id>`. The file is not a switch that turns
+governance on - it is simply where the grants live, and no file means no
+grants.
+
+For a base whose overlays are its own team, spelling out every grant would be
+noise. That is what the top-level `[defaults]` block is for:
+
+```toml
+[defaults]
+allowed_operations = ["add", "update", "delete"]
+```
+
+`[defaults]` grants across every base-declared entity that a per-entity block
+doesn't speak for itself. Per-entity blocks refine below it, and deny wins
+from either level: a `[defaults]` grant of `delete` plus a
+`[catalog.plans] denied_operations = ["delete"]` means everything but plans
+entries can be deleted. `[defaults]` can carry `update_policy` and
+`delete_policy` tables too, which apply where the entity's own block has
+none.
+
+The contract governs what the base declared, nothing more. New ids mint
+freely: a tenant's own namespaced variables, its own catalogs and lists, its
+own layers. Whether those minted ids are *well named* is a lint concern
+(`rototo/id-not-snake-case` and friends), not a permission.
+
+### The three operations
+
+Each operation names one on-disk shape the overlay can produce:
+
+| Operation | What the overlay does on disk |
+| --- | --- |
+| `add` | a new `<entry>.toml` in a governed catalog |
+| `update` | an `<entry>.update.toml` over a base catalog entry, a `lists/<id>.update.toml` that adjusts a base list's members, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
+| `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
+
+Grants go in `allowed_operations`; `denied_operations` subtracts from them and
+wins. The retired operation names `constrain` and `override` are not accepted
+and will not be reused. An operation absent from `allowed_operations` is denied - that's the
+default-closed part.
+
+Some shapes are deliberately *not* operations. Replacing a whole base catalog
+entry file is rejected toward the structural shapes: "governance does not
+model replacing catalog entry `<entry>` wholesale; use `<entry>.update.toml` to
+update fields or `<entry>.deleted.toml` to disable it". Replacing a lint file
+the base owns is rejected outright.
+
+Base schema files are in that group too, and it's worth saying why. Under a
+governed base, an overlay can never change what the base declared under
+`model/`: not a catalog schema, not a list declaration, not an evaluation
+context schema or its samples. There is no grant for it. The reason is that a
+schema edit can widen a contract just as easily as narrow it, and no one can
+tell the difference by looking at the grant. When an overlay genuinely needs a
+tighter contract than its base ships, it writes a custom lint rule under
+`lint/`: the base's schema stays the shared floor, and the overlay's lint rule
+is the overlay's own, reviewable, tightening on top of it.
+
+### Scoping update and delete
+
+Only `update` and `delete` carry a scope, through the optional
+`update_policy` and `delete_policy` tables. Each takes up to four arrays:
+
+- `allowed_entries` / `denied_entries` - which entry ids the operation may
+  touch.
+- `allowed_fields` / `denied_fields` - which top-level fields an update may
+  change. Field patterns on `delete_policy` are a lint error; a delete has no
+  field scope.
+
+The items are literal ids or `*` globs (`*` matches any run of characters,
+everything else is literal - `acme_*`, `*_hero`). The resolution rules:
+
+- An **allowlist restricts when present.** No `allowed_entries` means every
+  entry passes the allow side. An *empty* allowlist is a lint error - "listed
+  nothing" reads two ways, so name targets or drop the key.
+- A **denylist subtracts and wins absolutely.** An id matching a denied
+  pattern fails, whatever the allowlist says.
+- An `update` must pass both dimensions: the field passes the field
+  patterns *and* the entry passes the entry patterns.
+
+Field names are a fixed set, so a field pattern that matches nothing the
+catalog schema declares is a lint error. Entry patterns are not checked that way,
+because they may name entries an overlay adds later.
+
+### The ceiling: grants only narrow
+
+Governance stacks. An overlay's own `governance.toml` is its grant to *its*
+overlays, and it must fit inside the ceiling it inherited: every operation
+it allows, and every policy pattern it lists, has to be something its base
+granted it. A wider grant is rejected at compose time, not silently
+clamped - `governance grant exceeds the inherited ceiling: ...` - so the
+author sees it and either drops the rule or asks the base to widen.
+
+That's the dial model made concrete: each successive overlay can keep the
+dial where it is or turn it further down, never back up.
+
+### Lint on the file itself
+
+Four rules cover the contract file:
+
+- `rototo/governance-parse-failed` - the TOML doesn't parse.
+- `rototo/governance-shape` - structural problems: an unknown kind or key, an
+  operation name outside the four, a dead `update_policy`/`delete_policy` for
+  an operation the block doesn't allow, an empty allowlist, field scopes on
+  `delete_policy`, or a field name the catalog schema doesn't declare.
+- `rototo/governance-unknown-target` - a `[<kind>.<id>]` block names an entity
+  the package doesn't declare.
+- `rototo/governance-unscoped-update` - a warning: an `update` grant without
+  `allowed_fields` silently includes every field someone adds to the schema
+  later. List the fields the overlay may change.
 
 ## Variables: the values your app actually reads
 
 A **variable** is the thing your application asks for at runtime. It has a type,
-a default, and an optional list of rules that override the default when some
+a default, and an optional set of rules that override the default when some
 condition holds.
 
-The simplest kind is a plain on/off flag. Here's `admin-ui.toml`:
+The simplest kind is a plain on/off flag. Here's `user_is_admin.toml`:
 
 ```toml
 schema_version = 1
@@ -136,7 +482,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'env.qualifier["admin-users"]'
+when = 'variables["admin_users"]'
 value = true
 ```
 
@@ -150,15 +496,76 @@ The fields:
 - `schema_version` - always `1`.
 - `description` - optional, recommended.
 - `type` - required. What kind of value this is (next section).
-- `[resolve]` - required. Holds the `default` (required) and the rules.
+- `[resolve]` - required. Holds an optional `method`, the `default`, and the
+  rules.
+- `method` - optional, `"rules"`, `"query"`, or `"allocation"`. Absent means
+  `"rules"`: the first matching rule's value wins, else the default. `"query"`
+  swaps the rules for a catalog query; the fields for that live in
+  [Catalog queries](#catalog-queries-picking-entries-from-data) below.
+  `"allocation"` swaps them for an arm assignment from a layer; see
+  [Layers](#layers-shared-assignment-for-rollouts-and-experiments) below.
+- `default` - required under the rules method.
 - `[[resolve.rule]]` - zero or more. Each has a `when` condition and a `value`.
 
 Both the default and every rule value have to match the declared `type` - rototo
 checks that for you, so a `bool` variable can't accidentally default to a string.
 
-Like qualifiers, variables shed some old syntax: a top-level `schema` field and a
-`[values]` section are both rejected. Declare a `type` and put your literal
-values directly under `[resolve]`.
+Some old syntax is gone: a top-level `schema` field and a `[values]` section are
+both rejected. Declare a `type` and put your literal values directly under
+`[resolve]`.
+
+## Condition variables: naming a runtime condition
+
+That `variables["admin_users"]` in the rule above deserves a closer look. "Is
+this a premium user?" "Is this request coming from Europe?" Conditions like
+these tend to show up in more than one variable, and repeating the same
+expression everywhere is how definitions drift apart.
+
+The fix is to give the condition a name - and in rototo, a named condition is
+just a bool variable. By convention we call it a **condition variable**: type
+`bool`, default `false`, and a rule that flips it to `true` when the condition
+holds. Here's `eu_users.toml`:
+
+```toml
+schema_version = 1
+description = "Users whose country is in the European operating region"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'
+value = true
+```
+
+Any other variable's rule can now read that condition by name, with the
+`variables["<id>"]` root. Conditions can lean on each other, too. This one is
+true only when two *other* condition variables are both true:
+
+```toml
+schema_version = 1
+description = "Premium users who are also in the beta rollout bucket"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(variables["premium_users"]) && (variables["beta_rollout_bucket"])'
+value = true
+```
+
+There's nothing special about a condition variable to rototo - it resolves like
+any other bool, and your app can resolve it directly if it wants the yes/no
+answer itself. The convention is for readers: a bool named `eu_users` with a
+`false` default reads as "the condition this package uses to mean an EU user."
+How `variables[...]` references work (lazy, memoized, cycles rejected) is
+covered in the [expressions reference](./expressions.md).
+
+(Older packages had a separate `qualifiers/` folder for this. Qualifiers were
+dissolved into condition variables; a `qualifiers/` directory is no longer part
+of the format.)
 
 ## Variable types
 
@@ -170,27 +577,29 @@ The `type` field decides what shape a value can take. The built-in types are:
 | `int` | a whole number |
 | `number` | a number with a fractional part |
 | `string` | text |
-| `list` | a plain list of values |
-| `catalog:<id>` | one entry from a catalog (see below) |
-| `list<...>` | a list of a specific item type |
+| `array` | a plain array of values |
+| `catalog=<id>` | one entry from a catalog (see below) |
+| `list=<id>` | one member of a named list (see below) |
+| `array<...>` | an array of a specific item type |
 
-The `list<...>` form lets you say what's *in* the list. The item can be a
-primitive or a catalog reference - `list<string>`, `list<int>`,
-`list<catalog:payment-methods>`. What you can't do is nest lists inside lists:
-`list<list<string>>` is rejected. One level deep is the limit.
+The `array<...>` form lets you say what's *in* the array. The item can be a
+primitive, a catalog reference, or a list - `array<string>`, `array<int>`,
+`array<catalog=payment_methods>`, `array<list=plan_tiers>`. What you can't do is
+nest arrays inside arrays: `array<array<string>>` is rejected. One level deep is
+the limit.
 
-Here's a plain list variable, `payment-methods.toml`:
+Here's a plain array variable, `payment_methods.toml`:
 
 ```toml
 schema_version = 1
 description = "Payment methods enabled at checkout"
-type = "list"
+type = "array"
 
 [resolve]
 default = ["card", "paypal"]
 
 [[resolve.rule]]
-when = 'env.qualifier["mobile-users"]'
+when = 'variables["mobile_users"]'
 value = ["card", "apple_pay", "google_pay"]
 ```
 
@@ -202,9 +611,10 @@ layout, say: each variant has a heading, a subheading, an image, some body copy.
 That's what a **catalog** is for. It's a set of named entries, all sharing one
 schema.
 
-A catalog comes in two parts. First, the schema, at
-`catalogs/<id>.schema.json` - an ordinary JSON Schema describing what every
-entry must look like. Here's `checkout-redesign.schema.json`:
+A catalog comes in two parts, and they live on the two sides of the
+model/data split. First, the schema, at `model/catalogs/<id>.schema.json` - an
+ordinary JSON Schema describing what every entry must look like. Here's
+`checkout_redesign.schema.json`:
 
 ```json
 {
@@ -222,8 +632,12 @@ entry must look like. Here's `checkout-redesign.schema.json`:
 }
 ```
 
-Second, the entries, each a TOML file under `catalogs/<id>-entries/`. The
-filename is the entry's id. Here's `control.toml`:
+Second, the entries, each a TOML file under `data/catalogs/<id>/`. The
+path under the catalog's directory is the entry's id, so entries can
+namespace with subdirectories: `promo/summer.toml` is the entry
+`promo/summer`. One rule keeps that unambiguous: no catalog id may be a
+path prefix of another (`rototo/catalog-id-overlap`), so a file always has
+exactly one owner. Here's `data/catalogs/checkout_redesign/control.toml`:
 
 ```toml
 variant = "control"
@@ -236,29 +650,341 @@ content = "Secure checkout in seconds."
 rototo converts that TOML to JSON and checks it against the schema, so an entry
 that's missing a field or has a typo gets caught at lint time, not in production.
 
-To use a catalog, give a variable the type `catalog:<id>` and let its values be
+To use a catalog, give a variable the type `catalog=<id>` and let its values be
 entry ids:
 
 ```toml
 schema_version = 1
 description = "Checkout page content and layout variant"
-type = "catalog:checkout-redesign"
+type = "catalog=checkout_redesign"
 
 [resolve]
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'variables["premium_users"]'
 value = "premium"
 ```
 
 The variable resolves to an entry id like `"control"`, and rototo hands your app
 the full structured entry behind it.
 
-There's one more trick worth a mention: a `list<catalog:...>` variable can pick
-its entries with a `query` instead of a hardcoded list - a small expression that
-runs over each catalog entry and keeps the ones that match. That's an
-[expressions](./expressions.md) topic, so we'll cover the syntax there.
+## Catalog queries: picking entries from data
+
+Sometimes which entry applies is a data question, not a rule question. "Every
+enabled payment method." "The pricing plan whose tier matches the account."
+Writing one `when`/`value` rule per entry just duplicates what the entries
+already say, and it goes stale the moment someone adds an entry. Setting
+`method = "query"` turns the resolve block into a small pipeline over one
+catalog's entries instead:
+
+```toml
+schema_version = 1
+type = "array<catalog=llm_parameters>"
+
+[resolve]
+method = "query"
+from = "llm_parameters"
+filter = "entry.enabled == true"
+```
+
+The query keys sit flat on `[resolve]`:
+
+- `from` - required, a string. The id of the catalog to read entries from. It
+  must be the same catalog named in the variable's `type`, and it must exist
+  (`rototo/variable-unknown-catalog` if it doesn't).
+- `filter` - optional, a boolean [expression](./expressions.md) run once per
+  entry. `entry` is the entry under consideration, and `context`,
+  `variables[...]`, and `env.now` are available exactly as in a rule's `when`.
+  Entries where it comes out true stay; with no `filter`, every entry stays.
+- `sort` - optional, an expression evaluated once per entry that produces that
+  entry's sort key. The keys have to be mutually comparable - all numbers or
+  all strings. Mixed kinds are a resolution error.
+- `order` - optional, `"asc"` (the default) or `"desc"`. Requires `sort`.
+- `limit` - optional, a positive integer. After sorting, keeps at most that
+  many entries.
+- `default` - optional. The usual resolve default, used when the query matches
+  nothing.
+
+What the query produces depends on the variable's type:
+
+- `type = "array<catalog=<id>>"` - the value is every matching entry, after
+  `sort` and `limit`. No matches means the `default` if you declared one,
+  otherwise an empty array.
+- `type = "catalog=<id>"` - the value is one entry. With a `sort`, the top
+  entry wins. Without one, the `filter` has to match exactly one entry;
+  matching several is a resolution error (add a `sort` or narrow the filter).
+  No matches means the `default` if you declared one, otherwise an error.
+
+Methods don't mix. `method = "query"` must not declare
+`[[resolve.rule]]` tables, and the query keys are rejected under the rules
+method. Lint enforces all of this shape as `rototo/variable-query-shape`.
+
+## Layers: shared assignment for rollouts and experiments
+
+Rolling a change out to 20% of users, or A/B testing two versions of the
+checkout copy, needs a deterministic answer to "which variant does this user
+get?" - the same answer on every request, and the same answer for every
+variable the experiment drives. If the layout, the copy, and the CTA each
+hashed the user independently, one user could see the new layout with the old
+copy. That's why the assignment is a shared, named thing in the package - an
+**allocation** inside a **layer** - and not a per-variable setting.
+
+The mental model: a layer hashes each unit (say, `context.user.id`) to a
+stable position on a line of buckets, and that position never moves. An
+allocation claims a set of those buckets and divides them among **arms**.
+Allocations in one layer claim disjoint buckets, so a unit sits in at most one
+of them. Different layers are independent lines - it's safe for the same user
+to be in an experiment in two different layers, because each layer's
+allocations drive different variables. A rollout and an experiment are the
+same shape used differently: a rollout is one arm growing its bucket range, an
+experiment is two or more arms splitting one.
+
+### The layer file
+
+Each layer is one TOML file under `layers/`, and as usual the file stem is the
+layer's id (snake_case). Here's `layers/checkout.toml` from `examples/basic`:
+
+```toml
+schema_version = 1
+description = "Checkout page experiments, diverted by user id"
+unit = "context.user.id"
+buckets = 1000
+
+[[allocation]]
+id = "cta_copy_test"
+status = "running"
+eligibility = '!variables["enterprise_accounts"]'
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-499"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "500-999"
+```
+
+The layer-level fields:
+
+- `schema_version` - always `1` (`rototo/layer-schema-version` if it isn't).
+- `description` - optional, recommended.
+- `unit` - required. A CEL [expression](./expressions.md) over `context` that
+  produces the value to hash - usually a stable id like the user id. It reads
+  `context` only: no `variables`, no `entry`.
+- `buckets` - required. A positive integer, the length of the line. Buckets
+  are numbered `0` to `buckets - 1`.
+
+Then each `[[allocation]]`:
+
+- `id` - required. Unique across **all** layers, not just this one, because a
+  variable names its allocation without a layer qualifier.
+- `status` - optional, one of `"draft"`, `"running"`, or `"concluded"`.
+  Defaults to `"running"`. Only a running allocation assigns arms; while an
+  allocation is draft or concluded, every unit resolves to the variable's
+  default. That makes concluding an experiment a package edit, not a scramble.
+- `eligibility` - optional. A boolean expression deciding who is enrolled at
+  all. It can read `context` and `variables[...]` - so a condition variable
+  like `enterprise_accounts` can keep a whole class of accounts out of an
+  experiment - but not `entry`.
+
+And each `[[allocation.arm]]`:
+
+- `name` - required, snake_case, unique within the allocation.
+- `buckets` - required. An inclusive range string like `"0-499"`, or a single
+  bucket like `"7"`.
+
+Arms across all allocations in a layer must claim disjoint buckets -
+`rototo/layer-bucket-overlap` if two claims collide. Buckets nobody claims are
+fine; a unit landing there is simply in no allocation. A file that doesn't
+parse is `rototo/layer-parse-failed`, and anything else structurally off
+(a missing `unit`, a zero `buckets`, a malformed range, a duplicate arm name)
+is `rototo/layer-shape`.
+
+### The variable side: `method = "allocation"`
+
+A variable joins an allocation by declaring the third resolve method. Here's
+`variables/checkout_cta_copy.toml`:
+
+```toml
+schema_version = 1
+description = "Call-to-action copy on the checkout button"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy_test"
+default = "Place order"
+
+[[resolve.assign]]
+arm = "control"
+value = "Place order"
+
+[[resolve.assign]]
+arm = "benefit_led"
+value = "Place order, arrives in 2 days"
+```
+
+- `allocation` - required, the id of exactly one allocation. Since allocation
+  ids are globally unique, this also pins the variable to exactly one layer.
+  An id no layer declares is `rototo/variable-unknown-allocation`.
+- `default` - **required**. Any unit that doesn't get an arm - ineligible, in
+  an unclaimed bucket, or in a draft or concluded allocation - resolves to it.
+- `[[resolve.assign]]` - exactly one per arm of the allocation. Each has the
+  `arm` name and the `value` that arm assigns. A missing arm, a stray arm the
+  allocation doesn't declare, or a duplicate is `rototo/variable-allocation-shape`.
+
+Assign values are type-checked against the variable's declared `type`, exactly
+like rule values. And as with queries, methods don't mix: `method =
+"allocation"` must not declare `[[resolve.rule]]` tables or query keys.
+
+At resolve time, rototo evaluates the layer's `unit` expression against the
+caller's context, hashes the result (FNV-1a, salted with the layer id, so it's
+deterministic and stable across rototo releases), and lands on a bucket. If the
+allocation is running and the unit passes `eligibility`, the arm claiming that
+bucket assigns its value. The resolution trace records the layer, the
+allocation, enrollment, the bucket, and the arm, and `rototo resolve` prints
+the assignment in the pathway:
+
+```text
+allocation checkout/cta_copy_test -> bucket 967 -> arm benefit_led
+```
+
+One boundary worth stating: rototo's job here is assignment - deterministic,
+reproducible, recorded in the trace. Exposure logging ("unit U saw arm A")
+belongs to the consuming app or SDK, and shipping the winning arm is a package
+edit, not runtime state.
+
+## Lists: closed sets of scalar values
+
+A lot of configuration values aren't free-form. A plan tier is one of `free`,
+`team`, or `business` - never anything else. If someone types `"buisness"` in a
+rule value, you want that package to be unreleasable, not quietly shipping a
+tier no code path handles.
+
+You could declare the field as a plain `string` and hope review catches the
+typo. Or you could build a catalog - but a catalog is for structured objects
+with several fields, and it's heavy machinery for "one of these five strings."
+A **list** is the lightweight middle: it names a closed set of scalar values,
+and lint checks every use against that set.
+
+A list is one file, `lists/<id>.toml`, holding both the contract and the
+values, the way a variable holds its type and its resolution:
+
+```toml
+schema_version = 1
+description = "Account plan tiers"
+type = "string"
+members = ["free", "team", "business"]
+```
+
+The `type` is one of `string`, `int`, `number`, or `bool`. The member set
+has to be non-empty, free of duplicates, and every member has to match the
+declared type.
+
+To use a list, give a variable the type `list=<id>`:
+
+```toml
+schema_version = 1
+description = "The plan tier this account resolves to"
+type = "list=plan_tiers"
+
+[resolve]
+default = "free"
+
+[[resolve.rule]]
+when = 'context.account.paid == true'
+value = "team"
+```
+
+Now every default and every rule value is checked against the member set. A
+typo'd `"buisness"` fails lint, and so does a `list=<id>` type that names a
+list the package doesn't declare. Lists also work inside schemas, through
+`x-rototo-ref` - that's next.
+
+## Schema references: `x-rototo-ref`
+
+Catalog entries and context facts sometimes need to point at things the package
+already defines. A page entry names its hero banner; a notification policy
+names its email template. If that's just a plain string field, a renamed or
+deleted target breaks silently. The `x-rototo-ref` annotation makes the link
+explicit, so lint can verify it and resolution can follow it.
+
+You put it on a field inside a JSON Schema, with a kind-prefixed target. The
+target says what the field's values must be.
+
+**`"x-rototo-ref": "catalog=<id>"`** pins a string field to the entry ids of
+another catalog:
+
+```json
+{
+  "type": "object",
+  "required": ["hero", "title"],
+  "properties": {
+    "hero": { "type": "string", "x-rototo-ref": "catalog=hero_banner" },
+    "title": { "type": "string" }
+  }
+}
+```
+
+An entry that sets `hero = "home"` now has to point at a real entry in the
+`hero_banner` catalog, and lint fails if it doesn't
+(`rototo/catalog-entry-unknown-reference`). A value can also reach inside
+the target with `"<entry>#<json-pointer>"`, like `"home#/cta"`, to name one
+field.
+
+What the reference does at resolve time is deliberately split. A query's
+`filter` and `sort` see the **hydrated** view: `entry.hero` is the full
+`hero_banner` entry (or the pointed-at field), so predicates can select on
+referenced data. The value your app receives stays **raw**: `hero` is the
+string `"home"`, exactly as authored, and an app that wants the banner
+follows the reference explicitly through the SDK's lookup surface. That
+keeps resolved value shapes independent of how much of the reference graph
+any one app needs.
+
+The target can be an array, `["catalog=email_template", "catalog=sms_template"]`,
+when a field may point into any of several catalogs. Lint then checks the value
+against all of them and flags an entry id that exists in more than one - an
+ambiguous reference is an error, not a guess.
+
+**`"x-rototo-ref": true`** is the object form, for when the *value* names the
+catalog. The field is an object with `catalog` and `entry` keys, plus an
+optional `pointer`:
+
+```json
+{
+  "type": "object",
+  "required": ["catalog", "entry"],
+  "properties": {
+    "catalog": { "type": "string" },
+    "entry": { "type": "string" },
+    "pointer": { "type": "string", "format": "json-pointer" }
+  },
+  "x-rototo-ref": true
+}
+```
+
+**`"x-rototo-ref": "list=<id>"`** pins a field to a list's member set:
+
+```json
+{
+  "type": "object",
+  "required": ["tier"],
+  "properties": {
+    "tier": { "type": "string", "x-rototo-ref": "list=plan_tiers" }
+  }
+}
+```
+
+List targets don't hydrate - the member already *is* the value - but they do
+get checked: catalog entry values and evaluation-context sample values both
+have to be members of the list.
+
+Where each target is allowed: catalog schemas can use catalog targets, list
+targets, and the object form. Evaluation-context schemas accept only list
+targets - context facts are caller data, so pointing them at catalog entries
+doesn't mean anything, but pinning a fact like `account.tier` to a closed set
+does.
 
 ## Evaluation contexts: the facts your app passes in
 
@@ -268,8 +994,9 @@ their cart. That bundle is the **evaluation context**, and an evaluation-context
 schema pins down its shape so the package and the app can't quietly disagree
 about it.
 
-The schema lives at `evaluation-contexts/<id>.schema.json` - again, plain JSON
-Schema. Here's a trimmed `request.schema.json`:
+The schema lives at `model/context/<id>.schema.json` - again, plain JSON
+Schema. (The concept keeps its full name, evaluation context; only the path is
+short.) Here's a trimmed `request.schema.json`:
 
 ```json
 {
@@ -294,14 +1021,16 @@ Schema. Here's a trimmed `request.schema.json`:
 }
 ```
 
-This is what lets lint catch drift: if a qualifier reads `context.user.tier` but
+This is what lets lint catch drift: if a rule reads `context.user.tier` but
 your schema never mentions it, that's a problem you want to hear about before a
 release, not during one.
 
 Alongside the schema you can keep sample contexts, in
-`evaluation-contexts/<id>-samples/`. Each is a JSON file - the filename is the
-sample's id - that has to validate against the schema. Here's
-`premium-enterprise.json`:
+`model/context/<id>-samples/`. Each is a JSON file - the path under the
+samples directory is the
+sample's id - that has to validate against the schema, including any
+`x-rototo-ref` list pins the schema declares. Here's
+`premium_enterprise.json`:
 
 ```json
 {
@@ -326,7 +1055,7 @@ tier must never get more than five projects." "A checkout heading can't be
 empty." Those go in `lint/`, written in Lua.
 
 A lint file defines a `register` function, and inside it you register one or more
-rules. Here's `checkout-redesign.lua`:
+rules. Here's `checkout_redesign.lua`:
 
 ```lua
 function register(lint)
@@ -334,7 +1063,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout-redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     handler = "check_heading",
   })
 end
@@ -357,9 +1086,55 @@ A rule registration has five parts:
 - `target` - what the rule looks at (here, the entries of a catalog).
 - `handler` - the name of the function rototo calls for each target.
 
-The handler returns a list of problems. Each problem just needs a `message`;
-returning an empty list `{}` means "all good." The [diagnostics
+There's also an optional `severity` (`"error"` or `"warning"`, default
+`"error"`), and `target` itself defaults to `package=`, the whole package.
+
+The handler returns an array of problems. Each problem just needs a `message`;
+returning an empty list `{}` means "all good." A problem can also carry a
+`path` (a pointer into the target's value, used to anchor the diagnostic to
+the exact line) and a `field`. The [diagnostics
 reference](./diagnostics.md) covers how these show up next to the built-in ones.
+
+### Target addresses
+
+`target` is an address from rototo's addressing grammar, not a file path:
+`<class>=<id>`, with `:` between containment steps. An address that names a
+group runs the handler once per member; a concrete one pins a single target:
+
+- `package=` - the whole package, once. This is the default when `target`
+  is omitted.
+- `variable=`, `variable=<id>` - every variable, or one. Namespaced ids
+  work as written: `variable=payments/max_tokens`.
+- `variable=<prefix>/` - a namespace subtree: every variable under
+  `payments/`, one run each.
+- `catalog=`, `catalog=<id>` - every catalog, or one.
+- `catalog=<id>:entry=`, `catalog=<id>:entry=<key>` - a catalog's entries.
+  This is the workhorse: one handler, run once per entry.
+- `evaluation-context=`, `evaluation-context=<id>` - context schemas.
+- `evaluation-context=<id>:sample=`,
+  `evaluation-context=<id>:sample=<key>` - a context's samples.
+
+Rules are not separately addressable anymore; target the variable and read
+its `resolve` data in the handler. The old `/variables/...` path spellings
+are rejected with a hint that shows the new form.
+
+### What the handler receives
+
+The handler's first argument is always the whole `package`: `root`,
+`manifest`, and maps of `variables`, `catalogs`, and `evaluation_contexts` by
+id, so a rule about one entry can still cross-check anything else. The second
+argument is the target instance, and its shape follows the address. Every
+shape carries a `kind` field naming itself:
+
+- a **catalog entry** is `{ kind, catalog, key, path, value }` - `value` is
+  the entry's data, which is what most rules inspect;
+- a **variable** is `{ kind, id, path, description, declaration, values,
+  resolve, toml }`;
+- a **catalog** is `{ kind, id, path, json, entries }` - `json` is the schema;
+- an **evaluation context** is `{ kind, id, path, json, samples }`;
+- a **sample** is `{ kind, evaluation_context, key, path, value }`;
+- the **package** target (`package=`) gets `{ kind, root, manifest, extends }` -
+  everything else is already on the first argument.
 
 ## How it all gets distributed
 
@@ -374,3 +1149,12 @@ That determinism is what makes a release trustworthy: the same commit always
 gives the same digest, so a digest is a precise, reproducible name for "exactly
 this config." How you serve and load that archive is the [package
 sources](./package-sources.md) story.
+
+Either way it is written, the output is the **projection**: `extends` parents
+merged in, update and deleted markers consumed, the `extends` key stripped from
+the manifest, and the review-time `lint/` directory left out (packaging already
+required the package to be lint-clean, so the artifact carries only what the
+runtime reads). If you want to look at that projection instead of shipping it,
+`rototo package --unpacked <dir>` writes the same tree as a plain directory.
+That's the fastest way to answer "what does this overlay actually compose to?"
+without untarring anything.

@@ -9,16 +9,8 @@ pub struct PackageInspection {
     pub root: PathBuf,
     pub evaluation_contexts: Vec<EvaluationContextInspection>,
     pub catalogs: Vec<CatalogInspection>,
-    pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
     pub linters: Vec<LinterInspection>,
-}
-
-#[derive(Clone, Debug)]
-pub struct QualifierInspection {
-    pub id: String,
-    pub uri: String,
-    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -49,19 +41,31 @@ pub struct LinterInspection {
 }
 
 #[derive(Debug)]
-pub struct QualifierConfig {
+pub struct VariableConfig {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
     pub value: serde_json::Value,
 }
 
-#[derive(Debug)]
-pub struct VariableConfig {
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ListConfig {
     pub id: String,
-    pub uri: String,
-    pub path: PathBuf,
-    pub value: serde_json::Value,
+    pub description: Option<String>,
+    pub member_type: String,
+    pub members: Vec<serde_json::Value>,
+}
+
+impl ListConfig {
+    /// The camelCase wire shape the SDK bindings hand to apps.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "description": self.description,
+            "memberType": self.member_type,
+            "members": self.members,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -122,20 +126,15 @@ pub struct SourceDocumentSummary {
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     Manifest,
-    Qualifier,
     Variable,
+    List,
+    Layer,
+    Governance,
     Catalog,
     CatalogEntry,
     EvaluationContext,
     EvaluationContextSample,
     CustomLint,
-}
-
-#[derive(Debug)]
-pub struct QualifierLint {
-    pub root: PathBuf,
-    pub id: String,
-    pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug)]
@@ -153,12 +152,6 @@ pub struct CatalogLint {
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
-pub struct QualifierResolution {
-    pub id: String,
-    pub value: bool,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
 pub struct VariableResolution {
     pub id: String,
     pub value: serde_json::Value,
@@ -173,7 +166,7 @@ pub enum VariableResolutionSource {
         catalog: String,
         value: String,
     },
-    CatalogList {
+    CatalogArray {
         catalog: String,
         values: Vec<String>,
     },
@@ -200,6 +193,10 @@ pub struct SemanticChange {
     pub before_location: Option<DiagnosticLocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after_location: Option<DiagnosticLocation>,
+    /// Change-kind-specific classification, e.g. the bucket blast radius of
+    /// an allocation arms change.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -207,6 +204,56 @@ pub struct ResolutionImpact {
     pub variable: String,
     pub before: VariableResolution,
     pub after: VariableResolution,
+}
+
+/// A context for multi-context diff impact, carrying the display label the
+/// caller knows it by (a sample key, a synthesized-case id).
+#[derive(Clone, Debug)]
+pub struct LabeledContext {
+    pub label: String,
+    pub context: serde_json::Value,
+}
+
+/// The two-package diff evaluated under several contexts at once: one set of
+/// semantic changes, plus per-context resolution impacts. Review panels use
+/// this shape so an approver sees the same edit through every context that
+/// matters, with the comparison's honest scale attached.
+#[derive(Debug, serde::Serialize)]
+pub struct PackageDiffWithContexts {
+    pub before: String,
+    pub after: String,
+    pub changes: Vec<SemanticChange>,
+    pub context_impacts: Vec<ContextImpact>,
+    /// Set when either side cannot compile; semantic changes still stand,
+    /// resolution impacts cannot be computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact_error: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ContextImpact {
+    /// The caller's label for this context.
+    pub context: String,
+    pub impacts: Vec<OutcomeImpact>,
+    /// How many variables were compared under this context (present on both
+    /// sides, whether or not they changed).
+    pub compared: usize,
+}
+
+/// One variable whose outcome differs between the two packages under one
+/// context. Each side is either a resolution or the error that stopped it;
+/// a side absent entirely means the variable does not exist there.
+#[derive(Debug, serde::Serialize)]
+pub struct OutcomeImpact {
+    pub variable: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<VariableResolution>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<VariableResolution>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -227,7 +274,6 @@ pub enum DiagnosticCatalogScope {
 pub struct PackageInspectRequest {
     pub variables: InspectSelection,
     pub catalogs: InspectSelection,
-    pub qualifiers: InspectSelection,
     pub lint_rules: InspectSelection,
     pub lint_authorities: InspectSelection,
     pub linters: InspectSelection,
@@ -268,7 +314,6 @@ pub struct PackageInspectReport {
     pub evaluation_contexts: Vec<EvaluationContextInspectReport>,
     pub catalogs: Vec<CatalogInspectReport>,
     pub variables: Vec<VariableInspectReport>,
-    pub qualifiers: Vec<QualifierInspectReport>,
     pub lint_rules: Vec<LintRuleInspectReport>,
     pub lint_authorities: Vec<LintAuthorityInspectReport>,
     pub linters: Vec<LinterInspectReport>,
@@ -336,10 +381,61 @@ pub struct ValueInspectReport {
 
 #[derive(Debug, serde::Serialize)]
 pub struct ResolveInspectReport {
+    pub method: String,
     pub default_value: Option<serde_json::Value>,
     pub rules: Vec<RulePathwayInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<AllocationInspectReport>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AllocationInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eligibility: Option<String>,
+    pub arms: Vec<AllocationArmInspectReport>,
+    pub assigns: Vec<AssignInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AllocationArmInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AssignInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QueryInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -347,8 +443,6 @@ pub struct RulePathwayInspectReport {
     pub index: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
     pub value: Option<serde_json::Value>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
@@ -356,12 +450,12 @@ pub struct RulePathwayInspectReport {
 
 #[derive(Default, Debug, serde::Serialize)]
 pub struct DependencyInspectReport {
-    pub qualifiers: Vec<String>,
+    pub variables: Vec<String>,
     pub context_paths: Vec<String>,
     pub catalogs: Vec<String>,
 }
 
-/// How a single context attribute used by a qualifier or variable lines up with
+/// How a single context attribute used by a variable lines up with
 /// the evaluation context schemas: the scalar types the expression expects of
 /// it, where it is declared and with what type, and whether that agrees.
 #[derive(Debug, serde::Serialize)]
@@ -398,36 +492,6 @@ pub struct VariableSampleCoverageReport {
 pub struct RuleSampleCoverageReport {
     pub index: usize,
     pub covered: bool,
-}
-
-/// Whether the available evaluation context samples drive a qualifier to both
-/// outcomes. A qualifier never seen `true` or never seen `false` is an
-/// opportunity to add a sample for the missing case.
-#[derive(Debug, serde::Serialize)]
-pub struct QualifierSampleCoverageReport {
-    pub sample_count: usize,
-    pub evaluated_true: bool,
-    pub evaluated_false: bool,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct QualifierInspectReport {
-    pub id: String,
-    pub uri: String,
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub evaluation_contexts: Vec<String>,
-    pub context_attributes: Vec<ContextAttributeInspectReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub when: Option<String>,
-    pub dependencies: DependencyInspectReport,
-    pub consumers: Vec<ReferenceInspectReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sample_coverage: Option<QualifierSampleCoverageReport>,
-    pub diagnostics: Vec<LintDiagnostic>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trace: Option<QualifierResolutionTrace>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -495,52 +559,47 @@ pub struct LinterRegistrationInspectReport {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct QualifierResolutionTrace {
-    pub id: String,
-    pub when: String,
-    pub value: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PredicateResolutionTrace {
-    pub index: usize,
-    pub kind: String,
-    pub attribute: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub op: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub not: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expected: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub actual: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bucket: Option<BucketResolutionTrace>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub qualifier: Option<String>,
-    pub result: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct BucketResolutionTrace {
-    pub salt: String,
-    pub start: i64,
-    pub end: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<u16>,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
 pub struct VariableResolutionTrace {
     pub resolution: VariableResolution,
     pub default_value: serde_json::Value,
     pub default_source: VariableResolutionSource,
     pub rules: Vec<VariableRuleResolutionTrace>,
-    pub qualifier_traces: Vec<QualifierResolutionTrace>,
+    /// The layer whose `[resolve]` block produced this resolution, when the
+    /// package was composed from layers. One field, not a rule-stack walk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
+    /// The arm assignment behind a `method = "allocation"` resolution: which
+    /// layer and allocation were consulted, whether the unit was enrolled, and
+    /// which bucket and arm it landed in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<VariableAllocationTrace>,
+}
+
+/// One variable's traced resolution in a lenient batch: either the trace or
+/// the error that stopped it. A variable whose rules read a context key the
+/// caller did not supply fails alone instead of failing the whole batch,
+/// which is what lets a package overview stay honest about partial contexts.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VariableTraceOutcome {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<VariableResolutionTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct VariableAllocationTrace {
+    pub layer: String,
+    pub allocation: String,
+    /// False when the allocation is not running or the unit failed the
+    /// eligibility gate; the variable then resolves to its default.
+    pub enrolled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

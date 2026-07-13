@@ -1,0 +1,9 @@
+email_subject = "welcome#/variants/default/subject"
+message_template = "sms_payment_failed#/body"
+external_ref_template = "welcome#/body"
+ref_template = "welcome#/body"
+
+[object_template]
+catalog = "sms_template"
+entry = "sms_payment_failed"
+pointer = "/body"

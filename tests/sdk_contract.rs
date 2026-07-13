@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use rototo::{EvaluationContext, Package};
+use rototo::{EvaluationContext, LoadOptions, Package};
 
 #[derive(Debug, Deserialize)]
 struct ContractCase {
@@ -10,6 +10,10 @@ struct ContractCase {
     package: String,
     operation: String,
     id: Option<String>,
+    fallback: Option<String>,
+    catalog: Option<String>,
+    entry: Option<String>,
+    address: Option<String>,
     #[serde(default)]
     context: JsonValue,
     expect: ContractExpectation,
@@ -72,18 +76,6 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 "diagnostics": lint.diagnostics.len(),
             }))
         }
-        "resolve_qualifier" => {
-            let package = Package::load(&case.package)
-                .await
-                .map_err(|err| err.to_string())?;
-            let context = EvaluationContext::from_json(case.context.clone())
-                .map_err(|err| err.to_string())?;
-            let id = case_id(case)?;
-            let resolution = package
-                .resolve_qualifier(id, &context)
-                .map_err(|err| err.to_string())?;
-            serde_json::to_value(resolution).map_err(|err| err.to_string())
-        }
         "resolve_variable" => {
             let package = Package::load(&case.package)
                 .await
@@ -96,6 +88,19 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
         }
+        "load_package_with_fallback" => {
+            let fallback = case
+                .fallback
+                .as_deref()
+                .ok_or_else(|| format!("contract case `{}` is missing fallback", case.name))?;
+            let package = Package::load_with_options(
+                &case.package,
+                LoadOptions::new().with_fallback_source(fallback),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            Ok(serde_json::json!({ "servedFallback": package.served_fallback() }))
+        }
         "package_identity" => {
             let package = Package::load(&case.package)
                 .await
@@ -105,6 +110,44 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 "releaseId": identity.release_id,
                 "immutable": identity.immutable,
             }))
+        }
+        "read_entry" => {
+            let package = Package::load(&case.package)
+                .await
+                .map_err(|err| err.to_string())?;
+            let catalog = case
+                .catalog
+                .as_deref()
+                .ok_or_else(|| format!("contract case `{}` is missing catalog", case.name))?;
+            let entry = case
+                .entry
+                .as_deref()
+                .ok_or_else(|| format!("contract case `{}` is missing entry", case.name))?;
+            let value = package
+                .read_entry(catalog, entry)
+                .map_err(|err| err.to_string())?;
+            Ok(serde_json::json!({ "value": value }))
+        }
+        "read_list" => {
+            let package = Package::load(&case.package)
+                .await
+                .map_err(|err| err.to_string())?;
+            let id = case_id(case)?;
+            let config = package.read_list(id).map_err(|err| err.to_string())?;
+            Ok(config.to_json())
+        }
+        "resolve_reference" => {
+            let package = Package::load(&case.package)
+                .await
+                .map_err(|err| err.to_string())?;
+            let address = case
+                .address
+                .as_deref()
+                .ok_or_else(|| format!("contract case `{}` is missing address", case.name))?;
+            let value = package
+                .resolve_reference_at(address)
+                .map_err(|err| err.to_string())?;
+            Ok(serde_json::json!({ "value": value }))
         }
         operation => Err(format!("unsupported contract operation: {operation}")),
     }

@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Welcome message selected by runtime condition"
+type = "string"
+
+[resolve]
+default = "Welcome back."
+
+[[resolve.rule]]
+when = 'variables["premium_users"]'
+value = "Welcome back, premium member."

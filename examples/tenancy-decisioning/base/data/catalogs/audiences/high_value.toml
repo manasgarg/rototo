@@ -1,0 +1,3 @@
+name = "High-value customers"
+description = "Visitors with meaningful lifetime spend"
+min_lifetime_spend = 500

@@ -1,0 +1,17 @@
+schema_version = 1
+
+description = "Call-to-action copy on the checkout button"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy_test"
+default = "Place order"
+
+[[resolve.assign]]
+arm = "control"
+value = "Place order"
+
+[[resolve.assign]]
+arm = "benefit_led"
+value = "Place order, arrives in 2 days"

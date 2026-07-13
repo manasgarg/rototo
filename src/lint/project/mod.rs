@@ -1,8 +1,10 @@
 mod catalog;
 mod evaluation_context;
 mod fields;
+mod governance;
+mod layers;
+mod lists;
 mod manifest;
-mod qualifier;
 mod variable;
 
 use super::index::{CustomLintFileNode, SemanticIndex};
@@ -22,14 +24,6 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                 };
                 index.manifest = Some(manifest::project_manifest(document, toml));
             }
-            DocumentKind::Qualifier { id } => {
-                let Some(toml) = syntax.toml.get(&document.id) else {
-                    continue;
-                };
-                index
-                    .qualifiers
-                    .insert(id.clone(), qualifier::project_qualifier(document, toml, id));
-            }
             DocumentKind::Variable { id } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
@@ -37,6 +31,28 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                 index
                     .variables
                     .insert(id.clone(), variable::project_variable(document, toml, id));
+            }
+            DocumentKind::List { id } => {
+                let Some(toml) = syntax.toml.get(&document.id) else {
+                    continue;
+                };
+                index
+                    .lists
+                    .insert(id.clone(), lists::project_list(document, toml, id));
+            }
+            DocumentKind::Governance => {
+                let Some(toml) = syntax.toml.get(&document.id) else {
+                    continue;
+                };
+                index.governance = Some(governance::project_governance(document, toml));
+            }
+            DocumentKind::Layer { id } => {
+                let Some(toml) = syntax.toml.get(&document.id) else {
+                    continue;
+                };
+                index
+                    .layers
+                    .insert(id.clone(), layers::project_layer(document, toml, id));
             }
             DocumentKind::Catalog { id } => {
                 index

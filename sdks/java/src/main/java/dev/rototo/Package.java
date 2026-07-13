@@ -24,7 +24,11 @@ public final class Package implements AutoCloseable {
                 () -> new Package(Native.packageLoadNative(
                         source,
                         resolved.packageToken(),
-                        resolved.lint().wireValue())),
+                        resolved.lint().wireValue(),
+                        resolved.fallbackSource(),
+                        resolved.packageTokens() == null
+                                ? null
+                                : Json.stringify(resolved.packageTokens()))),
                 Rototo.executor());
     }
 
@@ -44,6 +48,14 @@ public final class Package implements AutoCloseable {
 
     public String root() {
         return Native.packageRootNative(openHandle());
+    }
+
+    /**
+     * True when this package was loaded from the fallback source because the
+     * primary source failed.
+     */
+    public boolean servedFallback() {
+        return Native.packageServedFallbackNative(openHandle());
     }
 
     public PackageIdentity identity() {
@@ -86,26 +98,48 @@ public final class Package implements AutoCloseable {
                 value.get("source"));
     }
 
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context) {
-        return resolveQualifier(id, context, ResolveOptions.defaults());
+    /** Every list id in the loaded package. */
+    public java.util.List<String> listIds() {
+        String json = Native.packageListIdsNative(openHandle());
+        return Json.asStringList(Json.parse(json));
     }
 
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context,
-            ResolveOptions options) {
+    /** One list: id, description, memberType, and members. */
+    public Map<String, Object> readList(String id) {
         Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(context, "context");
-        ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
-        String json = Native.packageResolveQualifierNative(
-                openHandle(),
-                id,
-                Json.stringify(context),
-                resolved.validateContext(),
-                resolved.trace());
-        return Json.asBoolean(Json.parse(json));
+        String json = Native.packageReadListNative(openHandle(), id);
+        return Json.asObject(Json.parse(json));
+    }
+
+    /** Every entry id of one catalog. */
+    public java.util.List<String> entryIds(String catalog) {
+        Objects.requireNonNull(catalog, "catalog");
+        String json = Native.packageEntryIdsNative(openHandle(), catalog);
+        return Json.asStringList(Json.parse(json));
+    }
+
+    /** One raw catalog entry, exactly as authored. */
+    public Object readEntry(String catalog, String entry) {
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(entry, "entry");
+        String json = Native.packageReadEntryNative(openHandle(), catalog, entry);
+        return Json.parse(json);
+    }
+
+    /** Follow one reference by address: catalog=email_template:entry=welcome#/body. */
+    public Object resolveReference(String address) {
+        Objects.requireNonNull(address, "address");
+        String json = Native.packageResolveReferenceNative(openHandle(), address);
+        return Json.parse(json);
+    }
+
+    /** Follow a raw entry-reference string against its pinned catalogs. */
+    public Object resolveEntryRef(String value, java.util.List<String> pins) {
+        Objects.requireNonNull(value, "value");
+        Objects.requireNonNull(pins, "pins");
+        String json = Native.packageResolveEntryRefNative(
+                openHandle(), value, Json.stringify(pins));
+        return Json.parse(json);
     }
 
     @Override

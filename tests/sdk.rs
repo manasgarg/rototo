@@ -7,9 +7,9 @@ use rototo::model::VariableResolutionSource;
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, Package, RefreshEvent, RefreshEventType,
     RefreshOptions, RefreshOutcome, RefreshingPackage, ResolveOptions, SourceOptions,
-    TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package,
-    lint_package, lint_qualifier, list_catalogs, list_variables, read_catalog, read_qualifiers,
-    read_variable, read_variables, resolve_qualifier, resolve_variable, stage_package_source,
+    TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_catalogs,
+    inspect_package, inspect_variables, lint_package, lint_variable, read_catalog, read_variable,
+    read_variables, resolve_variable, stage_package_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -40,7 +40,7 @@ fn assert_catalog_source(source: &VariableResolutionSource, catalog: &str, value
             assert_eq!(actual_value, value);
         }
         VariableResolutionSource::Literal => panic!("expected catalog-backed resolution source"),
-        VariableResolutionSource::CatalogList { .. } => {
+        VariableResolutionSource::CatalogArray { .. } => {
             panic!("expected scalar catalog-backed resolution source")
         }
     }
@@ -152,28 +152,26 @@ async fn sdk_inspects_package() {
 
     assert!(
         inspection
-            .qualifiers
+            .variables
             .iter()
-            .any(|qualifier| qualifier.uri == "qualifier://premium-users")
+            .any(|variable| variable.uri == "variable://premium_users")
     );
     assert!(
         inspection
             .variables
             .iter()
-            .any(|variable| variable.uri == "variable://checkout-redesign")
+            .any(|variable| variable.uri == "variable://checkout_redesign")
     );
     assert!(
-        inspection
-            .evaluation_contexts
-            .iter()
-            .any(|context| context.path
-                == std::path::Path::new("evaluation-contexts/request.schema.json"))
+        inspection.evaluation_contexts.iter().any(
+            |context| context.path == std::path::Path::new("model/context/request.schema.json")
+        )
     );
     assert!(
         inspection
             .linters
             .iter()
-            .any(|linter| linter.id == "checkout-redesign")
+            .any(|linter| linter.id == "checkout_redesign")
     );
 }
 
@@ -185,8 +183,8 @@ async fn sdk_lints_package() {
 }
 
 #[tokio::test]
-async fn sdk_lints_qualifier() {
-    let lint = lint_qualifier("examples/basic".as_ref(), "premium-users")
+async fn sdk_lints_condition_variable() {
+    let lint = lint_variable("examples/basic".as_ref(), "premium_users")
         .await
         .unwrap();
 
@@ -194,36 +192,36 @@ async fn sdk_lints_qualifier() {
 }
 
 #[tokio::test]
-async fn sdk_lists_variables_for_apps() {
-    let variables = list_variables("examples/basic".as_ref()).await.unwrap();
+async fn sdk_inspects_variables_for_apps() {
+    let variables = inspect_variables("examples/basic".as_ref()).await.unwrap();
 
     assert!(variables.len() > 2);
     assert!(
         variables
             .iter()
-            .any(|variable| variable.uri == "variable://checkout-redesign")
+            .any(|variable| variable.uri == "variable://checkout_redesign")
     );
 }
 
 #[tokio::test]
-async fn sdk_lists_catalogs_for_apps() {
-    let catalogs = list_catalogs("examples/basic".as_ref()).await.unwrap();
+async fn sdk_inspects_catalogs_for_apps() {
+    let catalogs = inspect_catalogs("examples/basic".as_ref()).await.unwrap();
 
     assert!(catalogs.len() > 2);
     assert!(
         catalogs
             .iter()
-            .any(|catalog| catalog.uri == "catalog://checkout-redesign")
+            .any(|catalog| catalog.uri == "catalog://checkout_redesign")
     );
 }
 
 #[tokio::test]
 async fn sdk_reads_variable_config() {
-    let variable = read_variable("examples/basic".as_ref(), "checkout-redesign")
+    let variable = read_variable("examples/basic".as_ref(), "checkout_redesign")
         .await
         .unwrap();
 
-    assert_eq!(variable.id, "checkout-redesign");
+    assert_eq!(variable.id, "checkout_redesign");
     assert_eq!(
         variable.value["description"],
         "Checkout page content and layout variant"
@@ -232,17 +230,17 @@ async fn sdk_reads_variable_config() {
 
 #[tokio::test]
 async fn sdk_reads_catalog_config() {
-    let catalog = read_catalog("examples/basic".as_ref(), "checkout-redesign")
+    let catalog = read_catalog("examples/basic".as_ref(), "checkout_redesign")
         .await
         .unwrap();
 
-    assert_eq!(catalog.id, "checkout-redesign");
+    assert_eq!(catalog.id, "checkout_redesign");
     assert_eq!(catalog.value["entries"]["premium"]["variant"], "premium");
 }
 
 #[tokio::test]
 async fn sdk_reads_primitive_variable_values() {
-    let variable = read_variable("examples/basic".as_ref(), "premium-message")
+    let variable = read_variable("examples/basic".as_ref(), "premium_message")
         .await
         .unwrap();
 
@@ -264,8 +262,9 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
             "variable://{} should not declare inline values",
             variable.id
         );
+        let is_query = variable.value["resolve"]["method"] == "query";
         assert!(
-            variable.value["resolve"].get("default").is_some(),
+            is_query || variable.value["resolve"].get("default").is_some(),
             "variable://{} should declare a direct default value",
             variable.id
         );
@@ -274,16 +273,11 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
 
 #[tokio::test]
 async fn catalog_entry_files_are_whole_toml_objects() {
-    let catalogs_dir = std::path::Path::new("examples/basic/catalogs");
+    let catalogs_dir = std::path::Path::new("examples/basic/data/catalogs");
     for entry in std::fs::read_dir(catalogs_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if !path.is_dir()
-            || !path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with("-entries"))
-        {
+        if !path.is_dir() {
             continue;
         }
 
@@ -328,8 +322,8 @@ async fn sdk_sample_app_runs() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("premium-users: true"))
-        .stdout(predicate::str::contains("enterprise-accounts: true"))
+        .stdout(predicate::str::contains("premium_users: true"))
+        .stdout(predicate::str::contains("enterprise_accounts: true"))
         .stdout(predicate::str::contains("checkout variant: premium"))
         .stdout(predicate::str::contains("agent model: gpt-5"))
         .stdout(predicate::str::contains(
@@ -338,14 +332,14 @@ async fn sdk_sample_app_runs() {
 }
 
 #[tokio::test]
-async fn sdk_reads_all_qualifier_configs() {
-    let qualifiers = read_qualifiers("examples/basic".as_ref()).await.unwrap();
+async fn sdk_reads_condition_variable_configs() {
+    let variables = read_variables("examples/basic".as_ref()).await.unwrap();
 
-    assert!(qualifiers.len() > 1);
+    assert!(variables.len() > 1);
     assert!(
-        qualifiers
+        variables
             .iter()
-            .any(|qualifier| qualifier.uri == "qualifier://premium-users")
+            .any(|variable| variable.uri == "variable://premium_users")
     );
 }
 
@@ -354,11 +348,11 @@ async fn sdk_reads_diagnostic_catalog() {
     let catalog = diagnostics_catalog_for_package("examples/basic".as_ref())
         .await
         .unwrap();
-    let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();
+    let diagnostic = diagnostic_for_rule(&catalog, "rototo/variable-parse-failed").unwrap();
 
     assert_eq!(
         diagnostic.entity,
-        Some(rototo::diagnostics::DiagnosticEntity::Qualifier)
+        Some(rototo::diagnostics::DiagnosticEntity::Variable)
     );
 }
 
@@ -374,7 +368,7 @@ async fn package_sdk_loads_file_source() {
             .inspection()
             .variables
             .iter()
-            .any(|variable| variable.id == "checkout-redesign")
+            .any(|variable| variable.id == "checkout_redesign")
     );
 }
 
@@ -495,7 +489,7 @@ async fn refreshing_package_refreshes_when_parent_layer_changes() {
     )
     .await
     .unwrap();
-    write_string_variable(&base, "base-only", "before").await;
+    write_string_variable(&base, "base_only", "before").await;
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
@@ -506,7 +500,7 @@ extends = ["../base"]
     )
     .await
     .unwrap();
-    write_string_variable(&child, "child-only", "child").await;
+    write_string_variable(&child, "child_only", "child").await;
 
     let package = RefreshingPackage::load(child.to_string_lossy(), RefreshOptions::new())
         .await
@@ -515,13 +509,13 @@ extends = ["../base"]
 
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
         "before"
     );
 
-    write_string_variable(&base, "base-only", "after").await;
+    write_string_variable(&base, "base_only", "after").await;
 
     assert_eq!(
         package.refresh_now().await.unwrap(),
@@ -529,7 +523,7 @@ extends = ["../base"]
     );
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
         "after"
@@ -738,18 +732,18 @@ async fn package_source_rejects_http_archive_source() {
 }
 
 #[tokio::test]
-async fn sdk_resolves_qualifier() {
+async fn sdk_resolves_condition_variable() {
     let context = serde_json::json!({
         "user": {
             "tier": "premium"
         }
     });
 
-    let matches = resolve_qualifier("examples/basic".as_ref(), "premium-users", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium_users", &context)
         .await
         .unwrap();
 
-    assert!(matches);
+    assert_eq!(resolution.value, serde_json::json!(true));
 }
 
 #[tokio::test]
@@ -760,11 +754,11 @@ async fn sdk_resolves_variable() {
         }
     });
 
-    let resolution = resolve_variable("examples/basic".as_ref(), "checkout-redesign", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "checkout_redesign", &context)
         .await
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
     assert_eq!(resolution.value["variant"], "premium");
 }
 
@@ -776,7 +770,7 @@ async fn sdk_resolves_primitive_variable() {
         }
     });
 
-    let resolution = resolve_variable("examples/basic".as_ref(), "premium-message", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium_message", &context)
         .await
         .unwrap();
 
@@ -820,7 +814,13 @@ async fn package_sdk_loads_layered_package_with_child_overrides() {
     .await
     .unwrap();
     write_string_variable(&base, "message", "base").await;
-    write_string_variable(&base, "base-only", "base-only").await;
+    write_string_variable(&base, "base_only", "base_only").await;
+    tokio::fs::write(
+        base.join("governance.toml"),
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await
+    .unwrap();
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
@@ -831,8 +831,16 @@ extends = ["../base"]
     )
     .await
     .unwrap();
-    write_string_variable(&child, "message", "child").await;
-    write_string_variable(&child, "child-only", "child-only").await;
+    tokio::fs::create_dir_all(child.join("variables"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        child.join("variables/message.update.toml"),
+        "[resolve]\ndefault = \"child\"\n",
+    )
+    .await
+    .unwrap();
+    write_string_variable(&child, "child_only", "child_only").await;
 
     let package = Package::load(child.to_str().unwrap()).await.unwrap();
     let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
@@ -844,17 +852,17 @@ extends = ["../base"]
     );
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
-        "base-only"
+        "base_only"
     );
     assert_eq!(
         package
-            .resolve_variable("child-only", &context)
+            .resolve_variable("child_only", &context)
             .unwrap()
             .value,
-        "child-only"
+        "child_only"
     );
 }
 
@@ -869,11 +877,11 @@ async fn package_sdk_rejects_package_when_lint_fails() {
 
 #[tokio::test]
 async fn package_sdk_loads_package_when_lint_only_warns() {
-    let package = Package::load("tests/fixtures/packages/rules/graph/qualifier-unreferenced")
+    let package = Package::load("tests/fixtures/packages/rules/graph/variable-rule-shadowed")
         .await
         .unwrap();
 
-    assert_eq!(package.inspection().qualifiers[0].id, "unused");
+    assert!(!package.inspection().variables.is_empty());
 }
 
 #[tokio::test]
@@ -896,10 +904,10 @@ async fn package_sdk_resolves_with_context_contract() {
     .unwrap();
 
     let resolution = package
-        .resolve_variable("checkout-redesign", &context)
+        .resolve_variable("checkout_redesign", &context)
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
 }
 
 #[tokio::test]
@@ -911,7 +919,7 @@ async fn package_sdk_validates_evaluation_context_against_schema() {
     .unwrap();
 
     let err = package
-        .resolve_qualifier("premium-users", &context)
+        .resolve_variable("premium_users", &context)
         .unwrap_err();
 
     assert!(
@@ -931,10 +939,14 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
     .unwrap();
 
     let err = package
-        .resolve_qualifier("premium-users", &context)
+        .resolve_variable("premium_users", &context)
         .unwrap_err();
 
-    assert!(err.to_string().contains("No such key"));
+    assert!(
+        err.to_string()
+            .contains("reads context.user.tier, which the given context does not carry"),
+        "unexpected error: {err}"
+    );
 }
 
 #[tokio::test]
@@ -950,7 +962,7 @@ async fn package_sdk_resolves_from_context_only() {
 
     let resolution = package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -959,7 +971,7 @@ async fn package_sdk_resolves_from_context_only() {
         )
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
 }
 
 #[tokio::test]
@@ -972,7 +984,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
     .unwrap();
 
     let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
-    let err = package.resolve_qualifier("anything", &context).unwrap_err();
+    let err = package.resolve_variable("anything", &context).unwrap_err();
     assert!(err.to_string().contains("loaded without a runtime model"));
 }
 
@@ -981,7 +993,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
 async fn package_sdk_rejects_context_schema_symlink_escape() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("package");
-    tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+    tokio::fs::create_dir_all(root.join("model/context"))
         .await
         .unwrap();
     tokio::fs::write(
@@ -999,7 +1011,7 @@ async fn package_sdk_rejects_context_schema_symlink_escape() {
     .unwrap();
     std::os::unix::fs::symlink(
         temp.path().join("outside.schema.json"),
-        root.join("evaluation-contexts/request.schema.json"),
+        root.join("model/context/request.schema.json"),
     )
     .unwrap();
 
@@ -1038,9 +1050,9 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
     }))
     .unwrap();
 
-    let matches = package
-        .resolve_qualifier_with_options(
-            "premium-users",
+    let resolution = package
+        .resolve_variable_with_options(
+            "premium_users",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1049,7 +1061,7 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
         )
         .unwrap();
 
-    assert!(!matches);
+    assert_eq!(resolution.value, serde_json::json!(false));
 }
 
 async fn git_package_repo(message: &str) -> (tempfile::TempDir, std::path::PathBuf, String) {
@@ -1223,6 +1235,7 @@ async fn refreshing_package_snapshot_includes_identity_and_last_event() {
 
     let json = snapshot.to_json();
     assert_eq!(json["immutable"], serde_json::json!(false));
+    assert_eq!(json["servingFallback"], serde_json::json!(false));
     assert!(
         json["identity"]["releaseId"]
             .as_str()
@@ -1291,7 +1304,7 @@ async fn app_requested_trace_is_emitted_to_subscriber() {
     .unwrap();
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &nonmatching,
             ResolveOptions {
                 validate_context: false,
@@ -1308,7 +1321,7 @@ async fn app_requested_trace_is_emitted_to_subscriber() {
     assert!(event.provenance.policies.is_empty());
     let json = event.to_json();
     assert_eq!(json["targetKind"], serde_json::json!("variable"));
-    assert_eq!(json["targetId"], serde_json::json!("checkout-redesign"));
+    assert_eq!(json["targetId"], serde_json::json!("checkout_redesign"));
     assert_eq!(json["provenance"]["appRequested"], serde_json::json!(true));
     // The full execution detail and request context ride along.
     assert!(json["detail"]["resolution"].is_object());
@@ -1330,7 +1343,7 @@ async fn package_trace_policy_emits_for_matching_resolution() {
     // env.resolving.variable and context.user.id both match.
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1358,7 +1371,7 @@ async fn package_trace_policy_does_not_emit_for_other_users() {
 
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1382,7 +1395,7 @@ async fn resolving_without_subscribers_skips_tracing() {
     // No subscriber: resolution still succeeds and the policy is never emitted.
     let resolution = package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1390,22 +1403,22 @@ async fn resolving_without_subscribers_skips_tracing() {
             },
         )
         .unwrap();
-    assert_eq!(resolution.id, "checkout-redesign");
+    assert_eq!(resolution.id, "checkout_redesign");
 }
 
 #[tokio::test]
 async fn env_resolving_outside_trace_policy_is_rejected() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("pkg");
-    tokio::fs::create_dir_all(root.join("qualifiers"))
+    tokio::fs::create_dir_all(root.join("variables"))
         .await
         .unwrap();
     tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
         .await
         .unwrap();
     tokio::fs::write(
-        root.join("qualifiers/leaky.toml"),
-        "schema_version = 1\nwhen = 'env.resolving.variable == \"x\"'\n",
+        root.join("variables/leaky.toml"),
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n\n[[resolve.rule]]\nwhen = 'env.resolving.variable == \"x\"'\nvalue = true\n",
     )
     .await
     .unwrap();
@@ -1421,9 +1434,589 @@ async fn env_resolving_outside_trace_policy_is_rejected() {
     let lint = lint_package(root.as_path()).await.unwrap();
     assert!(
         lint.diagnostics.iter().any(|diagnostic| {
-            diagnostic.rule.as_string() == "rototo/qualifier-when-invalid-reference"
+            diagnostic.rule.as_string() == "rototo/variable-rule-invalid-reference"
                 && diagnostic.message.contains("env.resolving")
         }),
         "expected env.resolving rejection diagnostic"
     );
+}
+
+#[tokio::test]
+async fn package_loads_the_fallback_when_the_primary_is_unavailable() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    let primary = temp.path().join("does-not-exist");
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(package.served_fallback());
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+}
+
+#[tokio::test]
+async fn package_falls_back_when_the_primary_fails_lint() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    tokio::fs::create_dir_all(&primary).await.unwrap();
+    // Missing schema_version fails lint under the default LintMode::Deny.
+    tokio::fs::write(primary.join("rototo-package.toml"), "name = \"broken\"\n")
+        .await
+        .unwrap();
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(package.served_fallback());
+}
+
+#[tokio::test]
+async fn package_prefers_a_healthy_primary_over_the_fallback() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&primary, "primary").await;
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(!package.served_fallback());
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "primary");
+}
+
+#[tokio::test]
+async fn package_load_error_names_both_attempts_when_both_fail() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("missing-fallback");
+
+    let err = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    // One error, primary attempt first, both sources and reasons named.
+    assert!(err.contains("missing-primary"), "{err}");
+    assert!(err.contains("also failed"), "{err}");
+    assert!(err.contains("missing-fallback"), "{err}");
+    let primary_index = err.find("missing-primary").unwrap();
+    let fallback_index = err.find("missing-fallback").unwrap();
+    assert!(primary_index < fallback_index, "{err}");
+}
+
+#[tokio::test]
+async fn refreshing_package_starts_on_the_fallback_and_recovers_the_primary() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    // The primary exists but is corrupted at startup.
+    tokio::fs::create_dir_all(&primary).await.unwrap();
+    tokio::fs::write(primary.join("rototo-package.toml"), "not = [valid")
+        .await
+        .unwrap();
+
+    let package = RefreshingPackage::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+        RefreshOptions::new(),
+    )
+    .await
+    .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    // Serving the fallback, and saying so.
+    assert!(package.status().serving_fallback());
+    assert!(package.current().served_fallback());
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+
+    // The startup event is fallback_loaded and carries the primary failure.
+    let snapshot = package.snapshot();
+    assert_eq!(
+        snapshot.to_json()["servingFallback"],
+        serde_json::json!(true)
+    );
+    let last_event = snapshot.last_event.unwrap();
+    assert_eq!(last_event.event_type, RefreshEventType::FallbackLoaded);
+    assert!(snapshot.serving_fallback);
+    assert!(package.status().last_error.is_some());
+
+    // Refresh keeps targeting the primary; recovery is an ordinary refresh.
+    write_minimal_package_with_message(&primary, "primary").await;
+    assert_eq!(
+        package.refresh_now().await.unwrap(),
+        RefreshOutcome::Refreshed
+    );
+    assert!(!package.status().serving_fallback());
+    assert!(!package.current().served_fallback());
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "primary");
+}
+
+#[tokio::test]
+async fn refreshing_package_on_fallback_keeps_serving_while_the_primary_stays_down() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = RefreshingPackage::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+        RefreshOptions::new(),
+    )
+    .await
+    .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    // A refresh attempt against the still-missing primary fails without
+    // falling back again or disturbing the serving package.
+    assert!(package.refresh_now().await.is_err());
+    assert!(package.status().serving_fallback());
+    assert_eq!(package.status().consecutive_failures, 1);
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+}
+
+/// The fallback goes through the identical pipeline, lint gate included:
+/// there is no leniency for the degraded path. A lint-failing fallback is a
+/// failed fallback.
+#[tokio::test]
+async fn a_lint_failing_fallback_is_a_failed_fallback() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("bundled");
+    tokio::fs::create_dir_all(&fallback).await.unwrap();
+    // Missing schema_version fails lint under the default LintMode::Deny.
+    tokio::fs::write(fallback.join("rototo-package.toml"), "name = \"broken\"\n")
+        .await
+        .unwrap();
+
+    let err = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(err.contains("also failed"), "{err}");
+}
+
+/// Remote sources stage into temporary directories the Package owns: the
+/// staged checkout exists while the package is alive and is removed when the
+/// package is dropped.
+#[tokio::test]
+async fn dropping_a_package_removes_its_staged_checkout() {
+    let (_temp, _root, source) = git_package_repo("hello").await;
+
+    let package = Package::load(&source).await.unwrap();
+    let staged_root = package.root().to_path_buf();
+    assert!(tokio::fs::metadata(&staged_root).await.is_ok());
+
+    drop(package);
+    assert!(
+        tokio::fs::metadata(&staged_root).await.is_err(),
+        "staged checkout should be cleaned up: {}",
+        staged_root.display()
+    );
+}
+
+/// Hydration is for resolution, not for apps: a query's filter evaluates
+/// against the hydrated entry view (every x-rototo-ref form spliced in,
+/// pointer refs, multi-catalog refs, dynamic ref objects, and refs behind
+/// same-document and relative-file $ref indirection), while the value the
+/// app receives is the raw entry with only the id injected. Apps follow
+/// references explicitly (design/package-reflection.md).
+#[tokio::test]
+async fn query_predicates_see_hydrated_views_and_apps_get_raw_entries() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    let resolution = package
+        .resolve_variable("notification_policy", &context)
+        .unwrap();
+    let value = &resolution.value;
+
+    // The filter on notification_policy selected the entry through its
+    // HYDRATED view (see the fixture: it matches the spliced value, not
+    // the ref string), proving every ref form hydrates for predicates.
+    assert_eq!(value["id"], serde_json::json!("default"));
+
+    // The app-facing value is the raw entry: every ref field is exactly
+    // the string (or object) the package authored.
+    assert_eq!(
+        value["email_subject"],
+        serde_json::json!("welcome#/variants/default/subject")
+    );
+    assert_eq!(
+        value["message_template"],
+        serde_json::json!("sms_payment_failed#/body")
+    );
+    assert_eq!(
+        value["object_template"],
+        serde_json::json!({ "catalog": "sms_template", "entry": "sms_payment_failed", "pointer": "/body" })
+    );
+    assert_eq!(value["ref_template"], serde_json::json!("welcome#/body"));
+    assert_eq!(
+        value["external_ref_template"],
+        serde_json::json!("welcome#/body")
+    );
+}
+
+/// The same contract on the rules path: a rules- or default-selected
+/// catalog value reaches the app raw. Value shapes are method-independent,
+/// with "unhydrated" as the uniform answer.
+#[tokio::test]
+async fn rules_selected_catalog_values_reach_apps_raw() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    let resolution = package
+        .resolve_variable("notification_policy_by_rule", &context)
+        .unwrap();
+    assert_eq!(
+        resolution.value["email_subject"],
+        serde_json::json!("welcome#/variants/default/subject")
+    );
+}
+
+/// The unpacked projection and the archive are two encodings of one
+/// artifact: the archive's entries are exactly the projection's files with
+/// identical bytes (plus the deterministic sha256 name the archive carries).
+#[tokio::test]
+async fn unpacked_projection_matches_the_archive_contents() {
+    use std::io::Read;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let target = temp.path().join("projection");
+    let options = rototo::SourceOptions::default();
+
+    let written = rototo::project_package("examples/acme-overlay", &options, &target)
+        .await
+        .unwrap();
+    let archive = rototo::pack_package("examples/acme-overlay", &options)
+        .await
+        .unwrap();
+
+    let decoder = flate2::read::GzDecoder::new(archive.bytes.as_slice());
+    let mut tar = tar::Archive::new(decoder);
+    let mut archive_files = std::collections::BTreeMap::new();
+    for entry in tar.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let path = entry.path().unwrap().display().to_string();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        archive_files.insert(path, bytes);
+    }
+
+    let projected = written
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let archived = archive_files
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(projected, archived);
+
+    for (path, archive_bytes) in &archive_files {
+        let disk_bytes = tokio::fs::read(target.join(path)).await.unwrap();
+        assert_eq!(&disk_bytes, archive_bytes, "bytes differ for {path}");
+    }
+}
+
+/// Loading the projection resolves identically to loading the composed
+/// source: flattening is a change of representation, never of meaning.
+#[tokio::test]
+async fn projected_package_resolves_identically_to_the_composed_source() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let target = temp.path().join("projection");
+    rototo::project_package(
+        "examples/acme-overlay",
+        &rototo::SourceOptions::default(),
+        &target,
+    )
+    .await
+    .unwrap();
+
+    let composed = Package::load("examples/acme-overlay").await.unwrap();
+    let projected = Package::load(target.to_string_lossy()).await.unwrap();
+
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let ids = rototo::inspect_variables("examples/acme-overlay".as_ref())
+        .await
+        .unwrap();
+    assert!(!ids.is_empty());
+    for variable in &ids {
+        let left = composed.resolve_variable(&variable.id, &context);
+        let right = projected.resolve_variable(&variable.id, &context);
+        match (left, right) {
+            (Ok(left), Ok(right)) => {
+                assert_eq!(left.value, right.value, "value differs for {}", variable.id);
+            }
+            (Err(left), Err(right)) => {
+                assert_eq!(
+                    left.to_string(),
+                    right.to_string(),
+                    "error differs for {}",
+                    variable.id
+                );
+            }
+            (left, right) => panic!(
+                "outcome differs for {}: composed {:?}, projected {:?}",
+                variable.id,
+                left.map(|resolution| resolution.value),
+                right.map(|resolution| resolution.value)
+            ),
+        }
+    }
+}
+
+/// Pinned decision (matrix review finding 8, resolved keep-as-is): a bare
+/// token's single-origin binding spans the primary and fallback loads,
+/// because they share one SourceOptions. A primary archive attempt binds
+/// its origin even when the fetch fails, so an https fallback on a
+/// different origin is refused rather than receiving a token minted for
+/// the primary. Dual-archive fallbacks want scoped tokens; bundled local
+/// fallbacks (the recommended shape) never touch the binding.
+#[tokio::test]
+async fn bare_token_binding_spans_primary_and_fallback_archive_origins() {
+    // Both origins are unreachable loopback ports: the primary attempt
+    // still binds its origin at request-build time, before any I/O.
+    let package = Package::load_with_options(
+        "https://127.0.0.1:9/pkg.tar.gz",
+        LoadOptions::new()
+            .with_source_auth(rototo::SourceAuth::Bearer("secret".to_owned()))
+            .with_fallback_source("https://127.0.0.2:9/pkg.tar.gz"),
+    )
+    .await;
+
+    let err = package.unwrap_err().to_string();
+    assert!(err.contains("also failed"), "{err}");
+    assert!(
+        err.contains("a bare package token is bound to a single archive origin"),
+        "{err}"
+    );
+
+    // The same shape with a local fallback is unaffected: the binding
+    // guard never sees a second archive origin.
+    let temp = tempfile::TempDir::new().unwrap();
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    let package = Package::load_with_options(
+        "https://127.0.0.1:9/pkg.tar.gz",
+        LoadOptions::new()
+            .with_source_auth(rototo::SourceAuth::Bearer("secret".to_owned()))
+            .with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+    assert!(package.served_fallback());
+}
+
+/// Namespaced catalog entries resolve end to end: the entry id is the
+/// path under the catalog's data directory, and variables reference it as
+/// written.
+#[tokio::test]
+async fn namespaced_catalog_entries_resolve() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    for (path, text) in [
+        ("rototo-package.toml", "schema_version = 1\n"),
+        (
+            "model/catalogs/banner.schema.json",
+            r#"{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}"#,
+        ),
+        ("data/catalogs/banner/default.toml", "message = \"hello\"\n"),
+        (
+            "data/catalogs/banner/promo/summer.toml",
+            "message = \"sunny\"\n",
+        ),
+        (
+            "variables/active_banner.toml",
+            "schema_version = 1\ntype = \"catalog=banner\"\n\n[resolve]\ndefault = \"promo/summer\"\n",
+        ),
+    ] {
+        let full = root.join(path);
+        tokio::fs::create_dir_all(full.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(full, text).await.unwrap();
+    }
+
+    let package = Package::load(root.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("active_banner", &context).unwrap();
+    assert_eq!(resolution.value["message"], serde_json::json!("sunny"));
+}
+
+/// The reflection surface: discovery lists what the package offers, lookup
+/// follows one reference the way hydration would have, and the visitor
+/// reports every reference in a value so an app hydrates selectively.
+#[tokio::test]
+async fn reflection_discovers_looks_up_and_walks_references() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+
+    // Discovery.
+    let mut catalogs: Vec<String> = vec![];
+    for catalog in ["email_template", "policy", "sms_template"] {
+        catalogs.push(catalog.to_owned());
+    }
+    assert_eq!(package.entry_ids("policy").unwrap(), vec!["default"]);
+    let entry = package.read_entry("policy", "default").unwrap();
+    // Raw, no id injection, refs exactly as authored.
+    assert!(entry.get("id").is_none());
+    assert_eq!(entry["ref_template"], serde_json::json!("welcome#/body"));
+
+    // Lookup, every reference form.
+    assert_eq!(
+        package
+            .resolve_reference_at("catalog=email_template:entry=welcome#/body")
+            .unwrap(),
+        serde_json::json!("Welcome body")
+    );
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_entry_ref(
+                    "welcome#/variants/default/subject",
+                    &["email_template"],
+                )
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Default welcome")
+    );
+    // Multi-catalog pins: the first catalog containing the entry wins.
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_entry_ref(
+                    "sms_payment_failed#/body",
+                    &["email_template", "sms_template"],
+                )
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Payment failed")
+    );
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_dynamic(&serde_json::json!({
+                    "catalog": "sms_template",
+                    "entry": "sms_payment_failed",
+                    "pointer": "/body"
+                }))
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Payment failed")
+    );
+
+    // The visitor reports every reference in the raw entry, including the
+    // ones reached through $ref indirection, without splicing anything.
+    let references = package.references_in("policy", &entry).unwrap();
+    let pointers: Vec<&str> = references
+        .iter()
+        .map(|(pointer, _)| pointer.as_str())
+        .collect();
+    for expected in [
+        "/email_subject",
+        "/message_template",
+        "/object_template",
+        "/ref_template",
+        "/external_ref_template",
+    ] {
+        assert!(pointers.contains(&expected), "{pointers:?}");
+    }
+    // Following a reported reference yields the referenced value.
+    let (_, subject_ref) = references
+        .iter()
+        .find(|(pointer, _)| pointer == "/email_subject")
+        .unwrap();
+    assert_eq!(
+        package.resolve_reference(subject_ref).unwrap(),
+        serde_json::json!("Default welcome")
+    );
+
+    // Errors name addresses.
+    let err = package
+        .resolve_reference_at("catalog=email_template:entry=missing")
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("catalog=email_template:entry=missing"),
+        "{err}"
+    );
+    let err = package
+        .resolve_reference_at("catalog=email_template:entry=welcome#/missing")
+        .unwrap_err();
+    assert!(err.to_string().contains("missing path"), "{err}");
+}
+
+/// The billing story after unhydrated app values: resolve the plan, get raw
+/// entitlement refs, follow the ones the app renders.
+#[tokio::test]
+async fn billing_entitlements_follow_through_the_lookup_surface() {
+    let package = Package::load("examples/billing").await.unwrap();
+    let context = EvaluationContext::from_json(
+        serde_json::json!({ "account": { "plan_tier": "business", "currency": "usd" } }),
+    )
+    .unwrap();
+    let plan = package.resolve_variable("active_plan", &context).unwrap();
+
+    let features = plan.value["features"].as_array().unwrap();
+    let sso_ref = features
+        .iter()
+        .find(|feature| feature.as_str() == Some("sso"))
+        .and_then(|feature| feature.as_str())
+        .unwrap();
+    let feature = package
+        .resolve_reference(&rototo::ValueRef::from_entry_ref(sso_ref, &["features"]).unwrap())
+        .unwrap();
+    assert_eq!(feature["name"], serde_json::json!("Single sign-on"));
+}
+
+/// List reflection: contract and members through one read.
+#[tokio::test]
+async fn reflection_reads_lists() {
+    let package = Package::load("examples/billing").await.unwrap();
+    let lists = package.list_ids().unwrap();
+    assert!(lists.contains(&"plan_tiers".to_owned()), "{lists:?}");
+    let plan_tiers = package.read_list("plan_tiers").unwrap();
+    assert_eq!(plan_tiers.member_type, "string");
+    assert!(plan_tiers.members.contains(&serde_json::json!("business")));
+    assert!(package.read_list("missing").is_err());
 }

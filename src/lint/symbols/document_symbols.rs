@@ -12,12 +12,6 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Package
         symbols.push(symbol);
     }
 
-    for qualifier in index.qualifiers.values() {
-        if qualifier.location.path == path {
-            symbols.push(qualifier_document_symbol(qualifier));
-        }
-    }
-
     for variable in index.variables.values() {
         if variable.location.path == path {
             symbols.push(variable_document_symbol(variable));
@@ -27,6 +21,12 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Package
     for catalog in index.catalogs.values() {
         if catalog.location.path == path {
             symbols.push(catalog_document_symbol(catalog));
+        }
+    }
+
+    for layer in index.layers.values() {
+        if layer.location.path == path {
+            symbols.push(layer_document_symbol(layer));
         }
     }
 
@@ -70,15 +70,6 @@ fn package_extends_symbol(extends: &PackageExtendsCollection) -> Option<PackageD
     }
 }
 
-fn qualifier_document_symbol(qualifier: &QualifierNode) -> PackageDocumentSymbol {
-    PackageDocumentSymbol::new(
-        qualifier.id.clone(),
-        PackageDocumentSymbolKind::Qualifier,
-        qualifier.location.clone(),
-        Vec::new(),
-    )
-}
-
 fn variable_document_symbol(variable: &VariableNode) -> PackageDocumentSymbol {
     let mut children = Vec::new();
     if let Some(values) = variable_values_document_symbol(variable) {
@@ -116,18 +107,24 @@ fn variable_values_document_symbol(variable: &VariableNode) -> Option<PackageDoc
 
 fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<PackageDocumentSymbol> {
     let ResolveNode::Resolve {
-        location, rules, ..
+        location,
+        rules,
+        query,
+        ..
     } = &variable.resolve
     else {
         return None;
     };
-    let children = match rules {
+    let mut children = match rules {
         RuleCollection::Rules(rules) => rules
             .iter()
             .map(variable_rule_document_symbol)
             .collect::<Vec<_>>(),
         RuleCollection::Invalid { .. } => Vec::new(),
     };
+    if let Some(query) = query {
+        children.push(variable_query_document_symbol(query));
+    }
     Some(PackageDocumentSymbol::new(
         "resolve",
         PackageDocumentSymbolKind::Resolve,
@@ -136,12 +133,76 @@ fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<PackageDo
     ))
 }
 
+fn variable_query_document_symbol(query: &QueryNode) -> PackageDocumentSymbol {
+    let name = match string_project_field_label(&query.from) {
+        Some(from) => format!("query: {from}"),
+        None => "query".to_owned(),
+    };
+    PackageDocumentSymbol::new(
+        name,
+        PackageDocumentSymbolKind::Rule,
+        query.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn string_project_field_label(field: &ProjectField<String>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.clone()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
 fn variable_rule_document_symbol(rule: &VariableRuleNode) -> PackageDocumentSymbol {
     PackageDocumentSymbol::new(
         variable_rule_symbol_name(rule),
         PackageDocumentSymbolKind::Rule,
         rule.location.clone(),
         Vec::new(),
+    )
+}
+
+fn layer_document_symbol(layer: &LayerNode) -> PackageDocumentSymbol {
+    let allocations = layer
+        .allocations
+        .iter()
+        .map(|allocation| {
+            let name = match &allocation.id {
+                ProjectField::Present(id) => id.value.clone(),
+                _ => format!("allocation[{}]", allocation.index),
+            };
+            let arms = allocation
+                .arms
+                .iter()
+                .map(|arm| {
+                    let name = match (&arm.name, &arm.buckets) {
+                        (ProjectField::Present(name), ProjectField::Present(buckets)) => {
+                            format!("{}: {}", name.value, buckets.value)
+                        }
+                        (ProjectField::Present(name), _) => name.value.clone(),
+                        _ => format!("arm[{}]", arm.index),
+                    };
+                    PackageDocumentSymbol::new(
+                        name,
+                        PackageDocumentSymbolKind::Arm,
+                        arm.location.clone(),
+                        Vec::new(),
+                    )
+                })
+                .collect();
+            PackageDocumentSymbol::new(
+                name,
+                PackageDocumentSymbolKind::Allocation,
+                allocation.location.clone(),
+                arms,
+            )
+        })
+        .collect();
+    PackageDocumentSymbol::new(
+        layer.id.clone(),
+        PackageDocumentSymbolKind::Layer,
+        layer.location.clone(),
+        allocations,
     )
 }
 
@@ -174,8 +235,7 @@ fn value_document_symbol(value: &ValueNode) -> PackageDocumentSymbol {
 
 fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
     let index = rule.index + 1;
-    let selector = expression_project_field_label(&rule.when)
-        .or_else(|| expression_project_field_label(&rule.query));
+    let selector = expression_project_field_label(&rule.when);
     match (selector, json_project_field_label(&rule.value)) {
         (Some(condition), Some(value)) => format!("rule {index}: {condition} -> {value}"),
         (Some(condition), None) => format!("rule {index}: {condition}"),

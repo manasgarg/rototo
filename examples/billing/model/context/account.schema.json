@@ -1,0 +1,18 @@
+{
+  "$comment": "The billing facts a caller supplies to resolve prices and entitlements. signed_up_at exists for the grandfathering discussion in the README; nothing resolves on it yet.",
+  "type": "object",
+  "title": "Billing account context",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "plan_tier": { "type": "string", "x-rototo-ref": "list=plan_tiers" },
+        "currency": { "type": "string", "x-rototo-ref": "list=currencies" },
+        "seats": { "type": "integer", "minimum": 1 },
+        "signed_up_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["plan_tier", "currency"]
+    }
+  },
+  "required": ["account"]
+}

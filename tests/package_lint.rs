@@ -18,18 +18,91 @@ fn lints_basic_package() {
 }
 
 #[test]
+fn lints_acme_overlay_package() {
+    // The tenant overlay composes over examples/basic (union, deleted marker,
+    // update, resolve override, namespaced addition) and must stay lint-clean.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/acme-overlay"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_release_ops_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/release-ops"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_billing_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/billing"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_regional_policy_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/regional-policy"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_tenancy_decisioning_packages() {
+    // The platform base and the tenant overlay each lint on their own; the
+    // overlay stages its composition over the base first.
+    for package in [
+        "examples/tenancy-decisioning/base",
+        "examples/tenancy-decisioning/acme-tenant",
+    ] {
+        Command::cargo_bin("rototo")
+            .unwrap()
+            .args(["lint", package])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn lints_environments_packages() {
+    // Vertical layering: the base carries production values, dev and staging
+    // override values only.
+    for package in [
+        "examples/environments/base",
+        "examples/environments/dev",
+        "examples/environments/staging",
+    ] {
+        Command::cargo_bin("rototo")
+            .unwrap()
+            .args(["lint", package])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn lints_basic_package_as_json_with_documents() {
     let lint = lint_json("examples/basic", true);
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/premium_users.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/checkout_redesign.toml".to_owned()));
     assert!(
-        document_paths(&lint).contains(&"catalogs/llm-agent-config-entries/local.toml".to_owned())
+        document_paths(&lint).contains(&"model/catalogs/llm_agent_config.schema.json".to_owned())
     );
-    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
+    assert!(
+        document_paths(&lint).contains(&"data/catalogs/llm_agent_config/local.toml".to_owned())
+    );
+    assert!(document_paths(&lint).contains(&"model/context/request.schema.json".to_owned()));
 }
 
 #[test]
@@ -37,7 +110,7 @@ fn lints_curated_examples() {
     for package in [
         "examples/quickstart",
         "examples/production",
-        "examples/custom-lint",
+        "examples/custom_lint",
     ] {
         let lint = lint_json(package, true);
         assert!(
@@ -64,10 +137,10 @@ fn reports_catalog_reference_failures() {
     assert_eq!(messages.len(), 5, "{lint:#}");
     for expected in [
         "$.unknown_catalog references unknown catalog: missing-template",
-        "$.unknown_entry references unknown email-template entry: absent",
+        "$.unknown_entry references unknown email_template entry: absent",
         "$.invalid_pointer references invalid JSON Pointer: body",
-        "$.missing_pointer references missing path /missing in email-template entry: welcome",
-        "$.ambiguous_template references ambiguous catalog entry shared; found in catalogs: email-template, sms-template",
+        "$.missing_pointer references missing path /missing in email_template entry: welcome",
+        "$.ambiguous_template references ambiguous catalog entry shared; found in catalogs: email_template, sms_template",
     ] {
         assert!(
             messages.contains(&expected.to_owned()),
@@ -281,20 +354,7 @@ fn reports_package_file_parse_failed() {
     let lint = lint_json("tests/fixtures/packages/invalid-package-file-toml", false);
     let rules = diagnostic_rules(&lint);
 
-    assert_eq!(
-        rules,
-        vec![
-            "rototo/qualifier-parse-failed".to_owned(),
-            "rototo/variable-parse-failed".to_owned(),
-        ]
-    );
-
-    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-parse-failed");
-    assert_eq!(qualifier["stage"], "parse");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "broken");
-    assert_eq!(qualifier["location"]["path"], "qualifiers/broken.toml");
-    assert!(qualifier["location"]["range"].is_object());
+    assert_eq!(rules, vec!["rototo/variable-parse-failed".to_owned()]);
 
     let variable = diagnostic_for_rule(&lint, "rototo/variable-parse-failed");
     assert_eq!(variable["stage"], "parse");
@@ -340,11 +400,22 @@ fn reports_schema_ui_hint_rules() {
         true,
     );
     let params = diagnostic_messages_for_rule(&lint, "rototo/schema-ui-widget-params");
-    assert_eq!(params.len(), 1, "{lint:#}");
+    assert_eq!(params.len(), 2, "{lint:#}");
     assert!(
         params
             .iter()
             .any(|message| message.contains("unknown x-rototo-ui parameter steps")),
+        "{params:#?}"
+    );
+    // channel asks for a radio without a JSON Schema enum; mode pairs the same
+    // widget with an enum and must stay clean.
+    assert!(
+        params.iter().any(|message| message.contains("channel")
+            && message.contains("requires a JSON Schema enum")),
+        "{params:#?}"
+    );
+    assert!(
+        !params.iter().any(|message| message.contains("mode")),
         "{params:#?}"
     );
 }
@@ -366,14 +437,14 @@ fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     );
 
     let json_root = temp.path().join("json");
-    std::fs::create_dir_all(json_root.join("catalogs")).unwrap();
+    std::fs::create_dir_all(json_root.join("model/catalogs")).unwrap();
     std::fs::write(
         json_root.join("rototo-package.toml"),
         "schema_version = 1\n",
     )
     .unwrap();
     std::fs::write(
-        json_root.join("catalogs/broken.schema.json"),
+        json_root.join("model/catalogs/broken.schema.json"),
         "{\"title\":\"café\",\"type\":}",
     )
     .unwrap();
@@ -394,7 +465,7 @@ fn reports_package_context_schema_ref_failures() {
     );
     assert_eq!(
         parse_diagnostic["location"]["path"],
-        "evaluation-contexts/request.schema.json"
+        "model/context/request.schema.json"
     );
 
     let schema_lint = lint_json(
@@ -404,7 +475,7 @@ fn reports_package_context_schema_ref_failures() {
     assert_project_rule(
         &schema_lint,
         "rototo/evaluation-context-schema-invalid",
-        "evaluation-contexts/request.schema.json",
+        "model/context/request.schema.json",
     );
 }
 
@@ -414,10 +485,10 @@ fn accepts_path_safety_normalized_refs() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"model/context/request.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/message.schema.json".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/message-entries/default.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"model/catalogs/message.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"data/catalogs/message/default.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
 }
 
@@ -445,44 +516,16 @@ fn reports_package_context_schema_attribute_failures() {
 
     assert_eq!(
         diagnostic["rule"],
-        "rototo/qualifier-when-undeclared-context-path"
+        "rototo/variable-rule-undeclared-context-path"
     );
     assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(
-        diagnostic["target"]["entity"]["id"],
-        "missing-context-contract"
-    );
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "rule");
+    assert_eq!(diagnostic["target"]["entity"]["variable"], "message");
     assert_eq!(
         diagnostic["message"],
-        "when expression references undeclared context path: context.account.plan"
+        "rule references undeclared context path: context.account.plan"
     );
-    assert_eq!(
-        diagnostic["location"]["path"],
-        "qualifiers/missing-context-contract.toml"
-    );
-    assert!(diagnostic["location"]["range"].is_null());
-}
-
-#[test]
-fn reports_project_stage_qualifier_shape_failures() {
-    let lint = lint_json("tests/fixtures/packages/rule-coverage", false);
-
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-schema-version",
-        "qualifiers/missing-schema-version.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-missing",
-        "qualifiers/missing-predicate.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-shape",
-        "qualifiers/predicate-shape.toml",
-    );
+    assert_eq!(diagnostic["location"]["path"], "variables/message.toml");
 }
 
 #[test]
@@ -492,49 +535,258 @@ fn reports_project_stage_variable_shape_failures() {
     assert_project_rule(
         &lint,
         "rototo/variable-schema-version",
-        "variables/missing-schema-version.toml",
+        "variables/missing_schema_version.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-type-source",
-        "variables/type-or-schema.toml",
+        "variables/type_or_schema.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-missing-default",
-        "variables/resolve-missing-default.toml",
+        "variables/resolve_missing_default.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-shape",
-        "variables/resolve-shape.toml",
+        "variables/resolve_shape.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-rule-shape",
-        "variables/rule-shape.toml",
+        "variables/rule_shape.toml",
     );
 }
 
 #[test]
-fn reports_project_stage_qualifier_when_failures() {
-    let lint = lint_json("tests/fixtures/packages/lint-failures", false);
-
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-shape",
-        "qualifiers/bad-value-shape.toml",
-    );
-}
-
-#[test]
-fn reports_legacy_variable_rule_qualifier_field() {
+fn reports_project_stage_variable_when_failures() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
     assert_project_rule(
         &lint,
         "rototo/variable-rule-shape",
-        "variables/legacy-rule-qualifier.toml",
+        "variables/bad_value_shape.toml",
+    );
+}
+
+#[test]
+fn lists_declare_members_and_type_variables() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("lists")).unwrap();
+    std::fs::create_dir_all(root.join("variables")).unwrap();
+    std::fs::create_dir_all(root.join("model/context")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("model/context/request.schema.json"),
+        r#"{"type":"object","properties":{"account":{"type":"object","properties":{"paid":{"type":"boolean"}}}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("lists/plan_tiers.toml"),
+        "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\nmembers = [\"free\", \"team\", \"business\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/plan_tier.toml"),
+        r#"schema_version = 1
+type = "list=plan_tiers"
+
+[resolve]
+default = "free"
+
+[[resolve.rule]]
+when = 'context.account.paid == true'
+value = "team"
+"#,
+    )
+    .unwrap();
+
+    // Schema-level list references: a catalog entry field and a context field
+    // both pin their values to the list with x-rototo-ref.
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/plans")).unwrap();
+    std::fs::create_dir_all(root.join("model/context/request-samples")).unwrap();
+    std::fs::write(
+        root.join("model/catalogs/plans.schema.json"),
+        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"list=plan_tiers"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/plans/starter.toml"),
+        "tier = \"free\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("model/context/request-samples/paid.json"),
+        r#"{"account":{"paid":true}}"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+
+    // An entry value outside the member set fails the reference lint.
+    std::fs::write(
+        root.join("data/catalogs/plans/bogus.toml"),
+        "tier = \"platinum\"\n",
+    )
+    .unwrap();
+    let lint = lint_json(root.to_str().unwrap(), false);
+    assert!(
+        diagnostic_rules(&lint).contains(&"rototo/catalog-entry-unknown-reference".to_owned()),
+        "{lint:#}"
+    );
+    std::fs::remove_file(root.join("data/catalogs/plans/bogus.toml")).unwrap();
+
+    // A value outside the member set is rejected, an unknown list is rejected,
+    // and both halves of the list must exist.
+    std::fs::write(
+        root.join("variables/bad_tier.toml"),
+        r#"schema_version = 1
+type = "list=plan_tiers"
+
+[resolve]
+default = "platinum"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/unknown_list.toml"),
+        r#"schema_version = 1
+type = "list=missing"
+
+[resolve]
+default = "anything"
+"#,
+    )
+    .unwrap();
+    // A single-file list that forgets its members is an list-shape error;
+    // the declaration/members split (and its missing/undeclared rules) is
+    // gone.
+    std::fs::write(
+        root.join("lists/memberless.toml"),
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let rules = diagnostic_rules(&lint);
+    assert!(
+        rules.contains(&"rototo/variable-unknown-value".to_owned()),
+        "{lint:#}"
+    );
+    assert!(
+        rules.contains(&"rototo/variable-unknown-list".to_owned()),
+        "{lint:#}"
+    );
+    let shape_messages = diagnostic_messages_for_rule(&lint, "rototo/list-shape");
+    assert!(
+        shape_messages
+            .iter()
+            .any(|message| message.contains("must declare members as an array")),
+        "{lint:#}"
+    );
+}
+
+#[test]
+fn list_member_deletes_need_a_layer_below() {
+    // `deleted` composes against a base through extends and is consumed when
+    // layers flatten; in a package with no base it has nothing to remove from.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("lists")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("lists/plan_tiers.toml"),
+        "schema_version = 1\ntype = \"string\"\nmembers = [\"basic\", \"pro\"]\ndeleted = [\"basic\"]\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/list-shape");
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("deleted list members apply to a base package")),
+        "{lint:#}"
+    );
+}
+
+#[test]
+fn catalog_schemas_support_union_and_nullable_scalars() {
+    // Money-shaped catalogs need union and sentinel types: a tier bound that is
+    // an integer or the literal "inf", and an amount that may be null. Plain
+    // JSON Schema expresses both (type arrays and oneOf), and entry validation
+    // enforces them. TOML cannot write null, so a nullable field is expressed
+    // by omitting it (leave it out of required).
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/prices")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("model/catalogs/prices.schema.json"),
+        r#"{
+  "type": "object",
+  "required": ["up_to"],
+  "properties": {
+    "amount": { "type": ["number", "null"] },
+    "up_to": { "oneOf": [{ "type": "integer" }, { "const": "inf" }] }
+  }
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/prices/tier_one.toml"),
+        "amount = 10.5\nup_to = 100\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/prices/tier_top.toml"),
+        "up_to = \"inf\"\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+
+    std::fs::write(
+        root.join("data/catalogs/prices/bad.toml"),
+        "amount = \"oops\"\nup_to = 2.5\n",
+    )
+    .unwrap();
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(diagnostic["rule"], "rototo/catalog-entry-schema-mismatch");
+    assert!(
+        diagnostic["message"]
+            .as_str()
+            .unwrap()
+            .contains("is not of types"),
+        "{lint:#}"
+    );
+}
+
+#[test]
+fn reports_variable_rule_without_selector() {
+    let lint = lint_json("tests/fixtures/packages/lint-failures", false);
+
+    assert!(
+        diagnostics_for_rule(&lint, "rototo/variable-rule-shape")
+            .iter()
+            .any(|diagnostic| {
+                diagnostic["stage"] == "project"
+                    && diagnostic["location"]["path"] == "variables/missing_rule_selector.toml"
+            }),
+        "{lint:#}"
     );
 }
 
@@ -543,7 +795,8 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/message")).unwrap();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
     std::fs::write(
         root.join("rototo-package.toml"),
         r#"schema_version = 1
@@ -551,7 +804,7 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message.schema.json"),
+        root.join("model/catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
@@ -563,7 +816,7 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "default"
@@ -571,7 +824,7 @@ default = "default"
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message-entries/default.toml"),
+        root.join("data/catalogs/message/default.toml"),
         r#"value = "literal object field""#,
     )
     .unwrap();
@@ -588,7 +841,8 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/message")).unwrap();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
     std::fs::write(
         root.join("rototo-package.toml"),
         r#"schema_version = 1
@@ -596,7 +850,7 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message.schema.json"),
+        root.join("model/catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
@@ -606,14 +860,14 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message-entries/default.toml"),
+        root.join("data/catalogs/message/default.toml"),
         r#"value = "catalog value""#,
     )
     .unwrap();
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [values]
 default = "inline"
@@ -640,23 +894,24 @@ fn reports_reference_stage_failures() {
 
     assert_reference_rule(
         &lint,
-        "rototo/qualifier-when-unknown-qualifier",
-        "qualifiers/bad-reference.toml",
-    );
-    assert_reference_rule(
-        &lint,
-        "rototo/variable-rule-unknown-qualifier",
-        "variables/bad-resolve.toml",
+        "rototo/variable-rule-unknown-variable",
+        "variables/bad_resolve.toml",
     );
     assert_reference_rule(
         &lint,
         "rototo/variable-unknown-value",
-        "variables/bad-resolve.toml",
+        "variables/bad_resolve.toml",
     );
-    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-when-unknown-qualifier");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "bad-reference");
-    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
+    let unknown_variable = diagnostic_for_rule(&lint, "rototo/variable-rule-unknown-variable");
+    assert_eq!(unknown_variable["target"]["entity"]["kind"], "rule");
+    assert_eq!(
+        unknown_variable["target"]["entity"]["variable"],
+        "bad_resolve"
+    );
+    assert_eq!(
+        unknown_variable["target"]["field"]["kind"],
+        "variable_rule_when"
+    );
 
     let unknown_value_messages =
         diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
@@ -667,74 +922,41 @@ fn reports_reference_stage_failures() {
 }
 
 #[test]
-fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
-    let lint = lint_json(
-        "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
-        false,
-    );
-
-    assert_only_expected_diagnostic(
-        &lint,
-        ExpectedDiagnostic {
-            rule: "rototo/variable-rule-unknown-qualifier",
-            severity: "error",
-            stage: LintStage::Reference,
-            entity: ExpectedEntity::Rule {
-                variable: "checkout-redesign",
-                index: 0,
-            },
-            primary: ExpectedPrimaryLocation::Document {
-                path: "variables/checkout-redesign.toml",
-                range: Some(ExpectedRange {
-                    start_line: 8,
-                    start_character: 7,
-                    end_line: 8,
-                    end_character: 39,
-                }),
-            },
-            related: &[],
-        },
-    );
-    let diagnostic = only_diagnostic(&lint);
-    assert_eq!(diagnostic["target"]["field"]["kind"], "variable_rule_when");
-}
-
-#[test]
 fn reports_value_stage_failures() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
     assert_value_rule(
         &lint,
         "rototo/catalog-entry-schema-mismatch",
-        "catalogs/bad-schema-value-entries/broken.toml",
+        "data/catalogs/bad_schema_value/broken.toml",
     );
     assert_value_rule(
         &lint,
         "rototo/variable-value-type-mismatch",
-        "variables/bad-type-value.toml",
+        "variables/bad_type_value.toml",
     );
     assert_value_rule(
         &lint,
         "rototo/variable-unknown-type",
-        "variables/unknown-type.toml",
+        "variables/unknown_type.toml",
     );
 
     let unknown_type = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
     assert_eq!(unknown_type["target"]["entity"]["kind"], "variable");
-    assert_eq!(unknown_type["target"]["entity"]["id"], "unknown-type");
+    assert_eq!(unknown_type["target"]["entity"]["id"], "unknown_type");
     assert!(unknown_type["location"]["range"].is_object());
 
     let schema_mismatch = diagnostic_for_rule(&lint, "rototo/catalog-entry-schema-mismatch");
     assert_eq!(schema_mismatch["target"]["entity"]["kind"], "catalog_entry");
     assert_eq!(
         schema_mismatch["target"]["entity"]["catalog"],
-        "bad-schema-value"
+        "bad_schema_value"
     );
     assert_eq!(schema_mismatch["target"]["entity"]["key"], "broken");
 
     let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
     assert_eq!(type_mismatch["target"]["entity"]["kind"], "variable");
-    assert_eq!(type_mismatch["target"]["entity"]["id"], "bad-type-value");
+    assert_eq!(type_mismatch["target"]["entity"]["id"], "bad_type_value");
     assert_eq!(
         type_mismatch["target"]["field"]["kind"],
         "variable_resolve_default"
@@ -747,7 +969,7 @@ fn schema_contract_discovers_direct_catalog_schema_documents() {
     let lint = lint_json("tests/fixtures/packages/schema-contract-normalized", true);
     let catalog_schema_documents = document_paths(&lint)
         .into_iter()
-        .filter(|path| path.starts_with("catalogs/") && path.ends_with(".schema.json"))
+        .filter(|path| path.starts_with("model/catalogs/") && path.ends_with(".schema.json"))
         .count();
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
@@ -766,7 +988,7 @@ fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
     assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
         diagnostic["location"]["path"],
-        "catalogs/message.schema.json"
+        "model/catalogs/message.schema.json"
     );
 }
 
@@ -784,97 +1006,8 @@ fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
     assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
         diagnostic["location"]["path"],
-        "catalogs/message.schema.json"
+        "model/catalogs/message.schema.json"
     );
-}
-
-#[test]
-fn reports_graph_stage_qualifier_cycles() {
-    let lint = lint_json("tests/fixtures/packages/rules/graph/qualifier-cycle", false);
-    let diagnostics = diagnostics_for_rule(&lint, "rototo/qualifier-cycle");
-
-    assert_eq!(diagnostics.len(), 3, "{lint:#}");
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["stage"] == "graph")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["severity"] == "error")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["location"]["range"].is_object())
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "self")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "beta")
-    );
-
-    let alpha = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
-        .unwrap();
-    assert_eq!(
-        alpha["message"],
-        "qualifier participates in a reference cycle with: alpha, beta"
-    );
-    assert!(!alpha["related"].as_array().unwrap().is_empty());
-}
-
-#[test]
-fn reports_graph_stage_qualifier_unreferenced_warning_without_failing() {
-    let lint = lint_json(
-        "tests/fixtures/packages/rules/graph/qualifier-unreferenced",
-        true,
-    );
-    let diagnostic = only_diagnostic(&lint);
-
-    assert_eq!(diagnostic["rule"], "rototo/qualifier-unreferenced");
-    assert_eq!(diagnostic["severity"], "warning");
-    assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(diagnostic["target"]["entity"]["id"], "unused");
-}
-
-#[test]
-fn self_referencing_qualifier_does_not_also_report_unreferenced() {
-    let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path();
-    std::fs::create_dir_all(root.join("qualifiers")).unwrap();
-    std::fs::write(
-        root.join("rototo-package.toml"),
-        r#"schema_version = 1
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("qualifiers/self.toml"),
-        r#"schema_version = 1
-
-when = "env.qualifier[\"self\"]"
-"#,
-    )
-    .unwrap();
-
-    let lint = lint_json(root.to_str().unwrap(), false);
-    let rules = diagnostic_rules(&lint);
-
-    assert_eq!(rules, vec!["rototo/qualifier-cycle"], "{lint:#}");
 }
 
 #[test]
@@ -898,16 +1031,20 @@ fn reports_graph_stage_shadowed_rule_warning_without_failing() {
 fn lint_failures_fixture_covers_graph_rules() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
-    assert_graph_rule(&lint, "rototo/qualifier-cycle", "qualifiers/cycle-a.toml");
     assert_graph_rule(
         &lint,
-        "rototo/qualifier-unreferenced",
-        "qualifiers/unreferenced.toml",
+        "rototo/variable-reference-cycle",
+        "variables/cycle_a.toml",
+    );
+    assert_graph_rule(
+        &lint,
+        "rototo/variable-reference-cycle",
+        "variables/self_cycle.toml",
     );
     assert_graph_rule(
         &lint,
         "rototo/variable-rule-shadowed",
-        "variables/graph-warnings.toml",
+        "variables/graph_warnings.toml",
     );
 }
 
@@ -933,21 +1070,21 @@ fn reports_package_custom_lint_failures() {
     assert_policy_rule(
         &lint,
         "fixture/custom-variable-rejected",
-        "variables/custom-lint.toml",
+        "variables/custom_lint.toml",
     );
     assert_policy_rule(
         &lint,
         "fixture/custom-value-rejected",
-        "variables/custom-value-lint.toml",
+        "variables/custom_value_lint.toml",
     );
 
     let variable = diagnostic_for_rule(&lint, "fixture/custom-variable-rejected");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
-    assert_eq!(variable["target"]["entity"]["id"], "custom-lint");
+    assert_eq!(variable["target"]["entity"]["id"], "custom_lint");
 
     let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
     assert_eq!(value["target"]["entity"]["kind"], "variable");
-    assert_eq!(value["target"]["entity"]["id"], "custom-value-lint");
+    assert_eq!(value["target"]["entity"]["id"], "custom_value_lint");
     assert_eq!(value["target"]["field"]["kind"], "variable_resolve_default");
 }
 
@@ -958,12 +1095,12 @@ fn reports_custom_lint_contract_failures() {
     assert_policy_rule(
         &lint,
         "rototo/custom-lint-failed",
-        "variables/custom-failed.toml",
+        "variables/custom_failed.toml",
     );
     assert_policy_rule(
         &lint,
         "payments/max-token-budget",
-        "variables/custom-valid.toml",
+        "variables/custom_valid.toml",
     );
 }
 
@@ -979,12 +1116,12 @@ fn reports_registered_custom_lint_failures() {
     assert_policy_rule(
         &lint,
         "payments/max-token-budget",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
 
     let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
     assert_eq!(diagnostic["target"]["entity"]["kind"], "variable");
-    assert_eq!(diagnostic["target"]["entity"]["id"], "agent-config");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "agent_config");
     assert_eq!(diagnostic["stage"], "policy");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -1000,10 +1137,14 @@ fn reports_custom_registration_contract_failures() {
 
     assert_eq!(invalid_messages.len(), 4, "{lint:#}");
     for expected in [
-        "custom lint registration has unsupported target: variables",
-        "custom lint registration has unsupported target: /unknown",
-        "custom lint registration has unsupported target: /variables/message/value",
-        "custom lint registration has unsupported target: /variables/message/rules/not-number",
+        "custom lint registration has unsupported target: variables; invalid address \
+         `variables`: step `variables` is missing the `=` between class and id",
+        "custom lint registration has unsupported target: /unknown; targets use the \
+         address grammar, for example package=, variable=<id>, or catalog=<id>:entry=<key>",
+        "custom lint registration has unsupported target: \
+         variable=message#/resolve/default; # pointer targets are not supported yet",
+        "custom lint registration has unsupported target: list=tier; list= entities \
+         cannot be targeted yet",
     ] {
         assert!(
             invalid_messages.contains(&expected.to_owned()),
@@ -1023,55 +1164,43 @@ fn reports_registered_custom_lint_targets() {
     assert_policy_rule(&lint, "targets/package-extends", "rototo-package.toml");
     assert_policy_rule(
         &lint,
-        "targets/qualifier-when",
-        "qualifiers/premium-users.toml",
-    );
-    assert_policy_rule(
-        &lint,
         "targets/variable-type",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/returned-variable-type",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/invalid-returned-field",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/package-variable-default",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/catalog-entry-json-pointer",
-        "catalogs/agent-config-entries/standard.toml",
+        "data/catalogs/agent_config/standard.toml",
     );
     let package = diagnostic_for_rule(&lint, "targets/package-extends");
     assert_eq!(package["target"]["entity"]["kind"], "package");
     assert_eq!(package["stage"], "policy");
     assert!(package["location"]["range"].is_object());
 
-    let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-when");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "premium-users");
-    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
-    assert_eq!(qualifier["stage"], "policy");
-    assert!(qualifier["location"]["range"].is_object());
-
     let variable = diagnostic_for_rule(&lint, "targets/variable-type");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
-    assert_eq!(variable["target"]["entity"]["id"], "agent-config");
+    assert_eq!(variable["target"]["entity"]["id"], "agent_config");
     assert_eq!(variable["stage"], "policy");
     assert!(variable["location"]["range"].is_object());
 
     let returned = diagnostic_for_rule(&lint, "targets/returned-variable-type");
     assert_eq!(returned["target"]["entity"]["kind"], "variable");
-    assert_eq!(returned["target"]["entity"]["id"], "agent-config");
+    assert_eq!(returned["target"]["entity"]["id"], "agent_config");
     assert_eq!(returned["location"]["range"]["start"]["line"], 3);
     assert!(
         returned["location"]["range"]["start"]["character"]
@@ -1082,12 +1211,12 @@ fn reports_registered_custom_lint_targets() {
 
     let invalid = diagnostic_for_rule(&lint, "targets/invalid-returned-field");
     assert_eq!(invalid["target"]["entity"]["kind"], "variable");
-    assert_eq!(invalid["target"]["entity"]["id"], "agent-config");
+    assert_eq!(invalid["target"]["entity"]["id"], "agent_config");
     assert!(invalid["location"]["range"].is_null());
 
     let default = diagnostic_for_rule(&lint, "targets/package-variable-default");
     assert_eq!(default["target"]["entity"]["kind"], "variable");
-    assert_eq!(default["target"]["entity"]["id"], "agent-config");
+    assert_eq!(default["target"]["entity"]["id"], "agent_config");
     assert_eq!(
         default["target"]["field"]["kind"],
         "variable_resolve_default"
@@ -1096,7 +1225,7 @@ fn reports_registered_custom_lint_targets() {
 
     let catalog_entry = diagnostic_for_rule(&lint, "targets/catalog-entry-json-pointer");
     assert_eq!(catalog_entry["target"]["entity"]["kind"], "catalog_entry");
-    assert_eq!(catalog_entry["target"]["entity"]["catalog"], "agent-config");
+    assert_eq!(catalog_entry["target"]["entity"]["catalog"], "agent_config");
     assert_eq!(catalog_entry["target"]["entity"]["key"], "standard");
     assert_eq!(catalog_entry["target"]["field"]["kind"], "value_json_path");
     assert_eq!(
@@ -1135,6 +1264,25 @@ fn enforces_json_schema_formats_on_catalog_entries() {
 }
 
 #[test]
+fn types_context_paths_declared_only_through_schema_enum_values() {
+    // A context path can pin its type with a bare JSON Schema `enum` instead of
+    // a `type` keyword. context.tier's string enum satisfies the string members
+    // of lists/plan_tiers, so it must not be flagged; context.level's integer
+    // enum makes the same membership test a real mismatch.
+    let lint = lint_json("tests/fixtures/packages/schema-enum-context-types", false);
+    let messages =
+        diagnostic_messages_for_rule(&lint, "rototo/variable-rule-context-path-type-mismatch");
+    assert_eq!(messages.len(), 1, "{lint:#}");
+    assert!(messages[0].contains("context.level"), "{messages:#?}");
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("context.tier")),
+        "{messages:#?}"
+    );
+}
+
+#[test]
 fn flags_cidr_use_of_a_context_path_without_an_ip_format() {
     // cidr() reads its subject as an IP, so the context schema must declare that
     // path with an ip format. A plain `type: string` declaration is a type match
@@ -1143,7 +1291,7 @@ fn flags_cidr_use_of_a_context_path_without_an_ip_format() {
     let diagnostics = lint["diagnostics"].as_array().unwrap();
     assert!(
         diagnostics.iter().any(|diagnostic| {
-            diagnostic["rule"].as_str() == Some("rototo/qualifier-when-context-path-type-mismatch")
+            diagnostic["rule"].as_str() == Some("rototo/variable-rule-context-path-type-mismatch")
                 && diagnostic["message"]
                     .as_str()
                     .unwrap_or_default()
@@ -1319,11 +1467,6 @@ struct ExpectedRange {
 enum ExpectedEntity {
     Package,
     Manifest,
-    Qualifier(&'static str),
-    Predicate {
-        qualifier: &'static str,
-        index: usize,
-    },
     Variable(&'static str),
     Value {
         variable: &'static str,
@@ -1334,6 +1477,8 @@ enum ExpectedEntity {
         index: usize,
     },
     Catalog(&'static str),
+    Layer(&'static str),
+    Governance,
     CustomLintFile(&'static str),
     CustomRule(&'static str),
 }
@@ -1375,6 +1520,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::UnrecognizedFile,
+            package: "tests/fixtures/packages/rules/discover/unrecognized-file",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/unrecognized-file",
+                severity: "warning",
+                stage: LintStage::Discover,
+                entity: ExpectedEntity::Package,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "lists/typo/tier.tml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::PackageManifestParseFailed,
             package: "tests/fixtures/packages/rules/parse/package-manifest-parse-failed",
             success: false,
@@ -1389,27 +1550,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_line: 2,
                         start_character: 8,
                         end_line: 3,
-                        end_character: 0,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierParseFailed,
-            package: "tests/fixtures/packages/rules/parse/qualifier-parse-failed",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-parse-failed",
-                severity: "error",
-                stage: LintStage::Parse,
-                entity: ExpectedEntity::Qualifier("broken"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/broken.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 10,
-                        end_line: 4,
                         end_character: 0,
                     }),
                 },
@@ -1449,59 +1589,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "rototo-package.toml",
                     range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierSchemaVersion,
-            package: "tests/fixtures/packages/rules/project/qualifier-schema-version",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-schema-version",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenMissing,
-            package: "tests/fixtures/packages/rules/project/qualifier-predicate-missing",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-missing",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenShape,
-            package: "tests/fixtures/packages/rules/project/qualifier-predicate-shape",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-shape",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 7,
-                        end_line: 3,
-                        end_character: 28,
-                    }),
                 },
                 related: &[],
             }],
@@ -1589,6 +1676,227 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceParseFailed,
+            package: "tests/fixtures/packages/rules/parse/governance-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 14,
+                        end_line: 1,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceShape,
+            package: "tests/fixtures/packages/rules/project/governance-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 1,
+                        start_character: 22,
+                        end_line: 1,
+                        end_character: 31,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceUnknownTarget,
+            package: "tests/fixtures/packages/rules/project/governance-unknown-target",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-unknown-target",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 0,
+                        end_line: 1,
+                        end_character: 28,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceUnscopedUpdate,
+            package: "tests/fixtures/packages/rules/project/governance-unscoped-update",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-unscoped-update",
+                severity: "warning",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 0,
+                        end_line: 1,
+                        end_character: 31,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerParseFailed,
+            package: "tests/fixtures/packages/rules/parse/layer-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Layer("broken"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/broken.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 1,
+                        start_character: 23,
+                        end_line: 2,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerSchemaVersion,
+            package: "tests/fixtures/packages/rules/project/layer-schema-version",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-schema-version",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 17,
+                        end_line: 0,
+                        end_character: 18,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerShape,
+            package: "tests/fixtures/packages/rules/project/layer-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerBucketOverlap,
+            package: "tests/fixtures/packages/rules/project/layer-bucket-overlap",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-bucket-overlap",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableAllocationShape,
+            package: "tests/fixtures/packages/rules/project/variable-allocation-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-allocation-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("cta"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/cta.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 0,
+                        end_line: 6,
+                        end_character: 22,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownAllocation,
+            package: "tests/fixtures/packages/rules/project/variable-unknown-allocation",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-unknown-allocation",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("cta"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/cta.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 5,
+                        start_character: 13,
+                        end_line: 5,
+                        end_character: 22,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableQueryShape,
+            package: "tests/fixtures/packages/rules/project/variable-query-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-query-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 7,
+                        start_character: 8,
+                        end_line: 7,
+                        end_character: 14,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::CustomLintRuleConflict,
             package: "tests/fixtures/packages/rules/project/custom-lint-rule-conflict",
             success: false,
@@ -1600,27 +1908,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "lint/conflict.lua",
                     range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenUnknownQualifier,
-            package: "tests/fixtures/packages/rules/reference/qualifier-predicate-unknown-qualifier",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-unknown-qualifier",
-                severity: "error",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Qualifier("derived"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/derived.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 7,
-                        end_line: 3,
-                        end_character: 35,
-                    }),
                 },
                 related: &[],
             }],
@@ -1647,25 +1934,122 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableRuleUnknownQualifier,
-            package: "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
+            rule: RototoRuleId::VariableRuleUnknownVariable,
+            package: "tests/fixtures/packages/rules/reference/variable-rule-unknown-variable",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-rule-unknown-qualifier",
+                rule: "rototo/variable-rule-unknown-variable",
                 severity: "error",
                 stage: LintStage::Reference,
                 entity: ExpectedEntity::Rule {
-                    variable: "checkout-redesign",
+                    variable: "checkout_redesign",
                     index: 0,
                 },
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/checkout-redesign.toml",
+                    path: "variables/checkout_redesign.toml",
                     range: Some(ExpectedRange {
                         start_line: 8,
                         start_character: 7,
                         end_line: 8,
-                        end_character: 39,
+                        end_character: 34,
                     }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::ExpressionUnknownList,
+            package: "tests/fixtures/packages/rules/project/expression-unknown-list",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/expression-unknown-list",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Rule {
+                    variable: "message",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 8,
+                        start_character: 7,
+                        end_line: 8,
+                        end_character: 41,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableReferenceCycle,
+            package: "tests/fixtures/packages/rules/graph/variable-reference-cycle",
+            success: false,
+            expected: &[
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-reference-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Variable("loop_a"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/loop_a.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "variables/loop_b.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                        message: "cycle reference: loop_b -> loop_a",
+                    }],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-reference-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Variable("loop_b"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/loop_b.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "variables/loop_a.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                        message: "cycle reference: loop_a -> loop_b",
+                    }],
+                },
+            ],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::IdNotSnakeCase,
+            package: "tests/fixtures/packages/rules/project/id-not-snake-case",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/id-not-snake-case",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("premium-users"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/premium-users.toml",
+                    range: None,
                 },
                 related: &[],
             }],
@@ -1713,124 +2097,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierCycle,
-            package: "tests/fixtures/packages/rules/graph/qualifier-cycle",
-            success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("alpha"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/alpha.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                    },
-                    related: &[ExpectedRelatedLocation {
-                        path: "qualifiers/beta.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 33,
-                        }),
-                        message: "cycle reference: beta -> alpha",
-                    }],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("beta"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/beta.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 33,
-                        }),
-                    },
-                    related: &[ExpectedRelatedLocation {
-                        path: "qualifiers/alpha.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                        message: "cycle reference: alpha -> beta",
-                    }],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("self"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/self.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierUnreferenced,
-            package: "tests/fixtures/packages/rules/graph/qualifier-unreferenced",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-unreferenced",
-                severity: "warning",
-                stage: LintStage::Graph,
-                entity: ExpectedEntity::Qualifier("unused"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/unused.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierUnreachable,
-            package: "tests/fixtures/packages/rules/graph/qualifier-unreachable",
-            success: true,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-unreachable",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("dead-leaf"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/dead-leaf.toml",
-                        range: None,
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-unreferenced",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("dead-root"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/dead-root.toml",
-                        range: None,
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleShadowed,
             package: "tests/fixtures/packages/rules/graph/variable-rule-shadowed",
             success: true,
@@ -1859,7 +2125,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         end_line: 8,
                         end_character: 39,
                     }),
-                    message: "first rule using condition: env.qualifier[\"premium-users\"]",
+                    message: "first rule using condition: context.user.tier == \"premium\"",
                 }],
             }],
         },
@@ -1965,6 +2231,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::CatalogIdOverlap,
+            package: "tests/fixtures/packages/rules/project/catalog-id-overlap",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/catalog-id-overlap",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Catalog("plans/regional"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "model/catalogs/plans/regional.schema.json",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::SchemaUiUnknownWidget,
             package: "tests/fixtures/packages/rules/project/schema-ui-unknown-widget",
             success: true,
@@ -1974,7 +2256,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
+                    path: "model/catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -1990,7 +2272,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
+                    path: "model/catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -2000,23 +2282,50 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             rule: RototoRuleId::SchemaUiWidgetParams,
             package: "tests/fixtures/packages/rules/project/schema-ui-widget-params",
             success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/schema-ui-widget-params",
-                severity: "warning",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Catalog("panel"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
-                    range: None,
+            expected: &[
+                // The unknown slider parameter, and the radio widget on
+                // channel with no JSON Schema enum to offer as options.
+                ExpectedDiagnostic {
+                    rule: "rototo/schema-ui-widget-params",
+                    severity: "warning",
+                    stage: LintStage::Project,
+                    entity: ExpectedEntity::Catalog("panel"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "model/catalogs/panel.schema.json",
+                        range: None,
+                    },
+                    related: &[],
                 },
-                related: &[],
-            }],
+                ExpectedDiagnostic {
+                    rule: "rototo/schema-ui-widget-params",
+                    severity: "warning",
+                    stage: LintStage::Project,
+                    entity: ExpectedEntity::Catalog("panel"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "model/catalogs/panel.schema.json",
+                        range: None,
+                    },
+                    related: &[],
+                },
+            ],
         },
     ]
 }
 
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ListParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ListSchemaVersion,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ListShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownList,
+        },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::TraceWhenMissing,
         },
@@ -2025,9 +2334,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::TraceWhenInvalidReference,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenInvalidReference,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleInvalidReference,
@@ -2060,22 +2366,10 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::EvaluationContextSchemaInvalid,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EvaluationContextReservedField,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::EvaluationContextSampleSchemaMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::EvaluationContextSampleShape,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierNoCompatibleEvaluationContext,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenUndeclaredContextPath,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenContextPathTypeMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableEvaluationContextConflict,
@@ -2263,16 +2557,6 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
     match entity {
         ExpectedEntity::Package => serde_json::json!({ "kind": "package" }),
         ExpectedEntity::Manifest => serde_json::json!({ "kind": "manifest" }),
-        ExpectedEntity::Qualifier(id) => {
-            serde_json::json!({ "kind": "qualifier", "id": id })
-        }
-        ExpectedEntity::Predicate { qualifier, index } => {
-            serde_json::json!({
-                "kind": "predicate",
-                "qualifier": qualifier,
-                "index": index,
-            })
-        }
         ExpectedEntity::Variable(id) => {
             serde_json::json!({ "kind": "variable", "id": id })
         }
@@ -2293,6 +2577,10 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
         ExpectedEntity::Catalog(id) => {
             serde_json::json!({ "kind": "catalog", "id": id })
         }
+        ExpectedEntity::Layer(id) => {
+            serde_json::json!({ "kind": "layer", "id": id })
+        }
+        ExpectedEntity::Governance => serde_json::json!({ "kind": "governance" }),
         ExpectedEntity::CustomLintFile(path) => {
             serde_json::json!({ "kind": "custom_lint", "path": path })
         }
@@ -2330,26 +2618,28 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
-        "rototo/qualifier-cycle",
-        "rototo/qualifier-no-compatible-evaluation-context",
-        "rototo/qualifier-unreferenced",
-        "rototo/qualifier-when-context-path-type-mismatch",
-        "rototo/qualifier-when-invalid-reference",
-        "rototo/qualifier-when-undeclared-context-path",
-        "rototo/qualifier-when-shape",
-        "rototo/qualifier-when-unknown-qualifier",
+        "rototo/expression-unknown-list",
+        "rototo/governance-shape",
+        "rototo/governance-unknown-target",
+        "rototo/layer-bucket-overlap",
+        "rototo/layer-shape",
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
         "rototo/trace-when-invalid-reference",
         "rototo/trace-when-missing",
         "rototo/trace-when-shape",
+        "rototo/variable-evaluation-context-conflict",
+        "rototo/variable-query-shape",
+        "rototo/variable-reference-cycle",
         "rototo/variable-rule-context-path-type-mismatch",
         "rototo/variable-rule-invalid-reference",
         "rototo/variable-rule-shadowed",
         "rototo/variable-rule-shape",
         "rototo/variable-rule-undeclared-context-path",
-        "rototo/variable-rule-unknown-qualifier",
+        "rototo/variable-rule-unknown-variable",
+        "rototo/variable-allocation-shape",
+        "rototo/variable-unknown-allocation",
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",
         "rototo/variable-value-type-mismatch",
@@ -2358,15 +2648,15 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
 
 fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
     &[
-        "context-schema-invalid-json/evaluation-contexts/request.schema.json",
-        "invalid-package-file-toml/qualifiers/broken.toml",
+        "context-schema-invalid-json/model/context/request.schema.json",
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
-        "rules/parse/qualifier-parse-failed/qualifiers/broken.toml",
-        "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
+        "rules/parse/variable-external-value-parse-failed/variables/external_message-values/broken.toml",
+        "rules/parse/governance-parse-failed/governance.toml",
+        "rules/parse/layer-parse-failed/layers/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",
-        "schema-contract-parse-failed/catalogs/message.schema.json",
+        "schema-contract-parse-failed/model/catalogs/message.schema.json",
     ]
 }
 
@@ -2430,4 +2720,257 @@ fn relative_fixture_path(root: &Path, path: &Path) -> String {
         "fixture parser reported an empty path for {path:?}"
     );
     relative
+}
+
+/// Fires each rule that had no firing test anywhere in the suite (the
+/// pending half of the canonical fixture table). One scratch package per
+/// rule; the assertion is containment, not exclusivity, since some shapes
+/// fire companion diagnostics too.
+#[test]
+fn pending_rules_fire_from_scratch_packages() {
+    let manifest = ("rototo-package.toml", "schema_version = 1\n");
+    let context_schema = (
+        "model/context/request.schema.json",
+        r#"{"type":"object","required":["user"],"properties":{"user":{"type":"object"}},"additionalProperties":false}"#,
+    );
+    let cases: &[(&str, &[(&str, &str)])] = &[
+        (
+            "rototo/list-parse-failed",
+            &[manifest, ("lists/tier.toml", "= not toml\n")],
+        ),
+        (
+            "rototo/list-schema-version",
+            &[
+                manifest,
+                (
+                    "lists/tier.toml",
+                    "schema_version = 2\ntype = \"string\"\nmembers = [\"a\"]\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/list-shape",
+            &[
+                manifest,
+                (
+                    "lists/tier.toml",
+                    "schema_version = 1\ntype = \"object\"\nmembers = [\"a\"]\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/variable-unknown-catalog",
+            &[
+                manifest,
+                (
+                    "variables/plan.toml",
+                    "schema_version = 1\ntype = \"catalog=missing\"\n\n[resolve]\ndefault = \"x\"\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/catalog-entry-parse-failed",
+            &[
+                manifest,
+                (
+                    "model/catalogs/banner.schema.json",
+                    r#"{"type":"object","properties":{"message":{"type":"string"}}}"#,
+                ),
+                ("data/catalogs/banner/bad.toml", "= not toml\n"),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-schema-mismatch",
+            &[
+                manifest,
+                context_schema,
+                (
+                    "model/context/request-samples/bad.json",
+                    r#"{"unexpected":true}"#,
+                ),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-shape",
+            &[
+                manifest,
+                context_schema,
+                ("model/context/request-samples/list.json", "[1, 2]"),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-parse-failed",
+            &[
+                manifest,
+                context_schema,
+                ("model/context/request-samples/broken.json", "{ not json"),
+            ],
+        ),
+    ];
+
+    for (rule, files) in cases {
+        let tempdir = tempfile::tempdir().unwrap();
+        for (path, text) in *files {
+            let full = tempdir.path().join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, text).unwrap();
+        }
+        let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+        let rules = lint["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|diagnostic| diagnostic["rule"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            rules.iter().any(|fired| fired == rule),
+            "{rule} did not fire; got {rules:?}\n{lint:#}"
+        );
+    }
+}
+
+/// A Lua rule claiming the rototo authority is rejected at registration:
+/// rototo/<rule-id> identifies built-in diagnostics only.
+#[test]
+fn lua_rules_may_not_claim_the_rototo_authority() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("lint")).unwrap();
+    std::fs::write(
+        tempdir.path().join("lint/sneaky.lua"),
+        r#"function register(lint)
+  lint:rule({
+    id = "rototo/sneaky",
+    title = "Sneaky",
+    help = "Claims the reserved authority.",
+    target = "package=",
+    handler = "check",
+  })
+end
+
+function check(package, target)
+  return {}
+end
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/custom-lint-registration-invalid");
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("reserved for built-in")),
+        "{messages:#?}"
+    );
+}
+
+/// lint/ namespaces like every other collection: a Lua file in a
+/// subdirectory registers and runs (linter id payments/budget), and a
+/// non-Lua stray under lint/ gets the unrecognized-file warning instead of
+/// vanishing.
+#[test]
+fn nested_lua_files_register_and_run() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("lint/sub")).unwrap();
+    std::fs::write(
+        tempdir.path().join("lint/sub/nested.lua"),
+        r#"function register(lint)
+  lint:rule({
+    id = "nested/fires",
+    title = "Nested",
+    help = "Would fire if discovered.",
+    target = "package=",
+    handler = "check",
+  })
+end
+
+function check(package, target)
+  return { { message = "fired" } }
+end
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(tempdir.path().join("lint/readme.md"), "notes\n").unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "nested/fires");
+    assert_eq!(messages, vec!["fired".to_owned()], "{lint:#}");
+    let unrecognized = diagnostic_messages_for_rule(&lint, "rototo/unrecognized-file");
+    assert!(
+        unrecognized
+            .iter()
+            .any(|message| message.contains("lint/readme.md")),
+        "{lint:#}"
+    );
+    let documents = lint["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|document| document["path"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        documents.iter().any(|path| path == "lint/sub/nested.lua"),
+        "{documents:?}"
+    );
+}
+
+/// The retired colon spellings get a migration hint naming the `=` form,
+/// both on variable types and on x-rototo-ref targets.
+#[test]
+fn retired_colon_bindings_get_the_equals_hint() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("variables")).unwrap();
+    std::fs::write(
+        tempdir.path().join("variables/plan.toml"),
+        "schema_version = 1\ntype = \"catalog:plans\"\n\n[resolve]\ndefault = \"x\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("model/catalogs")).unwrap();
+    std::fs::write(
+        tempdir.path().join("model/catalogs/plans.schema.json"),
+        r#"{
+  "type": "object",
+  "properties": {
+    "tier": { "type": "string", "x-rototo-ref": "list:tier" }
+  }
+}"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let type_messages = diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-type");
+    assert!(
+        type_messages
+            .iter()
+            .any(|message| message.contains("the binder is `=` now, write catalog=plans")),
+        "{type_messages:#?}"
+    );
+    let all_messages: Vec<String> = lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["message"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        all_messages
+            .iter()
+            .any(|message| message.contains("binder is `=` now: write list=tier")),
+        "{all_messages:#?}"
+    );
 }

@@ -1,0 +1,21 @@
+# A single `&` after a boolean expression narrows the operator completion to `&&`.
+package = "basic"
+file = "variables/premium.toml"
+
+overlay = '''
+schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "context.account.tier == 'premium' &$0"
+value = true
+'''
+
+[expect]
+exact = ["&&"]
+# Completing the operator replaces the partial `&`, instead of appending to make `&&&`.
+selecting = "&&"
+replaces = "&"

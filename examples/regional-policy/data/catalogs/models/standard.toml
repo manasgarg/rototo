@@ -1,0 +1,5 @@
+name = "Standard assistant"
+model_id = "small-3"
+prompt_version = "support-v14"
+max_tokens = 1024
+temperature = 0.3

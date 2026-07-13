@@ -9,20 +9,20 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .await
         .expect("examples/basic should produce a semantic model");
 
-    assert_eq!(model.version, 3);
-    assert!(!model.qualifiers.is_empty());
+    assert_eq!(model.version, 5);
+    assert!(!model.variables.is_empty());
     assert!(!model.catalogs.is_empty());
     assert!(!model.linters.is_empty());
 
     let catalog = model
         .catalogs
         .iter()
-        .find(|catalog| catalog.id == "support-banner")
-        .expect("support-banner catalog");
+        .find(|catalog| catalog.id == "support_banner")
+        .expect("support_banner catalog");
     assert!(
         catalog
             .path
-            .ends_with("catalogs/support-banner.schema.json")
+            .ends_with("model/catalogs/support_banner.schema.json")
     );
     assert_eq!(
         catalog
@@ -36,18 +36,29 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let variable = model
         .variables
         .iter()
-        .find(|variable| variable.id == "support-banner")
-        .expect("support-banner variable");
+        .find(|variable| variable.id == "support_banner")
+        .expect("support_banner variable");
     assert_eq!(variable.declaration.kind, "catalog");
+    assert!(
+        variable.uses_context,
+        "context use follows the referenced condition variable"
+    );
+    assert!(
+        variable
+            .context_paths
+            .iter()
+            .any(|path| path == "device.platform"),
+        "read context paths follow the referenced condition variable"
+    );
     assert_eq!(
         variable.declaration.value.as_deref(),
-        Some("support-banner")
+        Some("support_banner")
     );
     assert!(
         variable
             .location
             .path
-            .ends_with("variables/support-banner.toml")
+            .ends_with("variables/support_banner.toml")
     );
 
     let resolve = variable.resolve.as_ref().expect("resolve section");
@@ -64,7 +75,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let rule = &resolve.rules[0];
     assert_eq!(
         rule.when.as_ref().and_then(|field| field.value.as_deref()),
-        Some("env.qualifier[\"mobile-users\"]")
+        Some("variables[\"mobile_users\"]")
     );
     assert!(
         rule.when
@@ -76,33 +87,153 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let object = model
         .catalog_entries
         .iter()
-        .find(|object| object.catalog == "support-banner" && object.key == "mobile_help")
-        .expect("support-banner/mobile_help object");
+        .find(|object| object.catalog == "support_banner" && object.key == "mobile_help")
+        .expect("support_banner/mobile_help object");
     assert!(object.value.is_object());
 
     // The reference graph covers rule conditions and selected catalog values.
     let rule_condition_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
-            && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "mobile-users")
+        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")
+            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile_users")
     });
     assert!(
         rule_condition_edge,
-        "variable rule condition -> qualifier edge"
+        "variable rule condition -> condition variable edge"
     );
     let object_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
+        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")
             && matches!(
                 &reference.to,
                 ModelEntityRef::CatalogEntry { catalog, key }
-                    if catalog == "support-banner" && key == "mobile_help"
+                    if catalog == "support_banner" && key == "mobile_help"
             )
     });
     assert!(object_edge, "variable value -> catalog value edge");
 
+    // Both directions of the promoted reference queries answer from the
+    // same edge list: what an entity uses, and who uses it.
+    let mobile_users = ModelEntityRef::Variable {
+        id: "mobile_users".to_owned(),
+    };
+    let referencing: Vec<_> = model.references_to(&mobile_users).collect();
+    assert!(
+        referencing
+            .iter()
+            .any(|reference| matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")),
+        "references_to answers who references mobile_users"
+    );
+    assert!(
+        referencing
+            .iter()
+            .all(|reference| reference.declaration.is_some()),
+        "in-package references carry their target's declaration"
+    );
+    let support_banner = ModelEntityRef::Variable {
+        id: "support_banner".to_owned(),
+    };
+    assert!(
+        model
+            .references_from(&support_banner)
+            .any(|reference| matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile_users")),
+        "references_from answers what support_banner uses"
+    );
+
+    // A standalone package declares no extends edges.
+    assert!(model.extends.is_empty());
+
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");
     assert!(json["catalogEntries"].is_array());
-    assert_eq!(json["references"][0]["from"]["kind"], "qualifier");
+    assert!(json["variables"][0]["usesContext"].is_boolean());
+    assert_eq!(json["references"][0]["from"]["kind"], "variable");
+}
+
+/// Discovery composes each package's declared `extends` edges into the
+/// composition tree, and lists are first-class entities in the model.
+#[tokio::test]
+async fn semantic_model_projects_extends_edges_and_lists() {
+    let overlay = package_semantic_model(Path::new("examples/acme-overlay"))
+        .await
+        .expect("examples/acme-overlay should produce a semantic model");
+    assert_eq!(
+        overlay
+            .extends
+            .iter()
+            .map(|extend| extend.source.as_str())
+            .collect::<Vec<_>>(),
+        vec!["../basic"]
+    );
+    assert!(
+        overlay.extends[0]
+            .location
+            .path
+            .ends_with("rototo-package.toml")
+    );
+
+    let release_ops = package_semantic_model(Path::new("examples/release-ops"))
+        .await
+        .expect("examples/release-ops should produce a semantic model");
+    let log_levels = release_ops
+        .lists
+        .iter()
+        .find(|entry| entry.id == "log_levels")
+        .expect("log_levels list");
+    assert!(log_levels.location.path.ends_with("lists/log_levels.toml"));
+    assert_eq!(log_levels.member_type.value.as_deref(), Some("string"));
+    assert_eq!(
+        log_levels
+            .members
+            .iter()
+            .filter_map(|member| member.value.as_ref().and_then(|value| value.as_str()))
+            .collect::<Vec<_>>(),
+        vec!["error", "warn", "info", "debug"]
+    );
+    assert!(
+        log_levels
+            .members
+            .iter()
+            .all(|member| member.location.range.is_some()),
+        "member locations carry ranges for member-level edits"
+    );
+
+    // A list-typed variable references its list through the declaration, so
+    // "who uses this list" answers from the same edge list as catalogs.
+    let type_edge = release_ops
+        .references
+        .iter()
+        .find(|reference| {
+            matches!(&reference.from, ModelEntityRef::Variable { id } if id == "log_level")
+                && matches!(&reference.to, ModelEntityRef::List { id } if id == "log_levels")
+        })
+        .expect("list-typed variable -> list edge");
+    assert!(matches!(type_edge.via, ModelReferenceVia::VariableList));
+    assert!(
+        type_edge.declaration.is_some(),
+        "in-package list references carry the list's declaration"
+    );
+}
+
+/// A membership test in a rule condition (`context.tier in lists.plan_tiers`)
+/// references the list it reads, attributed to the rule.
+#[tokio::test]
+async fn semantic_model_projects_expression_list_references() {
+    let model = package_semantic_model(Path::new(
+        "tests/fixtures/packages/schema-enum-context-types",
+    ))
+    .await
+    .expect("schema-enum-context-types should produce a semantic model");
+    let rule_edge = model
+        .references
+        .iter()
+        .find(|reference| {
+            matches!(&reference.from, ModelEntityRef::Variable { id } if id == "tier_gate")
+                && matches!(&reference.to, ModelEntityRef::List { id } if id == "plan_tiers")
+        })
+        .expect("rule membership -> list edge");
+    assert!(matches!(
+        rule_edge.via,
+        ModelReferenceVia::RuleCondition { index: 0 }
+    ));
 }
 
 #[tokio::test]
@@ -112,7 +243,7 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     write_file(root, "rototo-package.toml", "schema_version = 1\n");
     write_file(
         root,
-        "evaluation-contexts/request.schema.json",
+        "model/context/request.schema.json",
         r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -130,7 +261,7 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     );
     write_file(
         root,
-        "evaluation-contexts/request-samples/premium-email.json",
+        "model/context/request-samples/premium-email.json",
         r#"{
   "channel": "email",
   "user": { "tier": "premium" }
@@ -139,16 +270,23 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     );
     write_file(
         root,
-        "qualifiers/premium.toml",
+        "variables/premium.toml",
         r#"schema_version = 1
 
 description = "Premium users"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = 'context.user.tier == "premium"'
+value = true
 "#,
     );
     write_file(
         root,
-        "catalogs/message-template.schema.json",
+        "model/catalogs/message_template.schema.json",
         r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -162,7 +300,7 @@ when = 'context.user.tier == "premium"'
     );
     write_file(
         root,
-        "catalogs/message-template-entries/email.toml",
+        "data/catalogs/message_template/email.toml",
         r#"channel = "email"
 active = true
 body = "Email body"
@@ -173,13 +311,36 @@ body = "Email body"
         "variables/templates.toml",
         r#"schema_version = 1
 
-type = "list<catalog:message-template>"
+type = "array<catalog=message_template>"
 
 [resolve]
-default = []
+method = "query"
+from = "message_template"
+filter = 'entry.channel == context.channel && entry.active == true && variables["premium"]'
+"#,
+    );
+    write_file(
+        root,
+        "variables/static_gate.toml",
+        r#"schema_version = 1
 
-[[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && env.qualifier["premium"]'
+type = "bool"
+
+[resolve]
+default = true
+"#,
+    );
+    write_file(
+        root,
+        "variables/static_templates.toml",
+        r#"schema_version = 1
+
+type = "array<catalog=message_template>"
+
+[resolve]
+method = "query"
+from = "message_template"
+filter = 'entry.active == variables["static_gate"]'
 "#,
     );
 
@@ -192,23 +353,33 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
         .iter()
         .find(|variable| variable.id == "templates")
         .expect("templates variable");
+    assert!(variable.uses_context);
     assert_eq!(variable.declaration.kind, "primitive");
     assert_eq!(
         variable.declaration.value.as_deref(),
-        Some("list<catalog:message-template>")
+        Some("array<catalog=message_template>")
     );
-    let rule = &variable.resolve.as_ref().expect("resolve section").rules[0];
-    assert_eq!(rule.index, 0);
-    assert!(rule.when.is_none());
-    let query = rule.query.as_ref().expect("query field");
+    let resolve = variable.resolve.as_ref().expect("resolve section");
+    assert!(resolve.rules.is_empty());
     assert_eq!(
-        query.value.as_deref(),
-        Some(
-            r#"entry.channel == context.channel && entry.active == true && env.qualifier["premium"]"#
-        )
+        resolve
+            .method
+            .as_ref()
+            .and_then(|method| method.value.as_deref()),
+        Some("query")
+    );
+    let query = resolve.query.as_ref().expect("query section");
+    assert_eq!(
+        query.from.as_ref().and_then(|from| from.value.as_deref()),
+        Some("message_template")
+    );
+    let filter = query.filter.as_ref().expect("filter field");
+    assert_eq!(
+        filter.value.as_deref(),
+        Some(r#"entry.channel == context.channel && entry.active == true && variables["premium"]"#)
     );
     assert!(
-        query.location.range.is_some(),
+        filter.location.range.is_some(),
         "query fields carry source ranges for editor edits"
     );
 
@@ -219,12 +390,12 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
         .expect("evaluation context sample");
     assert_eq!(sample.value.as_ref().unwrap()["channel"], "email");
 
-    let qualifier_contexts = model
-        .qualifier_evaluation_contexts
+    let premium_contexts = model
+        .variable_evaluation_contexts
         .iter()
-        .find(|entry| entry.qualifier == "premium")
+        .find(|entry| entry.variable == "premium")
         .expect("premium evaluation-context compatibility");
-    assert_eq!(qualifier_contexts.evaluation_contexts, vec!["request"]);
+    assert_eq!(premium_contexts.evaluation_contexts, vec!["request"]);
 
     let variable_contexts = model
         .variable_evaluation_contexts
@@ -233,28 +404,31 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
         .expect("templates evaluation-context compatibility");
     assert_eq!(variable_contexts.evaluation_contexts, vec!["request"]);
 
-    let query_qualifier_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")
-            && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "premium")
-            && matches!(&reference.via, ModelReferenceVia::RuleCondition { index } if *index == 0)
-    });
-    assert!(query_qualifier_edge, "query qualifier reference edge");
-
-    let context_attribute_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Qualifier { id } if id == "premium")
-            && matches!(
-                &reference.to,
-                ModelEntityRef::ContextAttribute { name } if name == "user.tier"
-            )
-            && matches!(
-                reference.via,
-                ModelReferenceVia::QualifierWhenContextAttribute
-            )
-    });
+    let static_variable = model
+        .variables
+        .iter()
+        .find(|variable| variable.id == "static_templates")
+        .expect("static_templates variable");
     assert!(
-        context_attribute_edge,
-        "qualifier context attribute reference edge"
+        !static_variable.uses_context,
+        "a query that reaches only a context-free variable stays context-free"
     );
+    let static_trace =
+        rototo::trace_variable_resolution(root, "static_templates", &serde_json::json!({}))
+            .await
+            .expect("a transitively context-free query resolves with an empty context");
+    assert!(matches!(
+        static_trace.resolution.source,
+        rototo::model::VariableResolutionSource::CatalogArray { catalog, values }
+            if catalog == "message_template" && values == ["email"]
+    ));
+
+    let query_reference_edge = model.references.iter().any(|reference| {
+        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")
+            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "premium")
+            && matches!(&reference.via, ModelReferenceVia::Query)
+    });
+    assert!(query_reference_edge, "query filter reference edge");
 }
 
 fn write_file(root: &Path, path: &str, contents: &str) {
@@ -263,4 +437,21 @@ fn write_file(root: &Path, path: &str, contents: &str) {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(path, contents).unwrap();
+}
+
+/// Two independent lint pipelines over the same package must project
+/// byte-identical semantic models: discovery order, node maps, reference
+/// lists, and locations are all deterministic.
+#[tokio::test]
+async fn semantic_model_projection_is_deterministic_across_runs() {
+    let first = package_semantic_model(Path::new("examples/basic"))
+        .await
+        .expect("first run");
+    let second = package_semantic_model(Path::new("examples/basic"))
+        .await
+        .expect("second run");
+
+    let first_json = serde_json::to_string(&first).expect("serialize first");
+    let second_json = serde_json::to_string(&second).expect("serialize second");
+    assert_eq!(first_json, second_json);
 }

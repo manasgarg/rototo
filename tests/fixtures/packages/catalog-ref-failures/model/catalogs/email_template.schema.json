@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for email template catalog values.",
+  "$id": "rototo://catalogs/email_template.schema.json",
+  "type": "object",
+  "required": [
+    "body"
+  ],
+  "properties": {
+    "body": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

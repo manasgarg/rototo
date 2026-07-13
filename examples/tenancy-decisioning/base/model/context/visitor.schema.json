@@ -1,0 +1,32 @@
+{
+  "$comment": "The visitor facts a tenant's site supplies per request. Audience bounds read these, so the facts they compare are required; rototo never stores visitor lists.",
+  "type": "object",
+  "title": "Site visitor context",
+  "properties": {
+    "visitor": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lifetime_spend": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "visits",
+        "lifetime_spend"
+      ]
+    }
+  },
+  "required": [
+    "visitor"
+  ]
+}

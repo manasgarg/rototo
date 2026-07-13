@@ -3,7 +3,7 @@
 The CLI is for authoring, checking, and operating a package. The **SDK** is for
 the other side: your running application, asking rototo for config values at
 request time. This page covers that runtime surface - load a package, resolve
-variables and qualifiers, and keep a long-running service refreshed.
+variables, and keep a long-running service refreshed.
 
 rototo ships SDKs for Rust, Python, TypeScript, Go, and Java. They're all thin,
 idiomatic wrappers over the same Rust core, so they behave identically - same
@@ -36,7 +36,7 @@ let context = EvaluationContext::from_json(serde_json::json!({
     "user": { "tier": "premium" }
 }))?;
 
-let resolution = package.resolve_variable("premium-message", &context)?;
+let resolution = package.resolve_variable("premium_message", &context)?;
 println!("{}", resolution.value); // the resolved JSON value
 ```
 
@@ -46,7 +46,7 @@ import rototo
 package = await rototo.Package.load("examples/basic")
 
 resolution = package.resolve_variable(
-    "premium-message",
+    "premium_message",
     {"user": {"tier": "premium"}},
 )
 print(resolution.value)  # the resolved JSON value
@@ -57,7 +57,7 @@ import { Package } from "rototo";
 
 const pkg = await Package.load("examples/basic");
 
-const resolution = pkg.resolveVariable("premium-message", {
+const resolution = pkg.resolveVariable("premium_message", {
   user: { tier: "premium" },
 });
 console.log(resolution.value); // the resolved JSON value
@@ -71,7 +71,7 @@ import java.util.Map;
 Package pkg = Package.load("examples/basic").get();
 
 VariableResolution resolution = pkg.resolveVariable(
-    "premium-message",
+    "premium_message",
     Map.of("user", Map.of("tier", "premium"))
 );
 System.out.println(resolution.value()); // the resolved JSON value
@@ -82,9 +82,9 @@ pkg, err := rototo.Load(ctx, "examples/basic", nil)
 if err != nil {
     return err
 }
-defer pkg.Close(ctx)
+defer pkg.Close()
 
-resolution, err := pkg.ResolveVariable("premium-message", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_message", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
@@ -100,60 +100,185 @@ A variable resolution carries three things:
 
 - the **id** of the variable;
 - the **value** - the resolved config value, as native JSON (a bool, number,
-  string, list, or object);
+  string, array, or object);
 - the **source** - where the value came from, so you can see *why* you got it.
   `source.kind` is `literal` for a plain value, `catalog` for a single
-  [catalog](./package-format.md) entry (with the catalog and entry ids), or
-  `catalog_list` for a `list<catalog:...>` query result.
+  [catalog](./package-format.md) entry (the catalog id plus the entry id in
+  its `value` field), or `catalog_array` for an `array<catalog=...>` value.
 
 For a catalog-backed variable, `value` is the full structured entry - heading,
-image, body, whatever the catalog defines - not just the entry's name.
+image, body, whatever the catalog defines - not just the entry's name. One
+boundary to know: the entry comes back exactly as it is written in the
+package. If one of its fields is an `x-rototo-ref` reference to another
+entry, you receive the reference string, not the referenced entry inlined.
+Following a reference is an explicit step, covered in
+[Reading the package directly](#reading-the-package-directly) below.
 
-## Resolving a qualifier
+## Resolving a condition variable
 
-Sometimes you don't want a value, you just want to know whether a named condition
-holds - "is this a premium user?" That's a qualifier, and it resolves to a plain
-boolean.
+Sometimes you don't want a config value, you just want to know whether a named
+condition holds - "is this a premium user?" Packages name those conditions as
+**condition variables**: bool variables that default to `false` and flip to
+`true` when the condition matches. There's no special API for them - you resolve
+one like any other variable, and its `value` is a plain boolean.
 
-:::sdk-snippet resolve-qualifier
+:::sdk-snippet resolve-condition
 ```rust
-let is_premium = package.resolve_qualifier("premium-users", &context)?;
-if is_premium {
+let resolution = package.resolve_variable("premium_users", &context)?;
+if resolution.value == serde_json::json!(true) {
     // ...
 }
 ```
 
 ```python
-is_premium = package.resolve_qualifier("premium-users", {"user": {"tier": "premium"}})
-if is_premium:
+resolution = package.resolve_variable("premium_users", {"user": {"tier": "premium"}})
+if resolution.value:
     ...
 ```
 
 ```typescript
-const isPremium = pkg.resolveQualifier("premium-users", {
+const resolution = pkg.resolveVariable("premium_users", {
   user: { tier: "premium" },
 });
-if (isPremium) {
+if (resolution.value === true) {
   // ...
 }
 ```
 
 ```java
-Boolean isPremium = pkg.resolveQualifier(
-    "premium-users",
+VariableResolution resolution = pkg.resolveVariable(
+    "premium_users",
     Map.of("user", Map.of("tier", "premium"))
 );
+boolean isPremium = Boolean.TRUE.equals(resolution.value());
 ```
 
 ```go
-isPremium, err := pkg.ResolveQualifier("premium-users", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_users", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
     return err
 }
+isPremium := resolution.Value == true
 ```
 :::
+
+## Reading the package directly
+
+Resolution answers one question: what value should *this request* see. Some
+apps need a second kind of question: what is *in* the package. A billing page
+wants every plan tier so it can render a comparison table. An entitlement
+check wants the feature entry a plan refers to. That is what the reading
+surface is for.
+
+It exists because of how references come back. A catalog entry can point at
+other entries by id - a plan carries feature ids, an email carries a template
+id - through `x-rototo-ref` in the catalog schema. When a resolution hands
+you that entry, the reference is still a string. rototo does not inline the
+referenced entry, because only your app knows how deep to go: inlining
+everything would turn a small plan object into the transitive closure of the
+catalog. Following a reference is one explicit call instead.
+
+Four operations cover it, with the same names in every SDK (local spelling
+applies):
+
+- `list_ids()` and `read_list(id)` - the declared lists, and one list's type
+  and members;
+- `entry_ids(catalog)` and `read_entry(catalog, entry)` - one catalog's entry
+  ids, and one raw entry exactly as authored;
+- `resolve_reference(address)` - follow one reference by address, like
+  `catalog=features:entry=api_access`, with an optional `#/pointer` into the
+  entry. In Rust the address form is `resolve_reference_at`.
+- `resolve_entry_ref(value, pins)` - follow a raw reference string you found
+  in an entry field, against the catalogs its schema pins. Rust instead
+  offers `references_in`, which reports every reference a value carries,
+  ready to follow.
+
+Here is the plan-and-features flow end to end, using the `examples/billing`
+package: resolve the plan, then follow its feature references only as far as
+the page needs.
+
+:::sdk-snippet read-package
+```rust
+// The plan entry arrives as authored: feature ids, not feature objects.
+let plan = package.resolve_variable("active_plan", &context)?;
+
+for feature_id in plan.value["features"].as_array().unwrap() {
+    let feature = package.read_entry("features", feature_id.as_str().unwrap())?;
+    // render the feature row
+}
+
+let tiers = package.read_list("plan_tiers")?; // id, member type, members
+```
+
+```python
+plan = package.resolve_variable("active_plan", {"account": {"plan_tier": "team"}})
+
+# The plan entry arrives as authored: feature ids, not feature objects.
+for feature_id in plan.value["features"]:
+    feature = package.read_entry("features", feature_id)
+    # render the feature row
+
+tiers = package.read_list("plan_tiers")  # id, memberType, members
+```
+
+```typescript
+const plan = pkg.resolveVariable("active_plan", {
+  account: { plan_tier: "team" },
+});
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+const { features } = plan.value as { features: string[] };
+for (const featureId of features) {
+  const feature = pkg.readEntry("features", featureId);
+  // render the feature row
+}
+
+const tiers = pkg.readList("plan_tiers"); // id, memberType, members
+```
+
+```java
+VariableResolution plan = pkg.resolveVariable(
+    "active_plan",
+    Map.of("account", Map.of("plan_tier", "team"))
+);
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+Map<String, Object> value = (Map<String, Object>) plan.value();
+for (Object featureId : (java.util.List<Object>) value.get("features")) {
+    Object feature = pkg.readEntry("features", featureId.toString());
+    // render the feature row
+}
+
+Map<String, Object> tiers = pkg.readList("plan_tiers");
+```
+
+```go
+plan, err := pkg.ResolveVariable("active_plan", map[string]any{
+    "account": map[string]any{"plan_tier": "team"},
+}, nil)
+if err != nil {
+    return err
+}
+
+// The plan entry arrives as authored: feature ids, not feature objects.
+features := plan.Value.(map[string]any)["features"].([]any)
+for _, featureId := range features {
+    feature, err := pkg.ReadEntry("features", featureId.(string))
+    if err != nil {
+        return err
+    }
+    _ = feature // render the feature row
+}
+
+tiers, err := pkg.ReadList("plan_tiers")
+```
+:::
+
+Everything this surface returns is read-only and comes from the loaded
+package, so it is consistent with what resolution would answer at the same
+moment.
 
 ## Keeping a long-running service fresh
 
@@ -180,7 +305,7 @@ let package = RefreshingPackage::load(
     RefreshOptions::new().with_period(Duration::from_secs(300)),
 ).await?;
 
-let resolution = package.resolve_variable("premium-message", &context)?;
+let resolution = package.resolve_variable("premium_message", &context)?;
 
 // on shutdown:
 package.shutdown().await;
@@ -192,7 +317,7 @@ package = await rototo.RefreshingPackage.load(
     period_seconds=300,
 )
 
-resolution = package.resolve_variable("premium-message", {"user": {"tier": "premium"}})
+resolution = package.resolve_variable("premium_message", {"user": {"tier": "premium"}})
 
 # on shutdown:
 await package.shutdown()
@@ -206,7 +331,7 @@ const pkg = await RefreshingPackage.load(
   { periodSeconds: 300 },
 );
 
-const resolution = pkg.resolveVariable("premium-message", {
+const resolution = pkg.resolveVariable("premium_message", {
   user: { tier: "premium" },
 });
 
@@ -222,7 +347,7 @@ RefreshingPackage pkg = RefreshingPackage.load(
 ).get();
 
 VariableResolution resolution = pkg.resolveVariable(
-    "premium-message",
+    "premium_message",
     Map.of("user", Map.of("tier", "premium"))
 );
 
@@ -237,7 +362,7 @@ if err != nil {
 }
 defer pkg.Shutdown(ctx)
 
-resolution, err := pkg.ResolveVariable("premium-message", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_message", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
@@ -245,6 +370,73 @@ if err != nil {
 }
 ```
 :::
+
+### Tuning refresh
+
+`RefreshOptions` has three knobs beyond the period, and the defaults are meant
+to be left alone until you have a reason:
+
+- **`with_period(duration)`** - how often to re-check the source. No period
+  means no background refresh: the package loads once and stays put. A source
+  pinned to an immutable ref (a commit hash) can never produce a new result,
+  so periodic refresh is disabled for it and the SDK logs a warning at load.
+- **`with_failure_backoff(min, max)`** - what happens after a failed refresh.
+  The loop retries with exponential backoff: the first failure waits `min`,
+  each consecutive failure doubles the wait, and `max` caps it. Defaults are
+  5 seconds and 5 minutes. The last good package serves the whole time; the
+  backoff only spaces out the retries.
+- **`with_max_staleness(duration)`** - your freshness budget, for health
+  checks. Rototo doesn't act on this itself; it's the threshold you hand to
+  `status().stale(...)` to answer "has it been too long since a successful
+  refresh?" Wire that into a readiness probe or an alert, and a source that's
+  been failing for an hour becomes visible instead of silently stale.
+
+The current state is always one call away: `status()` returns the last
+attempt and success times, the consecutive-failure count, the last error
+string, and whether a refresh is running right now; `snapshot()` bundles that
+with the current package identity for one-line logging.
+
+### Starting degraded on a bundled fallback
+
+Refresh protects a service that is already running: a failed refresh keeps the
+last good package serving. But it can't help at startup, because there is no
+last good package yet. If the config source is down when your process boots,
+the load fails and the process doesn't start - your app's availability is now
+coupled to your config host's.
+
+The fallback source breaks that coupling. Ship the app with a copy of the
+package it was tested against - a directory in the container image or app
+bundle - and name it in the load options:
+
+```rust
+let package = RefreshingPackage::load_with_options(
+    "https://config.acme.com/checkout/current.tar.gz",
+    LoadOptions::new().with_fallback_source("/app/config-bundled"),
+    RefreshOptions::new().with_period(Duration::from_secs(300)),
+)
+.await?;
+```
+
+The rules are strict so behavior stays predictable:
+
+- A healthy primary always wins. The fallback only loads when the primary
+  fails - fetch, auth, staging, parse, or the lint gate - and it goes through
+  the exact same pipeline with no leniency. If both fail, you get one error
+  naming both attempts and reasons, primary first.
+- A refreshing package that started on the fallback keeps refreshing **from
+  the primary** on the normal period and backoff. The fallback is static; it
+  is never refreshed from. The first successful refresh is the ordinary
+  refreshed event, and the primary is serving again.
+- Starting on the fallback emits a `fallback_loaded` event carrying why the
+  primary failed, and `status().serving_fallback()` stays true until the
+  primary recovers. Pair it with `with_max_staleness` in your health checks so
+  running degraded too long becomes an alarm, not a surprise.
+
+To produce the bundled copy, project the same package your pipeline ships:
+`rototo package <source> --unpacked /app/config-bundled` writes the flattened
+tree as a plain directory at build time. An immutable-ref primary plus a
+bundled fallback from the same commit is the reproducible shape: you can say
+exactly what config any instance is serving, degraded or not.
 
 ## Watching refreshes happen
 
@@ -307,13 +499,37 @@ service. So treat events as the audit trail of what changed and when, and treat
 the snapshot (the current state, which you can always ask for) as the source of
 truth you reconcile against.
 
+The event itself is a flat record, and every field exists to be joined across
+instances:
+
+- **`event_type`** - one of `loaded` (the initial load), `fallback_loaded`
+  (the start was degraded and the fallback source answered),
+  `refresh_started`, `unchanged`, `refreshed`, `failed`, `immutable` (a
+  refresh was asked of a pinned source), or `shutdown`.
+- **`event_id`** - a unique id for deduplicating shipped logs.
+- **`source`** - the package source with any embedded credentials redacted,
+  safe to log as-is.
+- **`previous` / `current`** - the package identity on each side of the event:
+  source fingerprint, load time, and release ref where the source has one.
+  A `refreshed` event with both sides is exactly the "instance X moved from
+  release A to B" line your dashboard wants.
+- **`attempted_at` / `completed_at` / `duration`** - when and how long.
+- **`outcome`** - for a completed check: `unchanged`, `refreshed`, or
+  `immutable`.
+- **`consecutive_failures` / `error`** - how deep a failure streak is and what
+  the last error said.
+- **`sdk`** - which SDK and version emitted the event, for fleets that mix
+  languages.
+
 ## Tracing a single resolution
 
 Refresh events tell you which package is live. The other question that shows up
 - usually as a support ticket - is "why did *this one user* get *this* value?"
 That's what a **trace** answers: the full record of one resolve, the rules it
-tried, which one matched, every qualifier outcome, and the context it ran
-against.
+tried, which one matched, the other variables it consulted along the way, and
+the context it ran against. For a package composed from layers, the trace also
+carries `provenance`: the layer whose `[resolve]` block produced the value, so
+"which layer decided this" is right there in the record.
 
 Traces are verbose and meant for debugging, so they're emitted selectively, and
 there are two ways to decide which resolutions to trace.
@@ -332,24 +548,24 @@ trace option to the resolve call:
 use rototo::ResolveOptions;
 
 let options = ResolveOptions { trace: true, ..ResolveOptions::default() };
-let resolution = package.resolve_variable_with_options("checkout-redesign", &context, options)?;
+let resolution = package.resolve_variable_with_options("checkout_redesign", &context, options)?;
 ```
 
 ```python
-resolution = package.resolve_variable("checkout-redesign", context, trace=True)
+resolution = package.resolve_variable("checkout_redesign", context, trace=True)
 ```
 
 ```typescript
-const resolution = pkg.resolveVariable("checkout-redesign", context, { trace: true });
+const resolution = pkg.resolveVariable("checkout_redesign", context, { trace: true });
 ```
 
 ```java
 VariableResolution resolution = pkg.resolveVariable(
-    "checkout-redesign", context, ResolveOptions.trace(true));
+    "checkout_redesign", context, ResolveOptions.trace(true));
 ```
 
 ```go
-resolution, err := pkg.ResolveVariable("checkout-redesign", context, &rototo.ResolveOptions{Trace: true})
+resolution, err := pkg.ResolveVariable("checkout_redesign", context, &rototo.ResolveOptions{Trace: true})
 ```
 :::
 
@@ -437,10 +653,54 @@ malformed context is caught early. You can turn that off per call if you've
 already validated upstream.
 
 **Version.** Every SDK exposes the canonical rototo version (currently
-`0.1.0-alpha.6`) - as `rototo.__version__` in Python, a `version()` call in
+`0.1.0-alpha.7`) - as `rototo.__version__` in Python, a `version()` call in
 TypeScript, Go, and Java, and the crate version in Rust. The Python wheel
-displays its ecosystem-normalized spelling (`0.1.0a5`) in package metadata, but
+displays its ecosystem-normalized spelling (`0.1.0a7`) in package metadata, but
 the version the runtime reports is the canonical one.
+
+## Load options
+
+Every loader takes options; in Rust they're a `LoadOptions` value, in the
+other SDKs they're the load call's option bag. Five things live there:
+
+- **Lint mode.** `load` runs the lint gate and refuses a failing package;
+  `with_lint(LintMode::Skip)` turns the gate off, which is what `inspect` does
+  for you (next section). Leave it on for anything that serves values.
+- **Source auth.** `with_source_auth` carries bearer tokens for private HTTPS
+  archive sources - the SDK-side twin of `--package-token`. Two shapes: a
+  single token (binds to the load graph's one archive origin) or a map from
+  `https://` URL prefixes to tokens, where the longest matching prefix wins
+  and unmatched requests go out anonymous. Git sources authenticate through
+  git itself.
+- **Fallback source.** `with_fallback_source` names a second source to load
+  when the primary fails, so a broken config fetch degrades your start instead
+  of blocking it. The full story is in
+  [Starting degraded on a bundled fallback](#starting-degraded-on-a-bundled-fallback).
+- **Trace capacity.** The buffer depth of the trace-event stream. A consumer
+  that falls behind drops the oldest events past this depth and sees a dropped
+  marker with the count.
+- **Refresh capacity.** The same, for the refresh-event stream.
+
+Per-resolve options are separate and small: `ResolveOptions` holds
+`validate_context` (the schema check described above, on by default) and
+`trace` (compute a resolution trace for this call).
+
+## Asking a package what it is
+
+A loaded package can identify itself, which matters the moment logs from two
+instances disagree. Every SDK exposes **`identity()`**: the package's
+identity as one value, carrying the redacted source, the source fingerprint
+(a stable hash of the staged content, so two instances serving identical
+bytes agree on it even if they loaded at different times), the load time,
+whether the source is pinned, and for a composed package the sources it was
+flattened from. Log it at startup and every "which config is this box on?"
+question becomes grep.
+
+The Rust SDK also breaks the same facts out as individual accessors -
+`source_fingerprint()`, `loaded_at()`, `immutable_source()`,
+`source_layers()` - plus `inspection()` and `context_schema()` for tools
+that introspect rather than resolve. The other SDKs keep just `identity()`;
+read the fields off it.
 
 ## Inspecting without the lint gate
 

@@ -1,55 +1,128 @@
 use std::collections::BTreeSet;
 
-use crate::diagnostics::{RototoRuleId, SemanticEntity, SemanticField, Severity};
+use crate::diagnostics::{LintDiagnostic, RototoRuleId, SemanticEntity, SemanticField, Severity};
 
 use super::super::engine::LintContext;
 use super::super::evaluation_context::{
     ContextPathTypeFit, compatibility_for as evaluation_context_compatibility_for,
     context_path_type_fit, expected_type_label, path_declared_in_any_context,
-    qualifier_uses_context_attribute, variable_resolve_rules,
+    variable_allocation_expressions, variable_query_expressions, variable_resolve_rules,
     variable_rule_condition_reference_count,
 };
-use super::super::index::{ProjectField, SemanticIndex};
+use serde_json::Value as JsonValue;
+
+use super::super::index::{
+    EvaluationContextNode, EvaluationContextSampleNode, ProjectField, SemanticIndex,
+};
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_graph_diagnostic, push_project_diagnostic, push_value_diagnostic};
-use crate::expression::ContextScalarType;
+use crate::expression::{ContextScalarType, ExpressionReferences};
 
 pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
-    let diagnostics = &mut ctx.diagnostics;
+    let mut diagnostics = Vec::new();
     for evaluation_context in ctx.index.evaluation_contexts.values() {
         if let Some(message) = &evaluation_context.invalid_message {
             push_project_diagnostic(
-                diagnostics,
+                &mut diagnostics,
                 RototoRuleId::EvaluationContextSchemaInvalid,
                 evaluation_context.field_target(SemanticField::SchemaJson),
                 evaluation_context.location.clone(),
                 format!("evaluation context schema is invalid: {message}"),
             );
         }
+        if let Some(schema) = evaluation_context.json.as_ref() {
+            lint_context_list_ref_shapes(&mut diagnostics, ctx, evaluation_context, schema, "$");
+        }
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+/// Context schema fields may pin their values to a list with
+/// `x-rototo-ref: "list=<id>"`. Context facts are caller data, so catalog
+/// targets are rejected here; lists are the only referenceable set.
+fn lint_context_list_ref_shapes(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    evaluation_context: &EvaluationContextNode,
+    schema: &JsonValue,
+    pointer: &str,
+) {
+    if let Some(target) = schema.get("x-rototo-ref") {
+        match target.as_str().map(context_list_ref_target) {
+            Some(Ok(id)) if ctx.index.lists.contains_key(&id) => {}
+            Some(Ok(id)) => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!("x-rototo-ref references unknown list {id} at {pointer}"),
+            ),
+            Some(Err(message)) => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!("{message} at {pointer}"),
+            ),
+            None => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!(
+                    "x-rototo-ref in evaluation context schemas must target list=<id> at {pointer}"
+                ),
+            ),
+        }
+    }
+
+    for keyword in ["properties", "$defs", "definitions"] {
+        let Some(children) = schema.get(keyword).and_then(JsonValue::as_object) else {
+            continue;
+        };
+        for (key, child) in children {
+            lint_context_list_ref_shapes(
+                diagnostics,
+                ctx,
+                evaluation_context,
+                child,
+                &format!("{pointer}/{keyword}/{key}"),
+            );
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        lint_context_list_ref_shapes(
+            diagnostics,
+            ctx,
+            evaluation_context,
+            items,
+            &format!("{pointer}/items"),
+        );
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(children) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for (index, child) in children.iter().enumerate() {
+            lint_context_list_ref_shapes(
+                diagnostics,
+                ctx,
+                evaluation_context,
+                child,
+                &format!("{pointer}/{keyword}/{index}"),
+            );
+        }
     }
 }
 
-pub(super) fn lint_evaluation_context_reserved_fields(ctx: &mut LintContext) {
-    let diagnostics = &mut ctx.diagnostics;
-    for evaluation_context in ctx.index.evaluation_contexts.values() {
-        let Some(json) = evaluation_context.json.as_ref() else {
-            continue;
-        };
-        if !json
-            .get("properties")
-            .and_then(serde_json::Value::as_object)
-            .is_some_and(|properties| properties.contains_key("qualifier"))
-        {
-            continue;
+fn context_list_ref_target(target: &str) -> Result<String, String> {
+    if let Some(id) = target.strip_prefix("list=") {
+        if id.is_empty() {
+            return Err("x-rototo-ref list id must not be empty".to_owned());
         }
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::EvaluationContextReservedField,
-            evaluation_context.field_target(SemanticField::SchemaJson),
-            evaluation_context.location.clone(),
-            "evaluation context schema declares reserved top-level field: qualifier",
-        );
+        return Ok(id.to_owned());
     }
+    Err("x-rototo-ref in evaluation context schemas must target list=<id>".to_owned())
 }
 
 pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
@@ -102,61 +175,165 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
                     ),
                 );
             }
+            if let Some(schema) = context.json.as_ref() {
+                lint_sample_list_refs(&mut diagnostics, ctx, entry, schema, schema, value, "$");
+            }
         }
     }
     ctx.diagnostics.extend(diagnostics);
 }
 
-pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
-    let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
-    let variables_with_errors = variables_with_existing_errors(ctx);
+/// Walk the context schema and the sample together, checking every field that
+/// pins its values with `x-rototo-ref: "list=<id>"` against the list's member
+/// set. Local `#/...` `$ref`s resolve against the schema root; anything else is
+/// out of scope for context schemas.
+#[allow(clippy::too_many_arguments)]
+fn lint_sample_list_refs(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    entry: &EvaluationContextSampleNode,
+    root: &JsonValue,
+    schema: &JsonValue,
+    value: &JsonValue,
+    path: &str,
+) {
+    if let Some(reference) = schema.get("$ref").and_then(JsonValue::as_str)
+        && let Some(pointer) = reference.strip_prefix("#")
+        && let Some(resolved) = root.pointer(pointer)
+    {
+        lint_sample_list_refs(diagnostics, ctx, entry, root, resolved, value, path);
+    }
 
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let ProjectField::Present(when) = &qualifier.when else {
-            continue;
-        };
-        for path in &when.value.references().context_paths {
-            if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+    if let Some(id) = schema
+        .get("x-rototo-ref")
+        .and_then(JsonValue::as_str)
+        .and_then(|target| target.strip_prefix("list="))
+        && let Some(members) = sample_list_member_values(ctx, id)
+        && !value.is_object()
+        && !value.is_array()
+        && !members.contains(&value)
+    {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::EvaluationContextSampleSchemaMismatch,
+            entry.field_target(SemanticField::EvaluationContextSample),
+            entry.location.clone(),
+            format!(
+                "evaluation context sample {} field {path} is not a member of list {id}: {}",
+                entry.key,
+                serde_json::to_string(value).unwrap_or_default()
+            ),
+        );
+    }
+
+    if let (Some(properties), Some(object)) = (
+        schema.get("properties").and_then(JsonValue::as_object),
+        value.as_object(),
+    ) {
+        for (key, subschema) in properties {
+            let Some(child) = object.get(key) else {
                 continue;
-            }
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierWhenUndeclaredContextPath,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!("when expression references undeclared context path: context.{path}"),
+            };
+            lint_sample_list_refs(
+                diagnostics,
+                ctx,
+                entry,
+                root,
+                subschema,
+                child,
+                &format!("{path}.{key}"),
             );
         }
     }
+    if let (Some(items), Some(array)) = (schema.get("items"), value.as_array()) {
+        for (index, child) in array.iter().enumerate() {
+            lint_sample_list_refs(
+                diagnostics,
+                ctx,
+                entry,
+                root,
+                items,
+                child,
+                &format!("{path}[{index}]"),
+            );
+        }
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(subschemas) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for subschema in subschemas {
+            lint_sample_list_refs(diagnostics, ctx, entry, root, subschema, value, path);
+        }
+    }
+}
+
+fn sample_list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.lists.contains_key(id) {
+        return None;
+    }
+    let members = ctx.index.lists.get(id)?;
+    let ProjectField::Present(members) = &members.members else {
+        return None;
+    };
+    Some(members.value.iter().map(|member| &member.value).collect())
+}
+
+pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    let variables_with_errors = variables_with_existing_errors(ctx);
 
     for (variable_id, variable) in &ctx.index.variables {
         if variables_with_errors.contains(variable_id) {
             continue;
         }
-        let Some(rules) = variable_resolve_rules(variable) else {
-            continue;
-        };
-        for rule in rules {
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
-                let ProjectField::Present(expression) = expression else {
-                    continue;
-                };
-                for path in &expression.value.references().context_paths {
-                    if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+        if let Some(rules) = variable_resolve_rules(variable) {
+            for rule in rules {
+                for expression in [&rule.when].into_iter().flatten() {
+                    let ProjectField::Present(expression) = expression else {
                         continue;
+                    };
+                    for path in &expression.value.references().context_paths {
+                        if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                            continue;
+                        }
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleUndeclaredContextPath,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!("rule references undeclared context path: context.{path}"),
+                        );
                     }
-                    push_graph_diagnostic(
-                        &mut diagnostics,
-                        RototoRuleId::VariableRuleUndeclaredContextPath,
-                        rule.target(variable_id),
-                        rule.location.clone(),
-                        format!("rule references undeclared context path: context.{path}"),
-                    );
                 }
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            for path in &expression.value.references().context_paths {
+                if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                    continue;
+                }
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleUndeclaredContextPath,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!("query references undeclared context path: context.{path}"),
+                );
+            }
+        }
+        for expression in variable_allocation_expressions(&ctx.index, variable) {
+            for path in &expression.references().context_paths {
+                if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                    continue;
+                }
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleUndeclaredContextPath,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!("allocation references undeclared context path: context.{path}"),
+                );
             }
         }
     }
@@ -166,60 +343,113 @@ pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
 
 pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
     let variables_with_errors = variables_with_existing_errors(ctx);
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let ProjectField::Present(when) = &qualifier.when else {
-            continue;
-        };
-        for (path, constraints) in &when.value.references().context_path_types {
-            let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
-                continue;
-            };
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierWhenContextPathTypeMismatch,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!(
-                    "when expression uses context path context.{path} as {expected}, \
-                     which no evaluation context declares with a matching type"
-                ),
-            );
-        }
-    }
 
     for (variable_id, variable) in &ctx.index.variables {
         if variables_with_errors.contains(variable_id) {
             continue;
         }
-        let Some(rules) = variable_resolve_rules(variable) else {
-            continue;
-        };
-        for rule in rules {
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
-                let ProjectField::Present(expression) = expression else {
-                    continue;
-                };
-                for (path, constraints) in &expression.value.references().context_path_types {
-                    let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+        if let Some(rules) = variable_resolve_rules(variable) {
+            for rule in rules {
+                for expression in [&rule.when].into_iter().flatten() {
+                    let ProjectField::Present(expression) = expression else {
                         continue;
                     };
-                    push_graph_diagnostic(
-                        &mut diagnostics,
-                        RototoRuleId::VariableRuleContextPathTypeMismatch,
-                        rule.target(variable_id),
-                        rule.location.clone(),
-                        format!(
-                            "rule uses context path context.{path} as {expected}, \
-                             which no evaluation context declares with a matching type"
-                        ),
-                    );
+                    for (path, constraints) in &expression.value.references().context_path_types {
+                        let Some(expected) = type_mismatch_label(&ctx.index, path, constraints)
+                        else {
+                            continue;
+                        };
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleContextPathTypeMismatch,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!(
+                                "rule uses context path context.{path} as {expected}, \
+                                 which no evaluation context declares with a matching type"
+                            ),
+                        );
+                    }
+                    for (path, expected) in
+                        list_membership_mismatches(&ctx.index, expression.value.references())
+                    {
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleContextPathTypeMismatch,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!(
+                                "rule tests context path context.{path} against list members \
+                                 of type {expected}, which no evaluation context declares \
+                                 with a matching type"
+                            ),
+                        );
+                    }
                 }
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            for (path, constraints) in &expression.value.references().context_path_types {
+                let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                    continue;
+                };
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!(
+                        "query uses context path context.{path} as {expected}, \
+                         which no evaluation context declares with a matching type"
+                    ),
+                );
+            }
+            for (path, expected) in
+                list_membership_mismatches(&ctx.index, expression.value.references())
+            {
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!(
+                        "query tests context path context.{path} against list members \
+                         of type {expected}, which no evaluation context declares \
+                         with a matching type"
+                    ),
+                );
+            }
+        }
+        for expression in variable_allocation_expressions(&ctx.index, variable) {
+            for (path, constraints) in &expression.references().context_path_types {
+                let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                    continue;
+                };
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!(
+                        "allocation uses context path context.{path} as {expected}, \
+                         which no evaluation context declares with a matching type"
+                    ),
+                );
+            }
+            for (path, expected) in list_membership_mismatches(&ctx.index, expression.references())
+            {
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!(
+                        "allocation tests context path context.{path} against list members \
+                         of type {expected}, which no evaluation context declares \
+                         with a matching type"
+                    ),
+                );
             }
         }
     }
@@ -259,41 +489,46 @@ fn type_mismatch_label(
     (any_declared && !any_ok).then(|| expected_type_label(constraints))
 }
 
+/// List-membership refinements: `context.<path> in lists.<id>` pins the path
+/// to the declared list's member type. Returns the same mismatch labels as
+/// [`type_mismatch_label`] does for literal constraints; unknown lists are
+/// skipped here because the unknown-list rule owns them.
+fn list_membership_mismatches(
+    index: &SemanticIndex,
+    references: &ExpressionReferences,
+) -> Vec<(String, String)> {
+    let mut mismatches = Vec::new();
+    for (path, list_ids) in &references.context_path_lists {
+        let mut constraints = BTreeSet::new();
+        for list_id in list_ids {
+            let Some(declared) = index.lists.get(list_id) else {
+                continue;
+            };
+            let ProjectField::Present(member_type) = &declared.member_type else {
+                continue;
+            };
+            constraints.insert(match member_type.value.as_str() {
+                "string" => ContextScalarType::String,
+                "int" | "number" => ContextScalarType::Number,
+                "bool" => ContextScalarType::Bool,
+                _ => continue,
+            });
+        }
+        if let Some(expected) = type_mismatch_label(index, path, &constraints) {
+            mismatches.push((path.clone(), expected));
+        }
+    }
+    mismatches
+}
+
 pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {
     let compatibility = evaluation_context_compatibility_for(&ctx.index, &ctx.references);
     let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
     let variables_with_errors = variables_with_existing_errors(ctx);
-    let mut qualifiers_without_context = BTreeSet::new();
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let contexts = compatibility
-            .qualifiers
-            .get(&qualifier.id)
-            .cloned()
-            .unwrap_or_default();
-        if contexts.is_empty() && qualifier_uses_context_attribute(&ctx.references, &qualifier.id) {
-            qualifiers_without_context.insert(qualifier.id.clone());
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierNoCompatibleEvaluationContext,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!(
-                    "qualifier {} has no compatible evaluation context",
-                    qualifier.id
-                ),
-            );
-        }
-    }
 
     for variable in ctx.index.variables.values() {
         if variables_with_errors.contains(&variable.id)
-            || variable_references_error_qualifier(ctx, &variable.id, &qualifiers_with_errors)
-            || variable_references_error_qualifier(ctx, &variable.id, &qualifiers_without_context)
+            || variable_references_error_variable(ctx, &variable.id, &variables_with_errors)
         {
             continue;
         }
@@ -322,18 +557,6 @@ pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
-fn qualifiers_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
-    ctx.diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.severity == Severity::Error)
-        .filter_map(|diagnostic| match &diagnostic.target.entity {
-            SemanticEntity::Qualifier { id } => Some(id.clone()),
-            SemanticEntity::Predicate { qualifier, .. } => Some(qualifier.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 fn variables_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
     ctx.diagnostics
         .iter()
@@ -347,19 +570,19 @@ fn variables_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
         .collect()
 }
 
-fn variable_references_error_qualifier(
+fn variable_references_error_variable(
     ctx: &LintContext,
     variable_id: &str,
-    qualifiers_with_errors: &BTreeSet<String>,
+    variables_with_errors: &BTreeSet<String>,
 ) -> bool {
     ctx.references.edges().iter().any(|edge| {
         matches!(
             &edge.source,
-            ReferenceSource::VariableRuleConditionQualifier { variable, .. }
+            ReferenceSource::VariableRuleConditionVariable { variable, .. }
                 if variable == variable_id
         ) && matches!(
             &edge.target,
-            ReferenceTarget::Qualifier(qualifier) if qualifiers_with_errors.contains(qualifier)
+            ReferenceTarget::Variable(referenced) if variables_with_errors.contains(referenced)
         )
     })
 }

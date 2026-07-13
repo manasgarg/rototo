@@ -50,9 +50,12 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
             "source": result.source,
         }
 
-    if operation == "resolve_qualifier":
-        package = await rototo.Package.load(package_source)
-        return package.resolve_qualifier(case["id"], case.get("context", {}))
+    if operation == "load_package_with_fallback":
+        package = await rototo.Package.load(
+            package_source,
+            fallback_source=str(ROOT / case["fallback"]),
+        )
+        return {"servedFallback": package.served_fallback}
 
     if operation == "package_identity":
         package = await rototo.Package.load(package_source)
@@ -61,6 +64,18 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
             "releaseId": identity.release_id,
             "immutable": identity.immutable,
         }
+
+    if operation == "read_entry":
+        package = await rototo.Package.load(package_source)
+        return {"value": package.read_entry(case["catalog"], case["entry"])}
+
+    if operation == "read_list":
+        package = await rototo.Package.load(package_source)
+        return package.read_list(case["id"])
+
+    if operation == "resolve_reference":
+        package = await rototo.Package.load(package_source)
+        return {"value": package.resolve_reference(case["address"])}
 
     raise AssertionError(f"unsupported contract operation: {operation}")
 

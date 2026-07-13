@@ -15,32 +15,28 @@ use super::{PackageLintSnapshot, lint_package_snapshot};
 #[derive(Debug)]
 pub(crate) struct RuntimePackage {
     pub(crate) evaluation_contexts: BTreeMap<String, RuntimeEvaluationContext>,
-    pub(crate) qualifier_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) context_dependent_variables: BTreeSet<String>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
-    pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
+    pub(crate) lists: BTreeMap<String, RuntimeList>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
+    /// Which layer's `[resolve]` block each variable carries, read from the
+    /// flatten's provenance sidecar. Empty for packages that never composed.
+    pub(crate) resolve_provenance: BTreeMap<String, String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct RuntimeList {
+    pub(crate) description: Option<String>,
+    pub(crate) member_type: String,
+    pub(crate) members: Vec<JsonValue>,
 }
 
 impl RuntimePackage {
     pub(crate) fn validate_context(&self, context: &JsonValue) -> Result<()> {
         self.validate_context_against(context, None)
-    }
-
-    pub(crate) fn validate_context_for_qualifier(
-        &self,
-        qualifier: &str,
-        context: &JsonValue,
-    ) -> Result<()> {
-        let allowed = self
-            .qualifier_evaluation_contexts
-            .get(qualifier)
-            .ok_or_else(|| {
-                RototoError::new(format!("qualifier not found: qualifier://{qualifier}"))
-            })?;
-        self.validate_context_against(context, Some(allowed))
     }
 
     pub(crate) fn validate_context_for_variable(
@@ -54,12 +50,7 @@ impl RuntimePackage {
             .ok_or_else(|| {
                 RototoError::new(format!("variable not found: variable://{variable}"))
             })?;
-        if allowed.is_empty()
-            && self
-                .variables
-                .get(variable)
-                .is_some_and(|variable| variable.rules.is_empty())
-        {
+        if !self.context_dependent_variables.contains(variable) {
             return Ok(());
         }
         self.validate_context_against(context, Some(allowed))
@@ -103,11 +94,6 @@ pub(crate) struct RuntimeEvaluationContext {
     pub(crate) validator: Arc<Validator>,
 }
 
-#[derive(Debug)]
-pub(crate) struct RuntimeQualifier {
-    pub(crate) when: Expression,
-}
-
 /// A compiled `[[trace]]` policy. Its `when` is evaluated against each
 /// resolution to decide whether to emit a trace event; it may read
 /// `env.resolving.*`.
@@ -118,27 +104,63 @@ pub(crate) struct RuntimeTracePolicy {
 
 #[derive(Debug)]
 pub(crate) struct RuntimeVariable {
-    pub(crate) default: RuntimeSelectedValue,
-    pub(crate) rules: Vec<RuntimeRule>,
+    pub(crate) resolution: RuntimeResolution,
+}
+
+#[derive(Debug)]
+pub(crate) enum RuntimeResolution {
+    Rules {
+        default: RuntimeSelectedValue,
+        rules: Vec<RuntimeRule>,
+    },
+    Query(Box<RuntimeQuery>),
+    Allocation(Box<RuntimeAllocation>),
 }
 
 #[derive(Debug)]
 pub(crate) struct RuntimeRule {
     pub(crate) index: usize,
-    pub(crate) when: Option<Expression>,
-    pub(crate) selection: RuntimeRuleSelection,
+    pub(crate) when: Expression,
+    pub(crate) value: RuntimeSelectedValue,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) enum RuntimeRuleSelection {
-    Value(RuntimeSelectedValue),
-    Query(RuntimeCatalogQuery),
+/// A compiled `method = "allocation"` resolution: the layer diversion, the
+/// allocation's gate and arms, and the value each arm assigns.
+#[derive(Debug)]
+pub(crate) struct RuntimeAllocation {
+    pub(crate) layer: String,
+    pub(crate) allocation: String,
+    pub(crate) unit: Expression,
+    pub(crate) buckets: u32,
+    /// Only a running allocation assigns arms; draft and concluded
+    /// allocations resolve every unit to the default.
+    pub(crate) running: bool,
+    pub(crate) eligibility: Option<Expression>,
+    pub(crate) arms: Vec<RuntimeArm>,
+    pub(crate) default: RuntimeSelectedValue,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct RuntimeCatalogQuery {
+/// One arm's inclusive bucket claim and the value it assigns.
+#[derive(Debug)]
+pub(crate) struct RuntimeArm {
+    pub(crate) name: String,
+    pub(crate) start: u32,
+    pub(crate) end: u32,
+    pub(crate) value: RuntimeSelectedValue,
+}
+
+/// A compiled `method = "query"` pipeline over one catalog's entries.
+#[derive(Debug)]
+pub(crate) struct RuntimeQuery {
     pub(crate) catalog: String,
-    pub(crate) expression: Expression,
+    /// Whether the variable's type is `catalog=<id>` (the top entry wins)
+    /// rather than `array<catalog=<id>>` (every match is the value).
+    pub(crate) single: bool,
+    pub(crate) filter: Option<Expression>,
+    pub(crate) sort: Option<Expression>,
+    pub(crate) descending: bool,
+    pub(crate) limit: Option<usize>,
+    pub(crate) default: Option<RuntimeSelectedValue>,
 }
 
 #[derive(Clone, Debug)]
@@ -149,7 +171,7 @@ pub(crate) enum RuntimeSelectedValue {
         name: String,
         value: JsonValue,
     },
-    CatalogList {
+    CatalogArray {
         catalog: String,
         names: Vec<String>,
         value: JsonValue,
@@ -161,14 +183,16 @@ impl RuntimeSelectedValue {
         match self {
             Self::Literal(value) => value,
             Self::Catalog { value, .. } => value,
-            Self::CatalogList { value, .. } => value,
+            Self::CatalogArray { value, .. } => value,
         }
     }
 }
 
 pub(crate) async fn compile_runtime_package(root: &Path) -> Result<RuntimePackage> {
     let snapshot = lint_package_snapshot(LintInput::new(root.to_path_buf())).await?;
-    compile_runtime_package_from_snapshot(&snapshot)
+    let mut runtime = compile_runtime_package_from_snapshot(&snapshot)?;
+    runtime.resolve_provenance = crate::source::read_resolve_provenance(root).await;
+    Ok(runtime)
 }
 
 pub(crate) fn compile_runtime_package_from_snapshot(
@@ -194,22 +218,60 @@ impl<'a> RuntimeCompiler<'a> {
             .ok_or_else(|| RototoError::new("package manifest is missing"))?;
         let evaluation_contexts = self.compile_evaluation_contexts(index)?;
         let compatibility = self.snapshot.evaluation_context_compatibility();
+        let context_dependent_variables = compatibility.context_dependent_variables;
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
-        let qualifiers = self.compile_qualifiers(index)?;
+        let lists = Self::compile_lists(index);
         let variables = self.compile_variables(index)?;
         let trace_policies = Self::compile_trace_policies(manifest)?;
 
         Ok(RuntimePackage {
             evaluation_contexts,
-            qualifier_evaluation_contexts: compatibility.qualifiers,
             variable_evaluation_contexts: compatibility.variables,
+            context_dependent_variables,
             catalog_schemas,
             catalog_entries,
-            qualifiers,
+            lists,
             variables,
             trace_policies,
+            resolve_provenance: BTreeMap::new(),
         })
+    }
+
+    fn compile_lists(index: &SemanticIndex) -> BTreeMap<String, RuntimeList> {
+        index
+            .lists
+            .values()
+            .map(|declaration| {
+                let member_type = match &declaration.member_type {
+                    ProjectField::Present(member_type) => member_type.value.clone(),
+                    _ => String::new(),
+                };
+                let members = match &declaration.members {
+                    ProjectField::Present(members) => members
+                        .value
+                        .iter()
+                        .map(|member| member.value.clone())
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let description = declaration
+                    .description
+                    .as_ref()
+                    .and_then(|field| match field {
+                        ProjectField::Present(value) => Some(value.value.clone()),
+                        _ => None,
+                    });
+                (
+                    declaration.id.clone(),
+                    RuntimeList {
+                        description,
+                        member_type,
+                        members,
+                    },
+                )
+            })
+            .collect()
     }
 
     fn compile_trace_policies(manifest: &ManifestNode) -> Result<Vec<RuntimeTracePolicy>> {
@@ -291,47 +353,6 @@ impl<'a> RuntimeCompiler<'a> {
         Ok(evaluation_contexts)
     }
 
-    fn compile_qualifiers(
-        &self,
-        index: &SemanticIndex,
-    ) -> Result<BTreeMap<String, RuntimeQualifier>> {
-        let mut qualifiers = BTreeMap::new();
-        for qualifier in index.qualifiers.values() {
-            if !integer_field_is(&qualifier.schema_version, 1) {
-                return Err(RototoError::new(format!(
-                    "qualifier must declare schema_version = 1: {}",
-                    qualifier.id
-                )));
-            }
-
-            let when = match &qualifier.when {
-                ProjectField::Present(when) => when.value.clone(),
-                ProjectField::Invalid { .. } => {
-                    return Err(RototoError::new(format!(
-                        "qualifier when expression is invalid: {}",
-                        qualifier.id
-                    )));
-                }
-                ProjectField::Missing { .. } => {
-                    return Err(RototoError::new(format!(
-                        "qualifier must declare when: {}",
-                        qualifier.id
-                    )));
-                }
-            };
-
-            if let PredicateCollection::Invalid { .. } = &qualifier.predicates {
-                return Err(RototoError::new(format!(
-                    "[[predicate]] is no longer supported; use when = \"...\": {}",
-                    qualifier.id
-                )));
-            }
-
-            qualifiers.insert(qualifier.id.clone(), RuntimeQualifier { when });
-        }
-        Ok(qualifiers)
-    }
-
     fn compile_variables(
         &self,
         index: &SemanticIndex,
@@ -345,9 +366,9 @@ impl<'a> RuntimeCompiler<'a> {
                 )));
             }
             let type_kind = self.validate_variable_type_source(index, variable)?;
-            let (default, rules) = self.compile_variable_resolve(index, variable, &type_kind)?;
+            let resolution = self.compile_variable_resolve(index, variable, &type_kind)?;
 
-            variables.insert(variable.id.clone(), RuntimeVariable { default, rules });
+            variables.insert(variable.id.clone(), RuntimeVariable { resolution });
         }
         Ok(variables)
     }
@@ -375,7 +396,11 @@ fn validate_variable_type_kind(index: &SemanticIndex, type_kind: &VariableTypeKi
         VariableTypeKind::Catalog(catalog) => Err(RototoError::new(format!(
             "variable references unknown catalog: {catalog}"
         ))),
-        VariableTypeKind::List(item) => validate_variable_type_kind(index, item),
+        VariableTypeKind::List(id) if index.lists.contains_key(id) => Ok(()),
+        VariableTypeKind::List(id) => Err(RototoError::new(format!(
+            "variable references unknown list: {id}"
+        ))),
+        VariableTypeKind::Array(item) => validate_variable_type_kind(index, item),
     }
 }
 
@@ -385,23 +410,303 @@ impl<'a> RuntimeCompiler<'a> {
         index: &SemanticIndex,
         variable: &VariableNode,
         type_kind: &VariableTypeKind,
-    ) -> Result<(RuntimeSelectedValue, Vec<RuntimeRule>)> {
-        let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+    ) -> Result<RuntimeResolution> {
+        let ResolveNode::Resolve {
+            method,
+            default,
+            rules,
+            query,
+            assignments,
+            ..
+        } = &variable.resolve
+        else {
             return Err(RototoError::new(format!(
                 "variable must contain [resolve]: {}",
                 variable.id
             )));
         };
-        let default = present_json(default, "resolve must declare a default value")?;
-        let default = self.compile_variable_value(index, variable, type_kind, &default.value)?;
-        let RuleCollection::Rules(rules) = rules else {
-            return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
+
+        let method_name = method
+            .as_ref()
+            .map(|method| method.value.as_str())
+            .unwrap_or("rules");
+        match method_name {
+            "rules" => {
+                if query.is_some() {
+                    return Err(RototoError::new(
+                        "query parameters (from, filter, sort, order, limit) are only valid with method = \"query\"",
+                    ));
+                }
+                let default = present_json(default, "resolve must declare a default value")?;
+                let default =
+                    self.compile_variable_value(index, variable, type_kind, &default.value)?;
+                let RuleCollection::Rules(rules) = rules else {
+                    return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
+                };
+                let rules = rules
+                    .iter()
+                    .map(|rule| self.compile_variable_rule(index, variable, type_kind, rule))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(RuntimeResolution::Rules { default, rules })
+            }
+            "query" => {
+                self.compile_variable_query(index, variable, type_kind, default, rules, query)
+            }
+            "allocation" => self.compile_variable_allocation(
+                index,
+                variable,
+                type_kind,
+                default,
+                rules,
+                assignments,
+            ),
+            other => Err(RototoError::new(format!(
+                "unknown resolution method: {other}; supported methods are rules, query, \
+                 and allocation"
+            ))),
+        }
+    }
+
+    fn compile_variable_allocation(
+        &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
+        type_kind: &VariableTypeKind,
+        default: &ProjectField<JsonValue>,
+        rules: &RuleCollection,
+        assignments: &Option<Box<AssignmentsNode>>,
+    ) -> Result<RuntimeResolution> {
+        if !matches!(rules, RuleCollection::Rules(rules) if rules.is_empty()) {
+            return Err(RototoError::new(
+                "method = \"allocation\" must not declare [[resolve.rule]] tables",
+            ));
+        }
+        let Some(assignments) = assignments else {
+            return Err(RototoError::new(
+                "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+            ));
         };
-        let rules = rules
-            .iter()
-            .map(|rule| self.compile_variable_rule(index, variable, type_kind, rule))
-            .collect::<Result<Vec<_>>>()?;
-        Ok((default, rules))
+        let ProjectField::Present(allocation_id) = &assignments.allocation else {
+            return Err(RototoError::new(
+                "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+            ));
+        };
+
+        let Some((layer, allocation)) = index.layers.values().find_map(|layer| {
+            layer
+                .allocations
+                .iter()
+                .find(|candidate| {
+                    matches!(&candidate.id, ProjectField::Present(id) if id.value == allocation_id.value)
+                })
+                .map(|allocation| (layer, allocation))
+        }) else {
+            return Err(RototoError::new(format!(
+                "variable references unknown allocation: {}",
+                allocation_id.value
+            )));
+        };
+
+        let ProjectField::Present(unit) = &layer.unit else {
+            return Err(RototoError::new(format!(
+                "layer must declare unit: {}",
+                layer.id
+            )));
+        };
+        let buckets = match &layer.buckets {
+            ProjectField::Present(buckets) if buckets.value >= 1 => buckets.value as u32,
+            _ => {
+                return Err(RototoError::new(format!(
+                    "layer must declare buckets as a positive integer: {}",
+                    layer.id
+                )));
+            }
+        };
+        let running = match &allocation.status {
+            None => true,
+            Some(ProjectField::Present(status)) => status.value == "running",
+            Some(_) => {
+                return Err(RototoError::new(
+                    "allocation status must be draft, running, or concluded",
+                ));
+            }
+        };
+        let eligibility = match &allocation.eligibility {
+            None => None,
+            Some(ProjectField::Present(eligibility)) => Some(eligibility.value.clone()),
+            Some(_) => {
+                return Err(RototoError::new(
+                    "allocation eligibility must be a CEL expression string",
+                ));
+            }
+        };
+
+        let mut assigned: BTreeMap<&str, RuntimeSelectedValue> = BTreeMap::new();
+        for assign in &assignments.assigns {
+            if assign.invalid_shape {
+                return Err(RototoError::new("assign must be a table"));
+            }
+            let ProjectField::Present(arm) = &assign.arm else {
+                return Err(RototoError::new("assign must declare arm"));
+            };
+            let value = present_json(&assign.value, "assign must declare a value")?;
+            let value = self.compile_variable_value(index, variable, type_kind, &value.value)?;
+            if assigned.insert(arm.value.as_str(), value).is_some() {
+                return Err(RototoError::new(format!(
+                    "arm is assigned more than once: {}",
+                    arm.value
+                )));
+            }
+        }
+
+        let mut arms = Vec::new();
+        for arm in &allocation.arms {
+            let ProjectField::Present(name) = &arm.name else {
+                return Err(RototoError::new("arm must declare name"));
+            };
+            let ProjectField::Present(range) = &arm.buckets else {
+                return Err(RototoError::new("arm must declare buckets"));
+            };
+            let Some((start, end)) = parse_arm_buckets(&range.value) else {
+                return Err(RototoError::new(format!(
+                    "arm buckets must be \"<start>-<end>\" or \"<bucket>\": {}",
+                    range.value
+                )));
+            };
+            let Some(value) = assigned.remove(name.value.as_str()) else {
+                return Err(RototoError::new(format!(
+                    "assign is missing for arm: {}",
+                    name.value
+                )));
+            };
+            arms.push(RuntimeArm {
+                name: name.value.clone(),
+                start,
+                end,
+                value,
+            });
+        }
+        if let Some((stray, _)) = assigned.into_iter().next() {
+            return Err(RototoError::new(format!(
+                "assign names an arm the allocation does not declare: {stray}"
+            )));
+        }
+
+        let default = present_json(
+            default,
+            "method = \"allocation\" must declare a default for units in no arm",
+        )?;
+        let default = self.compile_variable_value(index, variable, type_kind, &default.value)?;
+
+        Ok(RuntimeResolution::Allocation(Box::new(RuntimeAllocation {
+            layer: layer.id.clone(),
+            allocation: allocation_id.value.clone(),
+            unit: unit.value.clone(),
+            buckets,
+            running,
+            eligibility,
+            arms,
+            default,
+        })))
+    }
+
+    fn compile_variable_query(
+        &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
+        type_kind: &VariableTypeKind,
+        default: &ProjectField<JsonValue>,
+        rules: &RuleCollection,
+        query: &Option<Box<QueryNode>>,
+    ) -> Result<RuntimeResolution> {
+        if !matches!(rules, RuleCollection::Rules(rules) if rules.is_empty()) {
+            return Err(RototoError::new(
+                "method = \"query\" must not declare [[resolve.rule]] tables",
+            ));
+        }
+        let (catalog, single) = match type_kind {
+            VariableTypeKind::Catalog(catalog) => (catalog.as_str(), true),
+            VariableTypeKind::Array(item) => match item.as_ref() {
+                VariableTypeKind::Catalog(catalog) => (catalog.as_str(), false),
+                _ => {
+                    return Err(RototoError::new(
+                        "method = \"query\" requires a catalog=<id> or array<catalog=<id>> type",
+                    ));
+                }
+            },
+            _ => {
+                return Err(RototoError::new(
+                    "method = \"query\" requires a catalog=<id> or array<catalog=<id>> type",
+                ));
+            }
+        };
+        let Some(query) = query else {
+            return Err(RototoError::new(
+                "method = \"query\" must declare from = \"<catalog-id>\"",
+            ));
+        };
+        let from = match &query.from {
+            ProjectField::Present(from) => from.value.as_str(),
+            _ => {
+                return Err(RototoError::new(
+                    "method = \"query\" must declare from = \"<catalog-id>\"",
+                ));
+            }
+        };
+        if from != catalog {
+            return Err(RototoError::new(format!(
+                "query from ({from}) must match the variable's catalog type ({catalog})"
+            )));
+        }
+        let filter = match &query.filter {
+            Some(ProjectField::Present(filter)) => Some(filter.value.clone()),
+            Some(_) => return Err(RototoError::new("query filter expression is invalid")),
+            None => None,
+        };
+        let sort = match &query.sort {
+            Some(ProjectField::Present(sort)) => Some(sort.value.clone()),
+            Some(_) => return Err(RototoError::new("query sort expression is invalid")),
+            None => None,
+        };
+        let descending = match &query.order {
+            Some(ProjectField::Present(order)) => match order.value.as_str() {
+                "asc" => false,
+                "desc" => true,
+                other => {
+                    return Err(RototoError::new(format!(
+                        "query order must be asc or desc, not {other}"
+                    )));
+                }
+            },
+            Some(_) => return Err(RototoError::new("query order must be a string")),
+            None => false,
+        };
+        if descending && sort.is_none() {
+            return Err(RototoError::new("query order requires a sort expression"));
+        }
+        let limit = match &query.limit {
+            Some(ProjectField::Present(limit)) if limit.value >= 1 => Some(limit.value as usize),
+            Some(_) => return Err(RototoError::new("query limit must be a positive integer")),
+            None => None,
+        };
+        let default = match default {
+            ProjectField::Present(default) => {
+                Some(self.compile_variable_value(index, variable, type_kind, &default.value)?)
+            }
+            ProjectField::Invalid { .. } => {
+                return Err(RototoError::new("resolve default is invalid"));
+            }
+            ProjectField::Missing { .. } => None,
+        };
+        Ok(RuntimeResolution::Query(Box::new(RuntimeQuery {
+            catalog: catalog.to_owned(),
+            single,
+            filter,
+            sort,
+            descending,
+            limit,
+            default,
+        })))
     }
 
     fn compile_variable_rule(
@@ -415,52 +720,21 @@ impl<'a> RuntimeCompiler<'a> {
             return Err(RototoError::new("rule must be a table"));
         }
 
-        if rule.legacy_qualifier.is_some() {
-            return Err(RototoError::new(
-                "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
-            ));
-        }
-
         let when = match &rule.when {
-            Some(ProjectField::Present(when)) => Some(when.value.clone()),
+            Some(ProjectField::Present(when)) => when.value.clone(),
             Some(ProjectField::Invalid { .. } | ProjectField::Missing { .. }) => {
                 return Err(RototoError::new("rule when expression is invalid"));
             }
-            None => None,
+            None => return Err(RototoError::new("rule must declare when")),
         };
 
-        let selection = match &rule.query {
-            Some(ProjectField::Present(query)) => {
-                let catalog = type_kind.list_catalog().ok_or_else(|| {
-                    RototoError::new("rule query is only valid for list<catalog:...> variables")
-                })?;
-                RuntimeRuleSelection::Query(RuntimeCatalogQuery {
-                    catalog: catalog.to_owned(),
-                    expression: query.value.clone(),
-                })
-            }
-            Some(ProjectField::Invalid { .. } | ProjectField::Missing { .. }) => {
-                return Err(RototoError::new("rule query expression is invalid"));
-            }
-            None => {
-                let value = present_json(&rule.value, "rule must declare a value")?;
-                RuntimeRuleSelection::Value(self.compile_variable_value(
-                    index,
-                    variable,
-                    type_kind,
-                    &value.value,
-                )?)
-            }
-        };
-
-        if when.is_none() && !matches!(selection, RuntimeRuleSelection::Query(_)) {
-            return Err(RototoError::new("rule must declare when or query"));
-        }
+        let value = present_json(&rule.value, "rule must declare a value")?;
+        let value = self.compile_variable_value(index, variable, type_kind, &value.value)?;
 
         Ok(RuntimeRule {
             index: rule.index,
             when,
-            selection,
+            value,
         })
     }
 
@@ -472,6 +746,7 @@ impl<'a> RuntimeCompiler<'a> {
         value: &JsonValue,
     ) -> Result<RuntimeSelectedValue> {
         match type_kind {
+            VariableTypeKind::List(_) => Ok(RuntimeSelectedValue::Literal(value.clone())),
             VariableTypeKind::Catalog(catalog) => {
                 let name = value.as_str().ok_or_else(|| {
                     RototoError::new(format!(
@@ -486,11 +761,11 @@ impl<'a> RuntimeCompiler<'a> {
                     value: entry.clone(),
                 })
             }
-            VariableTypeKind::List(item) => {
+            VariableTypeKind::Array(item) => {
                 if let VariableTypeKind::Catalog(catalog) = item.as_ref() {
                     let values = value.as_array().ok_or_else(|| {
                         RototoError::new(format!(
-                            "list<catalog> variable value must be a list: {}",
+                            "array<catalog> variable value must be an array: {}",
                             variable.id
                         ))
                     })?;
@@ -499,14 +774,14 @@ impl<'a> RuntimeCompiler<'a> {
                     for value in values {
                         let name = value.as_str().ok_or_else(|| {
                             RototoError::new(format!(
-                                "list<catalog> variable entries must be strings: {}",
+                                "array<catalog> variable entries must be strings: {}",
                                 variable.id
                             ))
                         })?;
                         names.push(name.to_owned());
                         entries.push(catalog_entry_value(index, catalog, name)?.clone());
                     }
-                    return Ok(RuntimeSelectedValue::CatalogList {
+                    return Ok(RuntimeSelectedValue::CatalogArray {
                         catalog: catalog.clone(),
                         names,
                         value: JsonValue::Array(entries),
@@ -551,5 +826,5 @@ fn present_json<'a>(
 }
 
 fn is_known_primitive(value: &str) -> bool {
-    matches!(value, "bool" | "int" | "number" | "string" | "list")
+    matches!(value, "bool" | "int" | "number" | "string" | "array")
 }

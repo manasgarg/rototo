@@ -1,0 +1,7 @@
+schema_version = 1
+type = "catalog=policy"
+
+[resolve]
+method = "query"
+from = "policy"
+filter = 'entry.ref_template == "Welcome body"'

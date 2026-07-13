@@ -1,0 +1,7 @@
+schema_version = 1
+description = "Log verbosity"
+type = "list=log_levels"
+
+[resolve]
+method = "rules"
+default = "warn"

@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Condition whose when expression does not parse"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.user.tier ='
+value = true

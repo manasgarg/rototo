@@ -1,8 +1,11 @@
 mod catalog;
 mod evaluation_context;
+mod governance;
 mod graph;
+mod layers;
+mod lists;
+mod naming;
 mod package;
-mod qualifier;
 mod schema;
 mod variable;
 
@@ -13,16 +16,16 @@ pub(super) fn run_project(ctx: &mut LintContext) {
     package::lint_manifest_shape(ctx);
     package::lint_trace_policies(ctx);
     evaluation_context::lint_evaluation_context_schemas(ctx);
-    evaluation_context::lint_evaluation_context_reserved_fields(ctx);
-    qualifier::lint_qualifier_shapes(ctx);
-    qualifier::lint_qualifier_expression_roots(ctx);
     catalog::lint_catalog_shapes(ctx);
+    lists::lint_list_shapes(ctx);
+    layers::lint_layer_shapes(ctx);
+    governance::lint_governance_shape(ctx);
+    naming::lint_id_naming(ctx);
     variable::lint_variable_shapes(ctx);
     variable::lint_variable_expression_roots(ctx);
 }
 
 pub(super) fn run_reference(ctx: &mut LintContext) {
-    qualifier::lint_qualifier_references(ctx);
     variable::lint_variable_references(ctx);
 }
 
@@ -33,9 +36,7 @@ pub(super) fn run_value(ctx: &mut LintContext) {
 }
 
 pub(super) fn run_graph(ctx: &mut LintContext) {
-    graph::lint_qualifier_cycles(ctx);
-    graph::lint_unreferenced_qualifiers(ctx);
-    graph::lint_unreachable_qualifiers(ctx);
+    graph::lint_variable_cycles(ctx);
     graph::lint_shadowed_variable_rules(ctx);
     graph::lint_rules_selecting_default_value(ctx);
     evaluation_context::lint_undeclared_context_paths(ctx);

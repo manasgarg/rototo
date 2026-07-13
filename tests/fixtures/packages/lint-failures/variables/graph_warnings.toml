@@ -1,0 +1,15 @@
+schema_version = 1
+
+description = "Variable with graph warnings"
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium"'
+value = "first"
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium"'
+value = "duplicate"

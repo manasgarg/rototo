@@ -1,0 +1,10 @@
+{
+  "$comment": "A sellable capability. Entry ids are the stable feature keys application code checks against.",
+  "type": "object",
+  "title": "Feature",
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" }
+  },
+  "required": ["name"]
+}

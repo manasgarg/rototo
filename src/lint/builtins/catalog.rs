@@ -10,10 +10,33 @@ use super::super::index::*;
 use super::super::stages::{push_project_diagnostic, push_value_diagnostic};
 use super::schema::lint_schema_ui_hints_for_target;
 
-const CATALOG_REF_KEY: &str = "x-rototo-catalog-ref";
+const CATALOG_REF_KEY: &str = "x-rototo-ref";
 
 pub(super) fn lint_catalog_shapes(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
+    // Overlapping catalog ids make the data/catalogs layout ambiguous: an
+    // entry file under the shared directory could belong to either catalog.
+    // Discovery resolves it (the longer id owns its subtree), but the
+    // package should not rely on that; flag the longer id.
+    let ids: Vec<&String> = ctx.index.catalogs.keys().collect();
+    for id in &ids {
+        let Some(shorter) = ids.iter().find(|other| {
+            id.strip_prefix(other.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        }) else {
+            continue;
+        };
+        let catalog = &ctx.index.catalogs[id.as_str()];
+        push_project_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::CatalogIdOverlap,
+            catalog.target(),
+            catalog.location.clone(),
+            format!(
+                "catalog id {id} is a path prefix collision: catalog {shorter} shares its                  data directory, so entry files under data/catalogs/{id}/ are ambiguous"
+            ),
+        );
+    }
     for catalog in ctx.index.catalogs.values() {
         if let Some(message) = &catalog.invalid_message {
             push_project_diagnostic(
@@ -118,6 +141,17 @@ fn lint_catalog_ref_schema_node(
                     }
                 }
             }
+            Ok(CatalogRefSpec::List(id)) => {
+                if !ctx.index.lists.contains_key(&id) {
+                    push_project_diagnostic(
+                        diagnostics,
+                        RototoRuleId::CatalogSchemaInvalid,
+                        catalog.field_target(SemanticField::SchemaJson),
+                        catalog.location.clone(),
+                        format!("{CATALOG_REF_KEY} references unknown list {id} at {pointer}"),
+                    );
+                }
+            }
             Ok(CatalogRefSpec::Object) => {}
             Err(message) => {
                 push_project_diagnostic(
@@ -214,6 +248,20 @@ impl CatalogReferenceLint<'_> {
                         );
                     }
                 }
+                CatalogRefSpec::List(id) => {
+                    if let Some(members) = list_member_values(self.ctx, &id)
+                        && !members.contains(&value)
+                    {
+                        push_catalog_reference_diagnostic(
+                            self.diagnostics,
+                            self.entry,
+                            format!(
+                                "{path} is not a member of list {id}: {}",
+                                serde_json::to_string(value).unwrap_or_default()
+                            ),
+                        );
+                    }
+                }
                 CatalogRefSpec::Object => {
                     lint_object_catalog_ref(self.diagnostics, self.ctx, self.entry, value, path);
                 }
@@ -267,7 +315,40 @@ impl CatalogReferenceLint<'_> {
 #[derive(Debug)]
 enum CatalogRefSpec {
     Compact(Vec<String>),
+    List(String),
     Object,
+}
+
+/// Parse one reference target: `catalog=<id>` or `list=<id>`. The class
+/// vocabulary is the address module's.
+fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
+    use crate::address::EntityClass;
+    let class = value
+        .split_once('=')
+        .and_then(|(class, _)| EntityClass::parse_name(class));
+    let id = value.split_once('=').map(|(_, id)| id).unwrap_or("");
+    match class {
+        Some(EntityClass::Catalog) if id.is_empty() => {
+            Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"))
+        }
+        Some(EntityClass::Catalog) => Ok(("catalog", id.to_owned())),
+        Some(EntityClass::List) if id.is_empty() => {
+            Err(format!("{CATALOG_REF_KEY} list id must not be empty"))
+        }
+        Some(EntityClass::List) => Ok(("list", id.to_owned())),
+        _ => match value
+            .split_once(':')
+            .and_then(|(class, id)| Some((EntityClass::parse_name(class)?, id)))
+        {
+            Some((class, id)) if !id.is_empty() => Err(format!(
+                "{CATALOG_REF_KEY} binder is `=` now: write {}={id}",
+                class.as_str()
+            )),
+            _ => Err(format!(
+                "{CATALOG_REF_KEY} must name its target kind: catalog=<id> or list=<id>"
+            )),
+        },
+    }
 }
 
 fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
@@ -275,35 +356,51 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
         return Ok(CatalogRefSpec::Object);
     }
 
-    if let Some(catalog) = value.as_str() {
-        if catalog.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
-        }
-        return Ok(CatalogRefSpec::Compact(vec![catalog.to_owned()]));
+    if let Some(target) = value.as_str() {
+        return match parse_ref_target(target)? {
+            ("catalog", id) => Ok(CatalogRefSpec::Compact(vec![id])),
+            (_, id) => Ok(CatalogRefSpec::List(id)),
+        };
     }
 
-    if let Some(catalogs) = value.as_array() {
-        if catalogs.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} catalog array must not be empty"));
+    if let Some(targets) = value.as_array() {
+        if targets.is_empty() {
+            return Err(format!("{CATALOG_REF_KEY} target array must not be empty"));
         }
-        let mut parsed = Vec::with_capacity(catalogs.len());
-        for catalog in catalogs {
-            let Some(catalog) = catalog.as_str() else {
+        let mut parsed = Vec::with_capacity(targets.len());
+        for target in targets {
+            let Some(target) = target.as_str() else {
                 return Err(format!(
-                    "{CATALOG_REF_KEY} catalog array must contain only strings"
+                    "{CATALOG_REF_KEY} target array must contain only strings"
                 ));
             };
-            if catalog.is_empty() {
-                return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
+            match parse_ref_target(target)? {
+                ("catalog", id) => parsed.push(id),
+                _ => {
+                    return Err(format!(
+                        "{CATALOG_REF_KEY} target array must contain only catalog=<id> targets"
+                    ));
+                }
             }
-            parsed.push(catalog.to_owned());
         }
         return Ok(CatalogRefSpec::Compact(parsed));
     }
 
     Err(format!(
-        "{CATALOG_REF_KEY} must be a catalog id string, catalog id array, or true"
+        "{CATALOG_REF_KEY} must be a catalog=<id> or list=<id> string, a catalog=<id> array, or true"
     ))
+}
+
+/// The declared members of a list, when both halves are present and valid.
+fn list_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.lists.contains_key(id) {
+        return None;
+    }
+    let members = ctx.index.lists.get(id)?;
+    let ProjectField::Present(members) = &members.members else {
+        return None;
+    };
+    Some(members.value.iter().map(|member| &member.value).collect())
 }
 
 fn lint_compact_catalog_ref(

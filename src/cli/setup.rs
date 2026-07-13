@@ -312,10 +312,8 @@ fn detect_setup_shell() -> Result<SetupShellArg> {
 
 fn shell_completion_path(shell: SetupShellArg) -> Result<PathBuf> {
     match shell {
-        SetupShellArg::Bash => {
-            Ok(home_dir()?.join(".local/share/bash-completion/completions/rototo"))
-        }
-        SetupShellArg::Elvish => Ok(home_dir()?.join(".elvish/lib/rototo-completions.elv")),
+        SetupShellArg::Bash => Ok(data_home()?.join("bash-completion/completions/rototo")),
+        SetupShellArg::Elvish => Ok(data_home()?.join("elvish/lib/rototo-completions.elv")),
         SetupShellArg::Fish => Ok(config_home()?.join("fish/completions/rototo.fish")),
         SetupShellArg::Zsh => Ok(zdotdir()?.join(".zfunc/_rototo")),
         SetupShellArg::Auto | SetupShellArg::PowerShell | SetupShellArg::None => {
@@ -706,6 +704,15 @@ fn config_home() -> Result<PathBuf> {
         return Ok(PathBuf::from(value));
     }
     Ok(home_dir()?.join(".config"))
+}
+
+// XDG base directory for user data files; bash-completion and elvish both
+// search their completion/module dirs under it.
+fn data_home() -> Result<PathBuf> {
+    if let Some(value) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(value));
+    }
+    Ok(home_dir()?.join(".local/share"))
 }
 
 fn zdotdir() -> Result<PathBuf> {
