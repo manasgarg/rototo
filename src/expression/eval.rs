@@ -109,6 +109,8 @@ pub(super) fn register_functions(ctx: &mut CelContext) {
     ctx.add_function("semver", fn_semver);
     ctx.add_function("bucket", fn_bucket);
     ctx.add_function("cidr", fn_cidr);
+    ctx.add_function("inCidr", fn_cidr);
+    ctx.add_function("in_cidr", fn_cidr);
     ctx.add_function("present", fn_present);
     ctx.add_function("missing", fn_missing);
     ctx.add_function("path", fn_path);

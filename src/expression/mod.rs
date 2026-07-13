@@ -930,6 +930,8 @@ mod tests {
                 true,
             ),
             (r#"cidr(context.user.ip, "192.168.1.0/24")"#, true),
+            (r#"inCidr(context.user.ip, "192.168.1.0/24")"#, true),
+            (r#"in_cidr(context.user.ip, "10.0.0.0/8")"#, false),
             (
                 r#"cidr(context.user.ip, ["10.0.0.0/8", "192.168.0.0/16"])"#,
                 true,
