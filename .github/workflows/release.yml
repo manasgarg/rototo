@@ -262,7 +262,7 @@ jobs:
           cache: maven
 
       - name: Download Java native libraries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: java-native-*
           path: sdks/java/native
@@ -391,7 +391,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Download TypeScript native modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: typescript-native-*
           path: sdks/typescript
@@ -414,7 +414,7 @@ jobs:
         run: npm publish --provenance --access public --tag latest
 
       - name: Download Java native libraries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: java-native-*
           path: sdks/java/native
@@ -431,7 +431,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Download Python distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: python-*
           path: python-dist
@@ -446,7 +446,7 @@ jobs:
           packages-dir: python-dist
 
       - name: Download console native modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: console-native-*
           path: apps/console-server
