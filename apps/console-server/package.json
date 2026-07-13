@@ -2,7 +2,6 @@
     "name": "@rototo/console",
     "version": "0.1.0-alpha.7",
     "description": "The rototo console: the web console and its JSON API, shipped as its own product over the Rust core bindings.",
-    "private": true,
     "type": "module",
     "bin": {
         "rototo-console": "bin/rototo-console.mjs"

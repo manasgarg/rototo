@@ -16,6 +16,7 @@ const roots = [
   "sdks/python/dist",
   "sdks/typescript",
   "sdks/java/target",
+  "apps/console-server",
 ];
 const suffixes = [".crate", ".tar.gz", ".whl", ".tgz", ".jar", ".pom", ".node"];
 const artifacts = [];
@@ -38,6 +39,7 @@ await writeFile(
       crates: `https://crates.io/crates/rototo/${version}`,
       pypi: `https://pypi.org/project/rototo/${pythonVersion(version)}/`,
       npm: `https://www.npmjs.com/package/rototo/v/${version}`,
+      console: `https://www.npmjs.com/package/@rototo/console/v/${version}`,
       maven: `https://central.sonatype.com/artifact/dev.rototo/rototo/${version}`,
       go: `https://pkg.go.dev/github.com/manasgarg/rototo/sdks/go@v${version}`,
     },
@@ -47,6 +49,9 @@ console.log(`wrote ${output}`);
 
 async function collect(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules") {
+      continue;
+    }
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       await collect(path);

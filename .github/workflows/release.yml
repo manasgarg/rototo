@@ -281,6 +281,58 @@ jobs:
           path: sdks/java/target/rototo-*.jar
           if-no-files-found: error
 
+  console-native:
+    name: Build console native module (${{ matrix.artifact }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The console's own platform set (napi.targets in its manifest):
+        # a hosted server product, so no Windows until demand shows up.
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-x64-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: linux-arm64-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: darwin-x64
+          - os: macos-15
+            target: aarch64-apple-darwin
+            artifact: darwin-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/console-server/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: apps/console-server
+        run: npm ci
+
+      - name: Build native module
+        working-directory: apps/console-server
+        run: npm run build:native -- --target ${{ matrix.target }}
+
+      - name: Upload native module
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-native-${{ matrix.artifact }}
+          path: apps/console-server/rototo-console-native.*.node
+          if-no-files-found: error
+
   publish:
     name: Publish crates.io, PyPI, npm, and Maven Central
     needs:
@@ -289,6 +341,7 @@ jobs:
       - python-wheels
       - typescript-native
       - java-package
+      - console-native
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -322,6 +375,8 @@ jobs:
           cache: npm
           cache-dependency-path: |
             sdks/typescript/package-lock.json
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
 
       - name: Build Rust crate package for manifest
         run: cargo package --package rototo --locked --allow-dirty
@@ -385,6 +440,43 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python-dist
+
+      - name: Download console native modules
+        uses: actions/download-artifact@v4
+        with:
+          pattern: console-native-*
+          path: apps/console-server
+          merge-multiple: true
+
+      - name: Assemble the console package
+        working-directory: apps/console-server
+        run: |
+          npm ci
+          npm --prefix ../console-web ci
+          npm run stage:web
+
+      # A published console with an empty web/ is an API-only server that
+      # looks broken to anyone expecting the UI, and a single-arch package
+      # fails to load everywhere else: assert both before publishing.
+      - name: Check the console tarball shape
+        working-directory: apps/console-server
+        run: |
+          npm pack --dry-run 2>&1 | tee pack-listing.txt
+          for required in bin/rototo-console.mjs src/main.ts web/index.html; do
+            if ! grep -q "$required" pack-listing.txt; then
+              echo "console tarball is missing $required" >&2
+              exit 1
+            fi
+          done
+          native_count="$(grep -c 'rototo-console-native\..*\.node' pack-listing.txt)"
+          if [ "$native_count" -ne 4 ]; then
+            echo "console tarball carries $native_count native libraries; expected 4" >&2
+            exit 1
+          fi
+
+      - name: Publish the console
+        working-directory: apps/console-server
+        run: npm publish --provenance --tag alpha --access public
 
       - name: Generate release artifact manifest
         run: node scripts/release-artifact-manifest.mjs "${GITHUB_REF_NAME#v}"

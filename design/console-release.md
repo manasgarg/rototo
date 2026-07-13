@@ -1,16 +1,12 @@
 # Console release and distribution
 
-Status: draft spec for deferred work. The console is built to ship as
-`@rototo/console`, but the publish automation is not wired yet: the package
-is marked `"private": true` and the release workflow (`.github/workflows/
-release.yml`) stops at the Rust crate and the language SDKs. The
-implementation plan records this deliberately, noting "npm publish
-automation for `@rototo/console` (the package is shaped for it: bin, files,
-staged web bundle)" as deferred (`console-implementation-plan.md`, the C7
-follow-ons). This note records how that automation should work when it is
-picked up, and the concrete gaps between the current package shape and a
-real release. It reuses the SDK release model wherever it can rather than
-inventing a second one.
+Status: implemented for 0.1.0-alpha.7. The publish automation described
+here is wired: the `private` flag is gone, `release.yml` carries the
+`console-native` build matrix and the assemble-and-publish steps with the
+tarball-shape assertion, and the console `package.json` versions are
+release-prep and release-check surfaces. The decisions and mechanics below
+remain the reference for how and why it works this way. It reuses the SDK
+release model wherever it can rather than inventing a second one.
 
 ## What ships
 
