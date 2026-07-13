@@ -182,10 +182,9 @@ pub(super) fn expression_completion_state(raw_prefix: &str) -> ExpressionComplet
 pub(super) fn partial_logical_operator_completion(prefix: &str) -> Option<ExpressionOperator> {
     let (candidate, operator) = if let Some(candidate) = prefix.strip_suffix('&') {
         (candidate, ExpressionOperator::And)
-    } else if let Some(candidate) = prefix.strip_suffix('|') {
-        (candidate, ExpressionOperator::Or)
     } else {
-        return None;
+        let candidate = prefix.strip_suffix('|')?;
+        (candidate, ExpressionOperator::Or)
     };
 
     expression_prefix_is_boolean(candidate.trim_end()).then_some(operator)

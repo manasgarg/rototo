@@ -110,14 +110,13 @@ fn hydrate_catalog_reference(
     // scalars, so a list reference passes the value through untouched.
     let target_catalogs: Vec<&str> = if let Some(target) = ref_spec.as_str() {
         vec![target.strip_prefix("catalog=")?]
-    } else if let Some(targets) = ref_spec.as_array() {
-        targets
+    } else {
+        ref_spec
+            .as_array()?
             .iter()
             .filter_map(JsonValue::as_str)
             .filter_map(|target| target.strip_prefix("catalog="))
             .collect()
-    } else {
-        return None;
     };
 
     let target = value.as_str()?;
@@ -287,15 +286,14 @@ fn classify_reference(
     }
     let catalogs: Vec<String> = if let Some(target) = ref_spec.as_str() {
         vec![target.strip_prefix("catalog=")?.to_owned()]
-    } else if let Some(targets) = ref_spec.as_array() {
-        targets
+    } else {
+        ref_spec
+            .as_array()?
             .iter()
             .filter_map(JsonValue::as_str)
             .filter_map(|target| target.strip_prefix("catalog="))
             .map(str::to_owned)
             .collect()
-    } else {
-        return None;
     };
     if catalogs.is_empty() {
         return None;

@@ -118,10 +118,9 @@ pub(super) fn synthesize_ordering(
     // the direction when the literal is written on the left.
     let (path, number, greater) = if let Some(path) = cel_context_path(&args[0]) {
         (path, cel_number(&args[1])?, is_greater)
-    } else if let Some(path) = cel_context_path(&args[1]) {
-        (path, cel_number(&args[0])?, !is_greater)
     } else {
-        return None;
+        let path = cel_context_path(&args[1])?;
+        (path, cel_number(&args[0])?, !is_greater)
     };
     let value = ordering_value(greater, or_equal, want, &number)?;
     context_with_path(&path, value)

@@ -590,7 +590,7 @@ fn stable_unit_hash(salt: &str, value: &JsonValue) -> u64 {
     let mut hash = 14_695_981_039_346_656_037_u64;
     for byte in salt
         .bytes()
-        .chain([b':'])
+        .chain(*b":")
         .chain(canonical_context_value(value).bytes())
     {
         hash ^= u64::from(byte);
