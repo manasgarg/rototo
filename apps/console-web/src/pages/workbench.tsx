@@ -3186,6 +3186,8 @@ function FilePanel({
     onLiveLint: (report: LiveLintReport) => void;
 }) {
     const [content, setContent] = useState<string | null>(null);
+    // The staged file as fetched: Save means the buffer differs from it.
+    const [original, setOriginal] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     // Live diagnostics from the LSP bridge track the unsaved buffer; until
     // the first publication arrives the staged lint report stands in.
@@ -3200,6 +3202,7 @@ function FilePanel({
             (response) => {
                 if (!stale) {
                     setContent(response.content);
+                    setOriginal(response.content);
                 }
             },
             (error: Error) => onError(error),
@@ -3243,8 +3246,9 @@ function FilePanel({
             (diagnostic) => diagnostic.location?.path === file,
         );
 
+    const dirty = content !== null && content !== original;
     const save = () => {
-        if (changeSet === null || content === null) {
+        if (changeSet === null || content === null || !dirty) {
             return;
         }
         setSaving(true);
@@ -3254,7 +3258,10 @@ function FilePanel({
             files: [{ path: file, content }],
             summary: `Edit ${file}`,
         })
-            .then(onSaved, onError)
+            .then((result) => {
+                setOriginal(content);
+                onSaved(result);
+            }, onError)
             .finally(() => setSaving(false));
     };
 
@@ -3349,13 +3356,24 @@ function FilePanel({
             ) : null}
             <div className="card-actions">
                 {editable ? (
-                    <button
-                        className="btn btn-primary"
-                        disabled={saving || content === null}
-                        onClick={save}
-                    >
-                        {saving ? "Saving…" : "Save (one commit)"}
-                    </button>
+                    <>
+                        <button
+                            className="btn btn-primary"
+                            disabled={saving || !dirty}
+                            onClick={save}
+                        >
+                            {saving ? "Saving…" : "Save (one commit)"}
+                        </button>
+                        {dirty ? (
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                disabled={saving}
+                                onClick={() => setContent(original)}
+                            >
+                                Discard
+                            </button>
+                        ) : null}
+                    </>
                 ) : (
                     <span className="hint">
                         Start or pick a change set above to edit.
