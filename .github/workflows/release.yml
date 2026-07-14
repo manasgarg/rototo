@@ -466,7 +466,7 @@ jobs:
         working-directory: apps/console-server
         run: |
           npm pack --dry-run 2>&1 | tee pack-listing.txt
-          for required in bin/rototo-console.mjs src/main.ts web/index.html; do
+          for required in bin/rototo-console.mjs dist/main.js web/index.html; do
             if ! grep -q "$required" pack-listing.txt; then
               echo "console tarball is missing $required" >&2
               exit 1

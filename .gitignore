@@ -41,6 +41,7 @@ apps/console-server/*.node
 apps/console-server/index.d.ts
 apps/console-server/index.js
 apps/console-server/web/
+apps/console-server/dist/
 apps/console-web/dist/
 
 # Local environment files with real secrets; .env.example stays tracked
