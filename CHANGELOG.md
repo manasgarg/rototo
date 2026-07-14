@@ -2,6 +2,18 @@
 
 All notable changes to rototo are documented here.
 
+## 0.1.0-alpha.8
+
+- The console npm package is `rototo-console` (unscoped: npm's scope
+  protection makes a `rototo` organization unclaimable next to the
+  `rototo` package) and now ships compiled JavaScript. The alpha.7
+  package could not start when installed, because Node refuses to
+  type-strip TypeScript under `node_modules`; that release is
+  deprecated on npm.
+- npm publishes land on the `latest` dist-tag, so `npm install rototo`
+  and `npx rototo-console` resolve the newest release. `latest` had
+  been stranded on 0.1.0-alpha.4 by tag-only publishes.
+
 ## 0.1.0-alpha.7
 
 - Reworked the package layout around contracts and values: `model/` holds

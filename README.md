@@ -20,7 +20,7 @@ To accomplish this, we would do two things:
 
 First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.7
+cargo install rototo --version 0.1.0-alpha.8
 ```
 
 Now, create a configuration package for the application:
@@ -88,7 +88,7 @@ rototo resolve app-config --variable free_shipping_threshold --context account.t
 Now let's read that value from an application. Install the rototo Rust SDK:
 
 ```sh
-cargo add rototo@0.1.0-alpha.7 serde_json
+cargo add rototo@0.1.0-alpha.8 serde_json
 cargo add tokio --features rt-multi-thread,macros
 ```
 
@@ -230,10 +230,6 @@ remains:
     follow the reference chain. Related: variables have no visibility marker
     yet (app-facing versus internal helper), so the cross-variable dependency
     graph is disciplined only by convention.
-14. **The web console, re-attached.** The console predates the current package
-    layout, composition, and resolution methods; it is parked outside the core
-    gate until it is brought back up against today's engine.
-
 ## License
 
 Licensed under either of:
