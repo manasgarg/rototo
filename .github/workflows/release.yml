@@ -84,7 +84,7 @@ jobs:
           working-directory: sdks/python
 
       - name: Upload source distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-sdist
           path: sdks/python/dist/*.tar.gz
@@ -138,7 +138,7 @@ jobs:
           working-directory: sdks/python
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-wheel-${{ matrix.artifact }}
           path: sdks/python/dist/*.whl
@@ -191,7 +191,7 @@ jobs:
         run: npm run build:native -- --target ${{ matrix.target }}
 
       - name: Upload native module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: typescript-native-${{ matrix.artifact }}
           path: sdks/typescript/rototo.*.node
@@ -237,7 +237,7 @@ jobs:
         run: cargo build --package rototo-java --release --target ${{ matrix.target }} --locked
 
       - name: Upload native library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-native-${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/${{ matrix.native_file }}
@@ -275,7 +275,7 @@ jobs:
         run: mvn -B -Dgpg.skip=true -Dcentral.skipPublishing=true verify
 
       - name: Upload Java SDK package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-package
           path: sdks/java/target/rototo-*.jar
@@ -327,7 +327,7 @@ jobs:
         run: npm run build:native -- --target ${{ matrix.target }}
 
       - name: Upload native module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: console-native-${{ matrix.artifact }}
           path: apps/console-server/rototo-console-native.*.node
@@ -489,7 +489,7 @@ jobs:
         run: node scripts/release-artifact-manifest.mjs "${GITHUB_REF_NAME#v}"
 
       - name: Upload release artifact manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-artifact-manifest
           path: target/release-artifacts/manifest.json
