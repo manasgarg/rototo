@@ -12,18 +12,16 @@ release model wherever it can rather than inventing a second one.
 
 One npm package, `rototo-console`, and nothing else. The console is a Node
 product, not a compiled binary: the "embedded-SPA single binary" was
-consciously dropped at C7 (`console-implementation-plan.md`), and the server
-runs its TypeScript sources directly on Node 24, so there is no server-side
-build output either.
+consciously dropped at C7 (`console-implementation-plan.md`).
 
 The published tarball carries everything in `files`
 (`apps/console-server/package.json`):
 
-- `bin/rototo-console.mjs`: the executable named by `bin.rototo-console`. It
-  is one line, `import("../src/main.ts")`. Node 24 runs the TypeScript entry
-  by type-stripping, which is why `engines.node` is `>=24` and why `src`
-  ships in `files` instead of a compiled `dist`.
-- `src`: the server, run as-is.
+- `bin/rototo-console.mjs`: the executable named by `bin.rototo-console`.
+  It imports `../dist/main.js` when the compiled output is present (the
+  published package) and falls back to `../src/main.ts` in a repo checkout.
+- `dist`: the server, compiled by `tsc -p tsconfig.build.json` (the
+  `prepack` script, so `npm pack` and `npm publish` always build it).
 - `web`: the built React SPA, staged by `npm run stage:web` (build
   `console-web`, copy its `dist` into `web/`). It is a build artifact, git
   ignored, so it must be staged before packing or the package serves
@@ -70,11 +68,15 @@ TLS, reverse-proxy to the console port.
    the `optionalDependencies` split is the recorded fallback, not the
    starting point.
 
-2. **The server ships as source.** Unlike the SDK, which compiles to `dist`
-   and points `main` at it, the console has no server build step. Node 24
-   runs `src` directly. The only build output in the package is the staged
-   `web/` bundle and the native libraries. This keeps the product shape
-   honest with how it is developed (`node src/main.ts`).
+2. **The server ships compiled.** The first published tarball shipped `src`
+   on the theory that Node 24 type-strips it at runtime, and `npx
+   rototo-console` crashed on arrival: Node refuses to type-strip anything
+   under `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), a
+   deliberate restriction with no opt-out. So the package carries `dist/`,
+   emitted by `tsc` with `rewriteRelativeImportExtensions` (the sources
+   import with `.ts` extensions), and development is unchanged: `npm run
+   dev` still runs `src` directly, and the repo checkout's bin falls back
+   to source.
 
 3. **Same tag, same cadence as the SDKs.** The console publishes from the
    same `v<version>` tag that publishes the crate and the language SDKs, on
@@ -122,8 +124,9 @@ Added to `release.yml`, gated on `validate` like the others:
    - download `console-native-*` with `merge-multiple` into
      `apps/console-server`;
    - `npm ci` and `npm run stage:web` to place the built SPA in `web/`;
-   - `npm pack --dry-run` to confirm the tarball contains `bin`, `src`,
-     `web/index.html`, and all four `.node` files;
+   - `npm pack --dry-run` to confirm the tarball contains `bin`,
+     `dist/main.js`, `web/index.html`, and all four `.node` files (the
+     `prepack` script compiles `dist/` on every pack and publish);
    - `npm publish --provenance --access public --tag latest`.
 
 `stage:web` in the pipeline is not optional. A published package with an
