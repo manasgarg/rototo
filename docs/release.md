@@ -1,7 +1,7 @@
 # Release Runbook
 
 Rototo releases use one canonical SemVer version, for example
-`0.1.0-alpha.7`. The same `v<version>` tag publishes the Rust crate and every
+`0.1.0-alpha.8`. The same `v<version>` tag publishes the Rust crate and every
 supported SDK package for that version.
 
 ## Prepare
@@ -11,8 +11,8 @@ Start from a clean branch off `main`.
 ```sh
 git checkout main
 git pull --ff-only origin main
-git checkout -b release/v0.1.0-alpha.7
-just release-prep 0.1.0-alpha.7
+git checkout -b release/v0.1.0-alpha.8
+just release-prep 0.1.0-alpha.8
 ```
 
 `just release-prep` updates the canonical version surfaces, regenerates package
@@ -27,8 +27,8 @@ was added manually.
 Before tagging, run the local release gate explicitly:
 
 ```sh
-just release-check 0.1.0-alpha.7
-just release-package-dry-run 0.1.0-alpha.7
+just release-check 0.1.0-alpha.8
+just release-package-dry-run 0.1.0-alpha.8
 ```
 
 `release-check` verifies:
@@ -49,8 +49,8 @@ After the release PR lands on `main`, tag exactly the merged commit:
 ```sh
 git checkout main
 git pull --ff-only origin main
-git tag v0.1.0-alpha.7
-git push origin v0.1.0-alpha.7
+git tag v0.1.0-alpha.8
+git push origin v0.1.0-alpha.8
 ```
 
 The tag starts `.github/workflows/release.yml`.
